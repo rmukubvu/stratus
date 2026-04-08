@@ -2,6 +2,26 @@
 
 `stratus` is a fast local AWS emulator for real developer workflows.
 
+Stratus emulates your AWS stack locally. Preflight verifies that it actually
+works before you deploy.
+
+Together, Stratus and Preflight give developers a credible local AWS delivery
+loop.
+
+What Stratus solves:
+
+- run AWS-shaped infrastructure locally
+- use real tooling like AWS CLI, SDKs, and CDK
+- get fast feedback without deploying to AWS
+- reproduce failures in a deterministic environment
+
+What Preflight adds:
+
+- prove the stack actually works, not just that resources were created
+- validate structure, wiring, IAM, and behavior from the outside
+- add diagnosis when something fails
+- catch compatibility regressions before cloud deployment
+
 The goal is not to pretend every AWS API exists. The goal is to make a
 practical subset work well enough for real AWS CLI, SDK, CDK, Terraform, and
 external black-box validation flows.
@@ -149,9 +169,15 @@ port such as `4567` and point the smoke scripts at that endpoint.
 - `--log-format json`
 - `--log-format pretty`
 
-`pretty` is intended for local operator use. It gives a readable request stream,
-highlights status codes, shows service and operation names, and surfaces Lambda
-runtime lifecycle events. `json` remains the better format for machine capture.
+`pretty` is intended for local operator use. It uses a Lip Gloss-backed terminal
+view with:
+
+- a live status summary
+- top service counters
+- recent request and error activity
+- Lambda runtime lifecycle visibility
+
+`json` remains the better format for machine capture.
 
 ## AWS CLI Example
 
