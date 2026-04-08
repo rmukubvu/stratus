@@ -1,0 +1,21 @@
+{
+  "version": "53.0.0",
+  "files": {
+    "315bf2347327b6cdcb9cd6aa065e614fbc59706fb2ca726a9a055683131786bd": {
+      "displayName": "StratusInlineHttpApi Template",
+      "source": {
+        "path": "StratusInlineHttpApi.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "000000000000-us-east-1-f81249b8": {
+          "bucketName": "cdk-hnb659fds-assets-000000000000-us-east-1",
+          "objectKey": "315bf2347327b6cdcb9cd6aa065e614fbc59706fb2ca726a9a055683131786bd.json",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::000000000000:role/cdk-hnb659fds-file-publishing-role-000000000000-us-east-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

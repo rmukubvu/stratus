@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ type Store struct {
 type WriteResult struct {
 	Size         int64
 	MD5Hex       string
+	CRC32Base64  string
 	SHA256Base64 string
 }
 
@@ -49,8 +51,9 @@ func (s *Store) Put(namespace, key string, body io.Reader) (WriteResult, error) 
 	}()
 
 	md5Hash := md5.New()
+	crc32Hash := crc32.NewIEEE()
 	sha256Hash := sha256.New()
-	size, err := io.Copy(tmp, io.TeeReader(body, io.MultiWriter(md5Hash, sha256Hash)))
+	size, err := io.Copy(tmp, io.TeeReader(body, io.MultiWriter(md5Hash, crc32Hash, sha256Hash)))
 	if err != nil {
 		return WriteResult{}, fmt.Errorf("write blob: %w", err)
 	}
@@ -65,6 +68,7 @@ func (s *Store) Put(namespace, key string, body io.Reader) (WriteResult, error) 
 	return WriteResult{
 		Size:         size,
 		MD5Hex:       hex.EncodeToString(md5Hash.Sum(nil)),
+		CRC32Base64:  base64.StdEncoding.EncodeToString(crc32Hash.Sum(nil)),
 		SHA256Base64: base64.StdEncoding.EncodeToString(sha256Hash.Sum(nil)),
 	}, nil
 }

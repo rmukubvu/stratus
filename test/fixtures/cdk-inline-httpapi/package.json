@@ -1,0 +1,9 @@
+{
+  "name": "stratus-cdk-inline-httpapi",
+  "private": true,
+  "version": "0.0.1",
+  "dependencies": {
+    "aws-cdk-lib": "^2.203.0",
+    "constructs": "^10.4.2"
+  }
+}

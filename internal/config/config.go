@@ -7,15 +7,17 @@ import (
 )
 
 const (
-	defaultPort     = 4566
-	defaultDataDir  = "./data"
-	defaultLogLevel = "info"
+	defaultPort      = 4566
+	defaultDataDir   = "./data"
+	defaultLogLevel  = "info"
+	defaultLogFormat = "auto"
 )
 
 type Config struct {
-	Port     int
-	DataDir  string
-	LogLevel string
+	Port      int
+	DataDir   string
+	LogLevel  string
+	LogFormat string
 }
 
 func RegisterFlags(fs *flag.FlagSet) *Config {
@@ -23,6 +25,7 @@ func RegisterFlags(fs *flag.FlagSet) *Config {
 	fs.IntVar(&cfg.Port, "port", defaultPort, "Port to listen on")
 	fs.StringVar(&cfg.DataDir, "data-dir", defaultDataDir, "Root directory for persistent data")
 	fs.StringVar(&cfg.LogLevel, "log-level", defaultLogLevel, "Log level: debug, info, warn, error")
+	fs.StringVar(&cfg.LogFormat, "log-format", defaultLogFormat, "Log format: auto, json, pretty")
 	return cfg
 }
 
@@ -37,6 +40,11 @@ func (c *Config) Validate() error {
 	case "debug", "info", "warn", "error":
 	default:
 		return fmt.Errorf("invalid log level %q", c.LogLevel)
+	}
+	switch c.LogFormat {
+	case "auto", "json", "pretty":
+	default:
+		return fmt.Errorf("invalid log format %q", c.LogFormat)
 	}
 	abs, err := filepath.Abs(c.DataDir)
 	if err != nil {

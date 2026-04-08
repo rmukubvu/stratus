@@ -18,6 +18,12 @@ type Service struct {
 	now      func() time.Time
 }
 
+type PutParameterInput struct {
+	Name  string
+	Type  string
+	Value string
+}
+
 type parameterRecord struct {
 	Name             string    `json:"name"`
 	Type             string    `json:"type"`
@@ -48,6 +54,48 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 			Message:    "ssm operation is not implemented",
 		}
 	}
+}
+
+func (s *Service) PutParameter(input PutParameterInput) error {
+	if input.Name == "" {
+		return badRequest("ValidationException", "Name is required")
+	}
+	if input.Type == "" {
+		input.Type = "String"
+	}
+	if input.Type != "String" {
+		return &apierror.Error{
+			StatusCode: http.StatusNotImplemented,
+			Code:       "NotImplementedException",
+			Message:    "only String parameters are supported",
+		}
+	}
+	version := int64(1)
+	if existing, err := s.load(input.Name); err == nil {
+		version = existing.Version + 1
+	}
+	record := parameterRecord{
+		Name:             input.Name,
+		Type:             input.Type,
+		Value:            input.Value,
+		Version:          version,
+		LastModifiedTime: s.now().UTC(),
+	}
+	raw, err := json.Marshal(record)
+	if err != nil {
+		return internal(err)
+	}
+	if err := s.metadata.Put(parametersBucket, input.Name, raw); err != nil {
+		return internal(err)
+	}
+	return nil
+}
+
+func (s *Service) DeleteParameterByName(name string) error {
+	if err := s.metadata.Delete(parametersBucket, name); err != nil {
+		return internal(err)
+	}
+	return nil
 }
 
 func (s *Service) putParameter(w http.ResponseWriter, r *http.Request) error {

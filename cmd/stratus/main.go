@@ -21,7 +21,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := app.NewLogger(cfg.LogLevel)
+	logger := app.NewLogger(cfg.LogLevel, cfg.LogFormat)
 	application, err := app.New(*cfg, logger)
 	if err != nil {
 		logger.Error("startup failed", "error", err)

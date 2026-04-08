@@ -172,8 +172,8 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 
 	env := []string{
 		"PYTHONUNBUFFERED=1",
-		"PYTHONPATH=/var/task",
 	}
+	pythonPathEntries := []string{"/var/task"}
 	for key, value := range spec.Environment {
 		env = append(env, key+"="+value)
 	}
@@ -182,7 +182,6 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		Image:        imageName,
 		Entrypoint:   []string{"python", "/opt/stratus/lambda_runtime_server.py"},
 		Cmd:          []string{"--handler", spec.Handler, "--port", "9001", "--function-name", spec.FunctionName},
-		Env:          env,
 		ExposedPorts: portSet,
 		WorkingDir:   "/var/task",
 	}
@@ -205,6 +204,18 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		},
 		PortBindings: portMap,
 	}
+	for idx, layerDir := range spec.LayerDirs {
+		target := fmt.Sprintf("/opt/stratus-layers/%d", idx)
+		hostCfg.Mounts = append(hostCfg.Mounts, mount.Mount{
+			Type:     mount.TypeBind,
+			Source:   layerDir,
+			Target:   target,
+			ReadOnly: true,
+		})
+		pythonPathEntries = append(pythonPathEntries, target, filepath.Join(target, "python"))
+	}
+	env = append(env, "PYTHONPATH="+strings.Join(pythonPathEntries, ":"))
+	cfg.Env = env
 	if spec.MemorySize > 0 {
 		hostCfg.Memory = int64(spec.MemorySize) * 1024 * 1024
 	}
@@ -275,7 +286,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 }
 
 func (m *Manager) waitReady(ctx context.Context, warm *WarmContainer) error {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	url := fmt.Sprintf("http://127.0.0.1:%d/healthz", warm.HostPort)
 	for time.Now().Before(deadline) {
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

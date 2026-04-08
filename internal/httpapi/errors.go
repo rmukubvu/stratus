@@ -23,7 +23,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	metadata := MetadataFromContext(r.Context())
 
 	switch metadata.Classification.Protocol {
-	case ProtocolJSON:
+	case ProtocolJSON, ProtocolREST:
 		WriteJSON(w, apiErr.StatusCode, map[string]string{
 			"__type":  apiErr.Code,
 			"message": apiErr.Message,

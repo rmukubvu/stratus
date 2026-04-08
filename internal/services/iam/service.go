@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/awscompat"
 	"github.com/stratus/internal/store"
 )
 
@@ -107,6 +108,13 @@ type listRolePoliciesResponse struct {
 	ResponseMetadata responseMetadata       `xml:"ResponseMetadata"`
 }
 
+type listAttachedRolePoliciesResponse struct {
+	XMLName          xml.Name                       `xml:"ListAttachedRolePoliciesResponse"`
+	XMLNS            string                         `xml:"xmlns,attr"`
+	Result           listAttachedRolePoliciesResult `xml:"ListAttachedRolePoliciesResult"`
+	ResponseMetadata responseMetadata               `xml:"ResponseMetadata"`
+}
+
 type deleteRolePolicyResponse struct {
 	XMLName          xml.Name         `xml:"DeleteRolePolicyResponse"`
 	XMLNS            string           `xml:"xmlns,attr"`
@@ -131,6 +139,16 @@ type getRolePolicyResult struct {
 type listRolePoliciesResult struct {
 	IsTruncated bool     `xml:"IsTruncated"`
 	PolicyNames []string `xml:"PolicyNames>member"`
+}
+
+type listAttachedRolePoliciesResult struct {
+	AttachedPolicies []attachedPolicyXML `xml:"AttachedPolicies>member"`
+	IsTruncated      bool                `xml:"IsTruncated"`
+}
+
+type attachedPolicyXML struct {
+	PolicyArn  string `xml:"PolicyArn"`
+	PolicyName string `xml:"PolicyName"`
 }
 
 type roleXML struct {
@@ -171,6 +189,8 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requ
 		return s.getRolePolicy(w, r, requestID)
 	case "ListRolePolicies":
 		return s.listRolePolicies(w, r, requestID)
+	case "ListAttachedRolePolicies":
+		return s.listAttachedRolePolicies(w, r, requestID)
 	case "DeleteRolePolicy":
 		return s.deleteRolePolicy(w, r, requestID)
 	default:
@@ -423,6 +443,26 @@ func (s *Service) listRolePolicies(w http.ResponseWriter, r *http.Request, reque
 	return nil
 }
 
+func (s *Service) listAttachedRolePolicies(w http.ResponseWriter, r *http.Request, requestID string) error {
+	form, err := parseForm(r)
+	if err != nil {
+		return err
+	}
+	if _, err := s.loadRoleByForm(form); err != nil {
+		return err
+	}
+
+	writeXML(w, http.StatusOK, listAttachedRolePoliciesResponse{
+		XMLNS: namespace,
+		Result: listAttachedRolePoliciesResult{
+			AttachedPolicies: []attachedPolicyXML{},
+			IsTruncated:      false,
+		},
+		ResponseMetadata: responseMetadata{RequestID: requestID},
+	})
+	return nil
+}
+
 func (s *Service) deleteRolePolicy(w http.ResponseWriter, r *http.Request, requestID string) error {
 	form, err := parseForm(r)
 	if err != nil {
@@ -613,10 +653,11 @@ func (s *Service) newRoleID() string {
 }
 
 func parseForm(r *http.Request) (url.Values, error) {
-	if err := r.ParseForm(); err != nil {
+	form, err := awscompat.ParseQueryForm(r)
+	if err != nil {
 		return nil, badRequest("InvalidInput", "request body is not valid form data")
 	}
-	return r.Form, nil
+	return form, nil
 }
 
 func hasIndexedPrefix(form url.Values, prefix string) bool {

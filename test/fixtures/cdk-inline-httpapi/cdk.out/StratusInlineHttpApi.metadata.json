@@ -1,0 +1,56 @@
+{
+  "/StratusInlineHttpApi/InlineFunctionRole": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "InlineFunctionRole"
+    }
+  ],
+  "/StratusInlineHttpApi/InlineFunction": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "InlineFunction"
+    }
+  ],
+  "/StratusInlineHttpApi/HttpApi": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "HttpApi"
+    }
+  ],
+  "/StratusInlineHttpApi/LambdaIntegration": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "LambdaIntegration"
+    }
+  ],
+  "/StratusInlineHttpApi/HelloRoute": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "HelloRoute"
+    }
+  ],
+  "/StratusInlineHttpApi/DefaultStage": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "DefaultStage"
+    }
+  ],
+  "/StratusInlineHttpApi/InvokePermission": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "InvokePermission"
+    }
+  ],
+  "/StratusInlineHttpApi/ApiEndpoint": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ApiEndpoint"
+    }
+  ],
+  "/StratusInlineHttpApi/CDKMetadata/Default": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CDKMetadata"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.stratus.fixtures.JavaSDKSmokeTest
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.787 s -- in com.stratus.fixtures.JavaSDKSmokeTest
