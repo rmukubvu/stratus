@@ -3407,8 +3407,16 @@ func TestAWSCLISNSSubscriptionsAndEventBridgeCustomBus(t *testing.T) {
 	}
 	runAWS(t, h.baseURL, "sns", "publish", "--topic-arn", topic.TopicArn, "--message", "skip me", "--message-attributes", "kind={DataType=String,StringValue=ignored}", "--output", "json")
 	emptyReceive := runAWS(t, h.baseURL, "sqs", "receive-message", "--queue-url", queue.QueueURL, "--wait-time-seconds", "0", "--output", "json")
-	if strings.Contains(string(emptyReceive), "Messages") {
-		t.Fatalf("expected filter policy to suppress non-matching sns publish: %s", emptyReceive)
+	if trimmed := strings.TrimSpace(string(emptyReceive)); trimmed != "" && strings.Contains(trimmed, "Messages") {
+		var empty struct {
+			Messages []json.RawMessage `json:"Messages"`
+		}
+		if err := json.Unmarshal(emptyReceive, &empty); err != nil {
+			t.Fatalf("decode empty receive output: %v\n%s", err, emptyReceive)
+		}
+		if len(empty.Messages) != 0 {
+			t.Fatalf("expected filter policy to suppress non-matching sns publish: %s", emptyReceive)
+		}
 	}
 	runAWS(t, h.baseURL, "sns", "publish", "--topic-arn", topic.TopicArn, "--message", "deliver me", "--message-attributes", "kind={DataType=String,StringValue=order}", "--output", "json")
 	delivered := runAWS(t, h.baseURL, "sqs", "receive-message", "--queue-url", queue.QueueURL, "--wait-time-seconds", "1", "--output", "json")

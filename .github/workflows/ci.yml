@@ -19,5 +19,15 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Pre-pull Lambda runtime image
+        run: docker pull public.ecr.aws/lambda/python:3.11
+
       - name: Run test suite
         run: go test ./...
