@@ -41,6 +41,7 @@ var targetToService = map[string]string{
 	"CertificateManager":                   "acm",
 	"DynamoDBStreams_20120810":             "dynamodbstreams",
 	"AmazonSQS":                            "sqs",
+	"AmazonCloudWatch":                     "monitoring",
 }
 
 var queryActionToService = map[string]string{

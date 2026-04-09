@@ -224,6 +224,23 @@ func TestClassifyCloudWatchQueryPost(t *testing.T) {
 	}
 }
 
+func TestClassifyCloudWatchJSONTarget(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPost, "http://localhost:4566/", strings.NewReader(`{"Namespace":"Stratus/Test"}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "AmazonCloudWatch.PutMetricData")
+
+	got, err := Classify(req)
+	if err != nil {
+		t.Fatalf("classify: %v", err)
+	}
+	if got.Service != "monitoring" || got.Operation != "PutMetricData" || got.Protocol != ProtocolJSON {
+		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
 func TestClassifyLambdaLayerPublish(t *testing.T) {
 	req, err := http.NewRequest(http.MethodPost, "http://localhost:4566/2018-10-31/layers/shared-lib/versions", strings.NewReader(`{}`))
 	if err != nil {

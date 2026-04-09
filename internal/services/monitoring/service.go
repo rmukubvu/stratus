@@ -1,8 +1,10 @@
 package monitoring
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -41,6 +43,34 @@ type metricDatum struct {
 type dimension struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+}
+
+type metricDatumJSON struct {
+	Dimensions []dimension `json:"Dimensions"`
+	MetricName string      `json:"MetricName"`
+	Timestamp  string      `json:"Timestamp"`
+	Unit       string      `json:"Unit"`
+	Value      float64     `json:"Value"`
+}
+
+type putMetricDataRequestJSON struct {
+	Namespace  string            `json:"Namespace"`
+	MetricData []metricDatumJSON `json:"MetricData"`
+}
+
+type listMetricsRequestJSON struct {
+	Namespace  string      `json:"Namespace"`
+	MetricName string      `json:"MetricName"`
+	Dimensions []dimension `json:"Dimensions"`
+}
+
+type getMetricStatisticsRequestJSON struct {
+	Namespace  string      `json:"Namespace"`
+	MetricName string      `json:"MetricName"`
+	StartTime  string      `json:"StartTime"`
+	EndTime    string      `json:"EndTime"`
+	Statistics []string    `json:"Statistics"`
+	Dimensions []dimension `json:"Dimensions"`
 }
 
 type responseMetadata struct {
@@ -152,13 +182,30 @@ func (s *Service) putMetricData(w http.ResponseWriter, r *http.Request, requestI
 		return err
 	}
 	ns := form.Get("Namespace")
-	if ns == "" {
-		return validation("Namespace is required")
+	if ns != "" {
+		metrics, err := parseMetricData(form, ns, s.now().UTC())
+		if err != nil {
+			return err
+		}
+		return s.storeMetrics(w, requestID, metrics)
 	}
-	metrics, err := parseMetricData(form, ns, s.now().UTC())
+
+	payload, ok, err := parseJSONBody[putMetricDataRequestJSON](r)
 	if err != nil {
 		return err
 	}
+	if !ok || strings.TrimSpace(payload.Namespace) == "" {
+		return validation("Namespace is required")
+	}
+
+	metrics, err := parseMetricDataJSON(payload, s.now().UTC())
+	if err != nil {
+		return err
+	}
+	return s.storeMetrics(w, requestID, metrics)
+}
+
+func (s *Service) storeMetrics(w http.ResponseWriter, requestID string, metrics []metricDatum) error {
 	for _, metric := range metrics {
 		raw, err := json.Marshal(metric)
 		if err != nil {
@@ -184,6 +231,18 @@ func (s *Service) listMetrics(w http.ResponseWriter, r *http.Request, requestID 
 	namespaceFilter := form.Get("Namespace")
 	nameFilter := form.Get("MetricName")
 	dimensionFilters := parseDimensions(form, "Dimensions.member.")
+	if namespaceFilter == "" && nameFilter == "" && len(dimensionFilters) == 0 {
+		payload, ok, err := parseJSONBody[listMetricsRequestJSON](r)
+		if err != nil {
+			return err
+		}
+		if ok {
+			namespaceFilter = strings.TrimSpace(payload.Namespace)
+			nameFilter = strings.TrimSpace(payload.MetricName)
+			dimensionFilters = append([]dimension(nil), payload.Dimensions...)
+			sort.Slice(dimensionFilters, func(i, j int) bool { return dimensionFilters[i].Name < dimensionFilters[j].Name })
+		}
+	}
 
 	seen := map[string]metricDatum{}
 	if err := s.metadata.Scan(metricsBucket, "", func(_, v []byte) error {
@@ -237,19 +296,38 @@ func (s *Service) getMetricStatistics(w http.ResponseWriter, r *http.Request, re
 	}
 	ns := form.Get("Namespace")
 	name := form.Get("MetricName")
+	startRaw := form.Get("StartTime")
+	endRaw := form.Get("EndTime")
+	stats := requestedStatistics(form)
+	dimensions := parseDimensions(form, "Dimensions.member.")
+	if ns == "" || name == "" {
+		payload, ok, err := parseJSONBody[getMetricStatisticsRequestJSON](r)
+		if err != nil {
+			return err
+		}
+		if ok {
+			ns = strings.TrimSpace(payload.Namespace)
+			name = strings.TrimSpace(payload.MetricName)
+			startRaw = payload.StartTime
+			endRaw = payload.EndTime
+			if len(payload.Statistics) > 0 {
+				stats = append([]string(nil), payload.Statistics...)
+			}
+			dimensions = append([]dimension(nil), payload.Dimensions...)
+			sort.Slice(dimensions, func(i, j int) bool { return dimensions[i].Name < dimensions[j].Name })
+		}
+	}
 	if ns == "" || name == "" {
 		return validation("Namespace and MetricName are required")
 	}
-	start, err := parseTime(form.Get("StartTime"))
+	start, err := parseTime(startRaw)
 	if err != nil {
 		return validation("StartTime is invalid")
 	}
-	end, err := parseTime(form.Get("EndTime"))
+	end, err := parseTime(endRaw)
 	if err != nil {
 		return validation("EndTime is invalid")
 	}
-	stats := requestedStatistics(form)
-	dimensions := parseDimensions(form, "Dimensions.member.")
 
 	points := make([]metricDatum, 0)
 	if err := s.metadata.Scan(metricsBucket, "", func(_, v []byte) error {
@@ -345,6 +423,38 @@ func parseMetricData(form url.Values, namespace string, now time.Time) ([]metric
 	return out, nil
 }
 
+func parseMetricDataJSON(payload putMetricDataRequestJSON, now time.Time) ([]metricDatum, error) {
+	out := make([]metricDatum, 0, len(payload.MetricData))
+	for _, item := range payload.MetricData {
+		name := strings.TrimSpace(item.MetricName)
+		if name == "" {
+			continue
+		}
+		timestamp := now
+		if raw := strings.TrimSpace(item.Timestamp); raw != "" {
+			parsed, err := parseTime(raw)
+			if err != nil {
+				return nil, validation("metric Timestamp is invalid")
+			}
+			timestamp = parsed
+		}
+		dims := append([]dimension(nil), item.Dimensions...)
+		sort.Slice(dims, func(i, j int) bool { return dims[i].Name < dims[j].Name })
+		out = append(out, metricDatum{
+			Dimensions: dims,
+			MetricName: name,
+			Namespace:  strings.TrimSpace(payload.Namespace),
+			Timestamp:  timestamp.UTC(),
+			Unit:       strings.TrimSpace(item.Unit),
+			Value:      item.Value,
+		})
+	}
+	if len(out) == 0 {
+		return nil, validation("MetricData is required")
+	}
+	return out, nil
+}
+
 func parseDimensions(form url.Values, prefix string) []dimension {
 	out := make([]dimension, 0)
 	for idx := 1; ; idx++ {
@@ -424,6 +534,31 @@ func parseForm(r *http.Request) (url.Values, error) {
 		return nil, validation("request body is not valid form data")
 	}
 	return form, nil
+}
+
+func parseJSONBody[T any](r *http.Request) (T, bool, error) {
+	var zero T
+	if r == nil || r.Body == nil {
+		return zero, false, nil
+	}
+	if !strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "json") && strings.TrimSpace(r.Header.Get("X-Amz-Target")) == "" {
+		return zero, false, nil
+	}
+
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		return zero, false, validation("request body is not valid json")
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return zero, false, nil
+	}
+
+	var out T
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return zero, false, validation("request body is not valid json")
+	}
+	return out, true, nil
 }
 
 func validation(message string) error {
