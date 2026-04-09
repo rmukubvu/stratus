@@ -106,7 +106,7 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requ
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	switch operation {
+	switch normalizeOperation(operation, r) {
 	case "PutMetricData":
 		return s.putMetricData(w, r, requestID)
 	case "ListMetrics":
@@ -115,6 +115,34 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requ
 		return s.getMetricStatistics(w, r, requestID)
 	default:
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "monitoring operation is not implemented"}
+	}
+}
+
+func normalizeOperation(operation string, r *http.Request) string {
+	op := strings.TrimSpace(operation)
+	switch op {
+	case "PutMetricData", "ListMetrics", "GetMetricStatistics":
+		return op
+	}
+
+	if target := strings.TrimSpace(r.Header.Get("X-Amz-Target")); target != "" {
+		if _, suffix, found := strings.Cut(target, "."); found {
+			switch suffix {
+			case "PutMetricData", "ListMetrics", "GetMetricStatistics":
+				return suffix
+			}
+		}
+	}
+
+	form, err := parseForm(r)
+	if err != nil {
+		return op
+	}
+	switch action := strings.TrimSpace(form.Get("Action")); action {
+	case "PutMetricData", "ListMetrics", "GetMetricStatistics":
+		return action
+	default:
+		return op
 	}
 }
 
