@@ -83,11 +83,18 @@ type putMetricDataResponse struct {
 	ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 }
 
+type putMetricDataResponseJSON struct{}
+
 type listMetricsResponse struct {
 	XMLName          xml.Name          `xml:"ListMetricsResponse"`
 	XMLNS            string            `xml:"xmlns,attr"`
 	Result           listMetricsResult `xml:"ListMetricsResult"`
 	ResponseMetadata responseMetadata  `xml:"ResponseMetadata"`
+}
+
+type listMetricsResponseJSON struct {
+	Metrics   []metricJSON `json:"Metrics"`
+	NextToken string       `json:"NextToken,omitempty"`
 }
 
 type listMetricsResult struct {
@@ -101,6 +108,12 @@ type metricXML struct {
 	Namespace  string         `xml:"Namespace"`
 }
 
+type metricJSON struct {
+	Dimensions []dimension `json:"Dimensions,omitempty"`
+	MetricName string      `json:"MetricName"`
+	Namespace  string      `json:"Namespace"`
+}
+
 type dimensionXML struct {
 	Name  string `xml:"Name"`
 	Value string `xml:"Value"`
@@ -111,6 +124,11 @@ type getMetricStatisticsResponse struct {
 	XMLNS            string                    `xml:"xmlns,attr"`
 	Result           getMetricStatisticsResult `xml:"GetMetricStatisticsResult"`
 	ResponseMetadata responseMetadata          `xml:"ResponseMetadata"`
+}
+
+type getMetricStatisticsResponseJSON struct {
+	Datapoints []datapointJSON `json:"Datapoints"`
+	Label      string          `json:"Label"`
 }
 
 type getMetricStatisticsResult struct {
@@ -126,6 +144,16 @@ type datapointXML struct {
 	Sum         float64 `xml:"Sum,omitempty"`
 	Timestamp   string  `xml:"Timestamp"`
 	Unit        string  `xml:"Unit,omitempty"`
+}
+
+type datapointJSON struct {
+	Average     float64 `json:"Average,omitempty"`
+	Maximum     float64 `json:"Maximum,omitempty"`
+	Minimum     float64 `json:"Minimum,omitempty"`
+	SampleCount float64 `json:"SampleCount,omitempty"`
+	Sum         float64 `json:"Sum,omitempty"`
+	Timestamp   string  `json:"Timestamp"`
+	Unit        string  `json:"Unit,omitempty"`
 }
 
 func NewService(metadata store.Store) *Service {
@@ -187,7 +215,7 @@ func (s *Service) putMetricData(w http.ResponseWriter, r *http.Request, requestI
 		if err != nil {
 			return err
 		}
-		return s.storeMetrics(w, requestID, metrics)
+		return s.storeMetrics(w, r, requestID, metrics)
 	}
 
 	payload, ok, err := parseJSONBody[putMetricDataRequestJSON](r)
@@ -202,10 +230,10 @@ func (s *Service) putMetricData(w http.ResponseWriter, r *http.Request, requestI
 	if err != nil {
 		return err
 	}
-	return s.storeMetrics(w, requestID, metrics)
+	return s.storeMetrics(w, r, requestID, metrics)
 }
 
-func (s *Service) storeMetrics(w http.ResponseWriter, requestID string, metrics []metricDatum) error {
+func (s *Service) storeMetrics(w http.ResponseWriter, r *http.Request, requestID string, metrics []metricDatum) error {
 	for _, metric := range metrics {
 		raw, err := json.Marshal(metric)
 		if err != nil {
@@ -216,10 +244,10 @@ func (s *Service) storeMetrics(w http.ResponseWriter, requestID string, metrics 
 			return internal(err)
 		}
 	}
-	writeXML(w, http.StatusOK, putMetricDataResponse{
+	writeResponse(w, r, http.StatusOK, putMetricDataResponse{
 		XMLNS:            namespace,
 		ResponseMetadata: responseMetadata{RequestID: requestID},
-	})
+	}, putMetricDataResponseJSON{})
 	return nil
 }
 
@@ -266,6 +294,7 @@ func (s *Service) listMetrics(w http.ResponseWriter, r *http.Request, requestID 
 	}
 
 	items := make([]metricXML, 0, len(seen))
+	jsonItems := make([]metricJSON, 0, len(seen))
 	for _, item := range seen {
 		dims := make([]dimensionXML, 0, len(item.Dimensions))
 		for _, dim := range item.Dimensions {
@@ -273,6 +302,11 @@ func (s *Service) listMetrics(w http.ResponseWriter, r *http.Request, requestID 
 		}
 		sort.Slice(dims, func(i, j int) bool { return dims[i].Name < dims[j].Name })
 		items = append(items, metricXML{Dimensions: dims, MetricName: item.MetricName, Namespace: item.Namespace})
+		jsonItems = append(jsonItems, metricJSON{
+			Dimensions: append([]dimension(nil), item.Dimensions...),
+			MetricName: item.MetricName,
+			Namespace:  item.Namespace,
+		})
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Namespace != items[j].Namespace {
@@ -280,12 +314,18 @@ func (s *Service) listMetrics(w http.ResponseWriter, r *http.Request, requestID 
 		}
 		return items[i].MetricName < items[j].MetricName
 	})
+	sort.Slice(jsonItems, func(i, j int) bool {
+		if jsonItems[i].Namespace != jsonItems[j].Namespace {
+			return jsonItems[i].Namespace < jsonItems[j].Namespace
+		}
+		return jsonItems[i].MetricName < jsonItems[j].MetricName
+	})
 
-	writeXML(w, http.StatusOK, listMetricsResponse{
+	writeResponse(w, r, http.StatusOK, listMetricsResponse{
 		XMLNS:            namespace,
 		Result:           listMetricsResult{Metrics: items},
 		ResponseMetadata: responseMetadata{RequestID: requestID},
-	})
+	}, listMetricsResponseJSON{Metrics: jsonItems})
 	return nil
 }
 
@@ -352,6 +392,7 @@ func (s *Service) getMetricStatistics(w http.ResponseWriter, r *http.Request, re
 	sort.Slice(points, func(i, j int) bool { return points[i].Timestamp.Before(points[j].Timestamp) })
 
 	datapoints := make([]datapointXML, 0, len(points))
+	jsonPoints := make([]datapointJSON, 0, len(points))
 	for _, point := range points {
 		entry := datapointXML{
 			Timestamp: point.Timestamp.UTC().Format(time.RFC3339),
@@ -372,15 +413,27 @@ func (s *Service) getMetricStatistics(w http.ResponseWriter, r *http.Request, re
 			}
 		}
 		datapoints = append(datapoints, entry)
+		jsonPoints = append(jsonPoints, datapointJSON{
+			Average:     entry.Average,
+			Maximum:     entry.Maximum,
+			Minimum:     entry.Minimum,
+			SampleCount: entry.SampleCount,
+			Sum:         entry.Sum,
+			Timestamp:   entry.Timestamp,
+			Unit:        entry.Unit,
+		})
 	}
 
-	writeXML(w, http.StatusOK, getMetricStatisticsResponse{
+	writeResponse(w, r, http.StatusOK, getMetricStatisticsResponse{
 		XMLNS: namespace,
 		Result: getMetricStatisticsResult{
 			Datapoints: datapoints,
 			Label:      name,
 		},
 		ResponseMetadata: responseMetadata{RequestID: requestID},
+	}, getMetricStatisticsResponseJSON{
+		Datapoints: jsonPoints,
+		Label:      name,
 	})
 	return nil
 }
@@ -573,4 +626,28 @@ func writeXML(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(status)
 	_ = xml.NewEncoder(w).Encode(payload)
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeResponse(w http.ResponseWriter, r *http.Request, status int, xmlPayload, jsonPayload any) {
+	if expectsJSON(r) {
+		writeJSON(w, status, jsonPayload)
+		return
+	}
+	writeXML(w, status, xmlPayload)
+}
+
+func expectsJSON(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if strings.TrimSpace(r.Header.Get("X-Amz-Target")) != "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "json")
 }
