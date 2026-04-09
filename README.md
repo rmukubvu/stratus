@@ -235,6 +235,15 @@ If `stratus` is running on another port:
 STRATUS_ENDPOINT_URL=http://127.0.0.1:4567 ./scripts/smoke-java-sdk.sh
 ```
 
+Full local release gate:
+
+```bash
+PREFLIGHT_DIR=/path/to/preflight ./scripts/release-gate.sh
+```
+
+That script runs the Java SDK smoke first, then the `preflight` CDK smoke
+against a fresh `stratus` binary.
+
 You can also run the Maven fixture directly:
 
 ```bash

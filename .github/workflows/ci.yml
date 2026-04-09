@@ -31,3 +31,41 @@ jobs:
 
       - name: Run test suite
         run: go test ./...
+
+  release-gate:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout Stratus
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check AWS CLI
+        run: aws --version
+
+      - name: Pre-pull Lambda runtime image
+        run: docker pull public.ecr.aws/lambda/python:3.11
+
+      - name: Clone Preflight
+        run: git clone --depth 1 https://github.com/rmukubvu/preflight.git "$RUNNER_TEMP/preflight"
+
+      - name: Run release gate
+        env:
+          PREFLIGHT_DIR: ${{ runner.temp }}/preflight
+        run: bash ./scripts/release-gate.sh
