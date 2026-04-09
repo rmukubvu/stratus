@@ -69,6 +69,18 @@ Support is intentionally uneven by service. Some services have deeper
 behavioral coverage than others. The compatibility bar is the contract suite,
 not the presence of a package name.
 
+## Validated Loop
+
+The strongest current proof path for `stratus` is:
+
+1. a real Java AWS SDK v2 smoke fixture hits STS, DynamoDB, SQS, and S3
+2. a bootstrapless CDK fixture deploys a live local path through CloudFormation into API Gateway, Lambda, SQS, and DynamoDB
+3. `preflight` lints and validates the deployed stack from the outside
+4. the release gate chains the Java SDK smoke and the external `preflight` CDK smoke
+
+This matters more than raw service count. The product claim is backed by real
+tooling, real deployment, and black-box validation on the same local stack.
+
 ## Architecture
 
 `stratus` is split into a few clear layers:
