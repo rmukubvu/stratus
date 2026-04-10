@@ -204,6 +204,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		},
 		PortBindings: portMap,
 	}
+	hostCfg.ExtraHosts = runtimeExtraHosts(spec)
 	for idx, layerDir := range spec.LayerDirs {
 		target := fmt.Sprintf("/opt/stratus-layers/%d", idx)
 		hostCfg.Mounts = append(hostCfg.Mounts, mount.Mount{
@@ -479,6 +480,15 @@ func containerNameFor(functionName string) string {
 
 func intPtr(v int) *int {
 	return &v
+}
+
+func runtimeExtraHosts(spec lambdasvc.FunctionSpec) []string {
+	for _, value := range spec.Environment {
+		if strings.Contains(value, "host.docker.internal") {
+			return []string{"host.docker.internal:host-gateway"}
+		}
+	}
+	return nil
 }
 
 func defaultDockerHost() string {
