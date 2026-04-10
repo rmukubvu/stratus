@@ -62,3 +62,40 @@ func TestPutMetricDataAcceptsJSONTargetPayload(t *testing.T) {
 		t.Fatalf("unexpected list response: %s", listRec.Body.String())
 	}
 }
+
+func TestGetMetricStatisticsAcceptsMislabeledQueryBody(t *testing.T) {
+	t.Parallel()
+
+	metadata, err := bbolt.Open(t.TempDir() + "/state.db")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer metadata.Close()
+
+	svc := NewService(metadata)
+
+	putReq := httptest.NewRequest(http.MethodPost, "http://localhost/", strings.NewReader(
+		"Action=PutMetricData&Version=2010-08-01&Namespace=Stratus%2FTest&MetricData.member.1.MetricName=Requests&MetricData.member.1.Value=42&MetricData.member.1.Unit=Count&MetricData.member.1.Dimensions.member.1.Name=Service&MetricData.member.1.Dimensions.member.1.Value=API",
+	))
+	putReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	putRec := httptest.NewRecorder()
+	if err := svc.Handle(putRec, putReq, "", "req-put"); err != nil {
+		t.Fatalf("put Handle() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://localhost/", strings.NewReader(
+		"Action=GetMetricStatistics&Version=2010-08-01&Namespace=Stratus%2FTest&MetricName=Requests&StartTime=2026-04-10T06%3A21%3A27Z&EndTime=2026-04-10T06%3A31%3A27Z&Period=60&Statistics.member.1=Average&Dimensions.member.1.Name=Service&Dimensions.member.1.Value=API",
+	))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	rec := httptest.NewRecorder()
+
+	if err := svc.Handle(rec, req, "", "req-stats"); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Average") {
+		t.Fatalf("unexpected stats response: %s", rec.Body.String())
+	}
+}

@@ -603,12 +603,19 @@ func parseJSONBody[T any](r *http.Request) (T, bool, error) {
 		return zero, false, validation("request body is not valid json")
 	}
 	r.Body = io.NopCloser(bytes.NewReader(raw))
-	if len(bytes.TrimSpace(raw)) == 0 {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return zero, false, nil
+	}
+	// Some AWS clients send query-style bodies even when headers suggest a
+	// JSON target flow. Treat that as "not JSON" instead of surfacing a hard
+	// JSON parse error so the caller can continue on the query-form path.
+	if first := trimmed[0]; first != '{' && first != '[' {
 		return zero, false, nil
 	}
 
 	var out T
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if err := json.Unmarshal(trimmed, &out); err != nil {
 		return zero, false, validation("request body is not valid json")
 	}
 	return out, true, nil
