@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PREFLIGHT_DIR="${PREFLIGHT_DIR:-$(cd "${ROOT}/.." && pwd)/preflight}"
 STRATUS_BIN="${STRATUS_BIN:-/tmp/stratus-release-gate-bin}"
 STRATUS_GATE_LOG="${STRATUS_GATE_LOG:-/tmp/stratus-release-gate.log}"
+STRATUS_GOCACHE="${STRATUS_GOCACHE:-/tmp/stratus-gocache}"
+STRATUS_GOTMPDIR="${STRATUS_GOTMPDIR:-/tmp/stratus-gotmp}"
 
 if [[ ! -d "${PREFLIGHT_DIR}" ]]; then
   echo "preflight workspace not found at ${PREFLIGHT_DIR}" >&2
@@ -88,7 +90,8 @@ wait_for_health() {
 }
 
 echo "==> building stratus"
-env GOCACHE=/tmp/stratus-gocache GOTMPDIR=/tmp/stratus-gotmp \
+mkdir -p "${STRATUS_GOCACHE}" "${STRATUS_GOTMPDIR}"
+env GOCACHE="${STRATUS_GOCACHE}" GOTMPDIR="${STRATUS_GOTMPDIR}" \
   go build -o "${STRATUS_BIN}" ./cmd/stratus
 
 echo "==> starting stratus for Java SDK smoke"
