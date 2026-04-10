@@ -152,17 +152,55 @@ Build:
 go build ./cmd/stratus
 ```
 
-Run with the default endpoint and local persistence:
+The easiest way to remember the new flow is:
+
+- `stratus` for humans
+- `stratus dev` for explicit developer mode
+- `stratus serve` for scripts and CI
+
+### Quick start modes
+
+Human-first mode:
+
+```bash
+./stratus
+```
+
+This is now the default local developer experience. It:
+
+- starts the emulator
+- serves the built-in operator portal at `/_stratus/`
+- opens the portal in your browser by default
+
+If you only remember one command, remember this one.
+
+Explicit developer mode:
+
+```bash
+./stratus dev --port 4566 --data-dir ./data --log-format pretty --log-level debug
+```
+
+If you want the portal but do not want an automatic browser launch:
+
+```bash
+./stratus dev --no-open --port 4566 --data-dir ./data
+```
+
+Headless server mode for scripts, CI, or existing automation:
+
+```bash
+./stratus serve --port 4566 --data-dir ./data --log-format json
+```
+
+This is the stable machine-oriented mode. It does not try to open the browser.
+
+Legacy compatibility:
 
 ```bash
 ./stratus --port 4566 --data-dir ./data
 ```
 
-Run with the human-oriented terminal output:
-
-```bash
-./stratus --port 4566 --data-dir ./data --log-format pretty --log-level debug
-```
+This still works and is treated as headless `serve` mode.
 
 Health check:
 
@@ -170,8 +208,33 @@ Health check:
 curl http://127.0.0.1:4566/_stratus/health
 ```
 
+Built-in operator portal:
+
+```bash
+open http://127.0.0.1:4566/_stratus/
+```
+
 If port `4566` is already in use on your machine, run `stratus` on a different
 port such as `4567` and point the smoke scripts at that endpoint.
+
+### Recommended local workflow
+
+Start `stratus`:
+
+```bash
+./stratus
+```
+
+Then use the portal to copy or verify:
+
+- the local endpoint for AWS CLI, SDKs, CDK, and Preflight
+- the currently supported AWS services
+- ready-to-run example commands
+- recent activity and failures
+- local CloudWatch-style logs
+
+This is the intended onboarding path now. You should not need to remember the
+older longer command lines just to get started.
 
 ## Logging and Terminal Output
 
@@ -190,6 +253,50 @@ view with:
 - Lambda runtime lifecycle visibility
 
 `json` remains the better format for machine capture.
+
+## Operator Portal
+
+`stratus` now ships with a built-in read-only operator portal at:
+
+```text
+/_stratus/
+```
+
+The portal is designed to answer the first questions a developer has after
+starting a local emulator:
+
+- what endpoint should my tools use?
+- which AWS services are available here?
+- how do I connect the AWS CLI, Java SDK, CDK, and Preflight?
+- what requests and failures happened last?
+- what do the local CloudWatch-style logs look like?
+
+The portal is part of the main product flow, not a separate extra tool. When
+you run `stratus` or `stratus dev`, the emulator and the portal come up
+together.
+
+What the built-in portal currently gives you:
+
+- endpoint and runtime status
+- supported service inventory
+- copyable quick-start examples for AWS CLI, Java SDK, CDK, and Preflight
+- recent request activity
+- recent failures
+- CloudWatch-style log group, stream, and event browsing
+
+Under the hood, the browser surface is backed by the operator API:
+
+- `/_stratus/operator/bootstrap`
+- `/_stratus/operator/overview`
+- `/_stratus/operator/activity`
+- `/_stratus/operator/errors`
+- `/_stratus/operator/logs/groups`
+- `/_stratus/operator/logs/streams`
+- `/_stratus/operator/logs/events`
+
+The original portal v1 design notes are still documented in:
+
+- [`/Users/robson/awsdev/stratus-git/docs/portal-v1.md`](/Users/robson/awsdev/stratus-git/docs/portal-v1.md)
 
 ## AWS CLI Example
 
