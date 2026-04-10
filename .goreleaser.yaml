@@ -1,0 +1,61 @@
+version: 2
+
+project_name: stratus
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: stratus
+    main: ./cmd/stratus
+    binary: stratus
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: stratus
+    ids:
+      - stratus
+    formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "arm64" }}arm64
+      {{- else }}{{ .Arch }}{{ end }}
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: rmukubvu
+    name: stratus
+
+brews:
+  - name: stratus
+    ids:
+      - stratus
+    repository:
+      owner: rmukubvu
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/rmukubvu/stratus
+    description: Fast local AWS emulator for real AWS CLI, SDK, CDK, and Preflight workflows
+    license: Apache-2.0
+    test: |
+      system "#{bin}/stratus", "--help"
+    install: |
+      bin.install "stratus"
+

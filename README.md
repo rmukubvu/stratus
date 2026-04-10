@@ -144,6 +144,35 @@ Useful files when orienting yourself:
 - Node.js for the CDK fixture
 - Java 17+ and Maven for the Java SDK fixture
 
+## Install
+
+The release path for direct install is Homebrew tap plus GitHub Releases.
+
+Once releases are being published, the install command is:
+
+```bash
+brew install rmukubvu/tap/stratus
+```
+
+Under the hood this expects:
+
+- release archives attached to tagged GitHub releases in `rmukubvu/stratus`
+- a tap repository at `rmukubvu/homebrew-tap`
+- a generated formula at `Formula/stratus.rb`
+
+Release maintainers should also set the `HOMEBREW_TAP_GITHUB_TOKEN` repository
+secret in `rmukubvu/stratus` so the release workflow can update the tap repo.
+
+The first release flow is:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+That tag triggers `.github/workflows/release.yml`, which publishes the release
+artifacts and updates the Homebrew formula.
+
 ## Running stratus
 
 Build:
