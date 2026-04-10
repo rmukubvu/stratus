@@ -2,16 +2,19 @@ package httpapi
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/operator"
 	"github.com/stratus/internal/services/acm"
 	"github.com/stratus/internal/services/apigateway"
 	"github.com/stratus/internal/services/apigatewayv2"
@@ -68,6 +71,7 @@ type Options struct {
 	RDS             *rds.Service
 	ElastiCache     *elasticache.Service
 	DynamoDBStreams *dynamodbstreams.Service
+	Operator        *operator.Service
 }
 
 type Server struct {
@@ -98,6 +102,7 @@ type Server struct {
 	rds             *rds.Service
 	elastiCache     *elasticache.Service
 	dynamodbStreams *dynamodbstreams.Service
+	operator        *operator.Service
 }
 
 func NewServer(opts Options) *Server {
@@ -134,10 +139,15 @@ func NewServer(opts Options) *Server {
 		rds:             opts.RDS,
 		elastiCache:     opts.ElastiCache,
 		dynamodbStreams: opts.DynamoDBStreams,
+		operator:        opts.Operator,
 	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.handleOperator(w, r) {
+		return
+	}
+
 	start := time.Now()
 	recorder := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 
@@ -180,10 +190,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = s.dispatch(recorder, r, metadata)
 	}
+	var apiErr *apierror.Error
 	if err != nil {
 		WriteError(recorder, r, err)
+		var typed *apierror.Error
+		if errors.As(err, &typed) {
+			apiErr = typed
+		} else {
+			apiErr = &apierror.Error{
+				StatusCode: http.StatusInternalServerError,
+				Code:       "InternalFailure",
+				Message:    "internal server error",
+			}
+		}
 	}
 
+	durationMS := time.Since(start).Milliseconds()
 	s.logger.Info("request complete",
 		"request_id", metadata.RequestID,
 		"service", metadata.Classification.Service,
@@ -191,8 +213,67 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"method", r.Method,
 		"path", r.URL.Path,
 		"status", recorder.statusCode,
-		"duration_ms", time.Since(start).Milliseconds(),
+		"duration_ms", durationMS,
 	)
+	if s.operator != nil {
+		s.operator.Record(operator.RequestRecord{
+			Time:         start.UTC(),
+			RequestID:    metadata.RequestID,
+			Service:      metadata.Classification.Service,
+			Operation:    metadata.Classification.Operation,
+			Method:       r.Method,
+			Path:         r.URL.Path,
+			Status:       recorder.statusCode,
+			DurationMS:   durationMS,
+			ErrorCode:    errorCode(apiErr),
+			ErrorMessage: errorMessage(apiErr),
+		})
+	}
+}
+
+func (s *Server) handleOperator(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path == "/_stratus" {
+		http.Redirect(w, r, "/_stratus/", http.StatusTemporaryRedirect)
+		return true
+	}
+	if r.URL.Path == "/_stratus/" {
+		if s.operator == nil {
+			WriteJSON(w, http.StatusNotImplemented, map[string]string{"error": "operator API is not configured"})
+			return true
+		}
+		page, err := s.operator.PortalHTML()
+		if err != nil {
+			WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return true
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(page)
+		return true
+	}
+	if !strings.HasPrefix(r.URL.Path, "/_stratus/operator") {
+		return false
+	}
+	if s.operator == nil {
+		WriteJSON(w, http.StatusNotImplemented, map[string]string{"error": "operator API is not configured"})
+		return true
+	}
+	status, payload := s.operator.Handle(w, r)
+	WriteJSON(w, status, payload)
+	return true
+}
+
+func errorCode(err *apierror.Error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Code
+}
+
+func errorMessage(err *apierror.Error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Message
 }
 
 func previewRequestBody(r *http.Request) string {

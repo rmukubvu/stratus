@@ -39,6 +39,25 @@ type logStreamRecord struct {
 	StoredBytes       int64     `json:"stored_bytes"`
 }
 
+type GroupSummary struct {
+	Name      string `json:"name"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+type StreamSummary struct {
+	GroupName         string `json:"group_name"`
+	StreamName        string `json:"stream_name"`
+	CreatedAt         int64  `json:"created_at"`
+	LastIngestionTime int64  `json:"last_ingestion_time"`
+	LastEventTime     int64  `json:"last_event_time"`
+	StoredBytes       int64  `json:"stored_bytes"`
+}
+
+type EventSummary struct {
+	Timestamp int64  `json:"timestamp"`
+	Message   string `json:"message"`
+}
+
 func NewService(metadata store.Store) *Service {
 	return &Service{metadata: metadata, now: time.Now}
 }
@@ -199,6 +218,83 @@ func (s *Service) ensureGroup(name string) error {
 		return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "ResourceNotFoundException", Message: "The specified log group does not exist."}
 	}
 	return nil
+}
+
+func (s *Service) ListGroups() ([]GroupSummary, error) {
+	groups := make([]GroupSummary, 0)
+	if err := s.metadata.Scan(logGroupsBucket, "", func(_, v []byte) error {
+		var record logGroupRecord
+		if err := json.Unmarshal(v, &record); err != nil {
+			return nil
+		}
+		groups = append(groups, GroupSummary{
+			Name:      record.Name,
+			CreatedAt: record.CreatedAt.UnixMilli(),
+		})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i].Name < groups[j].Name
+	})
+	return groups, nil
+}
+
+func (s *Service) ListStreams(group string) ([]StreamSummary, error) {
+	streams := make([]StreamSummary, 0)
+	if err := s.metadata.Scan(logStreamsBucket, group+"|", func(_, v []byte) error {
+		var record logStreamRecord
+		if err := json.Unmarshal(v, &record); err != nil {
+			return nil
+		}
+		streams = append(streams, StreamSummary{
+			GroupName:         record.GroupName,
+			StreamName:        record.StreamName,
+			CreatedAt:         record.CreatedAt.UnixMilli(),
+			LastIngestionTime: record.LastIngestionTime,
+			LastEventTime:     record.LastEventTime,
+			StoredBytes:       record.StoredBytes,
+		})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Slice(streams, func(i, j int) bool {
+		return streams[i].StreamName < streams[j].StreamName
+	})
+	return streams, nil
+}
+
+func (s *Service) ListEvents(group, stream string, limit int) ([]EventSummary, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	events := make([]EventSummary, 0)
+	prefix := streamKey(group, stream) + "|"
+	if err := s.metadata.Scan(logEventsBucket, prefix, func(_, v []byte) error {
+		var record struct {
+			Message   string `json:"message"`
+			Timestamp int64  `json:"timestamp"`
+		}
+		if err := json.Unmarshal(v, &record); err != nil {
+			return nil
+		}
+		events = append(events, EventSummary{
+			Timestamp: record.Timestamp,
+			Message:   record.Message,
+		})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Timestamp > events[j].Timestamp
+	})
+	if len(events) > limit {
+		events = events[:limit]
+	}
+	return events, nil
 }
 
 func (s *Service) loadStream(group, stream string) (logStreamRecord, error) {

@@ -13,6 +13,7 @@ import (
 	"github.com/stratus/internal/config"
 	"github.com/stratus/internal/container"
 	"github.com/stratus/internal/httpapi"
+	"github.com/stratus/internal/operator"
 	"github.com/stratus/internal/services/acm"
 	"github.com/stratus/internal/services/apigateway"
 	"github.com/stratus/internal/services/apigatewayv2"
@@ -112,6 +113,9 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	acmService := acm.NewService(metaStore)
 	rdsService := rds.NewService(metaStore)
 	elastiCacheService := elasticache.NewService(metaStore)
+	logsService := logs.NewService(metaStore)
+	operatorStore := operator.NewStore("http://127.0.0.1"+cfg.Address(), cfg.DataDir, cfg.LogLevel, cfg.LogFormat)
+	operatorService := operator.NewService(operatorStore, logsService)
 
 	handler := httpapi.NewServer(httpapi.Options{
 		Logger:     logger,
@@ -137,7 +141,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		}),
 		IAM:             iam.NewService(metaStore),
 		SSM:             ssm.NewService(metaStore),
-		Logs:            logs.NewService(metaStore),
+		Logs:            logsService,
 		SNS:             snsService,
 		SQS:             sqsService,
 		Monitoring:      monitoring.NewService(metaStore),
@@ -155,6 +159,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		RDS:             rdsService,
 		ElastiCache:     elastiCacheService,
 		DynamoDBStreams: streamsService,
+		Operator:        operatorService,
 	})
 
 	server := &http.Server{
