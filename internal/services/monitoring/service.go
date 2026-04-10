@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -48,7 +49,7 @@ type dimension struct {
 type metricDatumJSON struct {
 	Dimensions []dimension `json:"Dimensions"`
 	MetricName string      `json:"MetricName"`
-	Timestamp  string      `json:"Timestamp"`
+	Timestamp  flexTime    `json:"Timestamp"`
 	Unit       string      `json:"Unit"`
 	Value      float64     `json:"Value"`
 }
@@ -67,10 +68,49 @@ type listMetricsRequestJSON struct {
 type getMetricStatisticsRequestJSON struct {
 	Namespace  string      `json:"Namespace"`
 	MetricName string      `json:"MetricName"`
-	StartTime  string      `json:"StartTime"`
-	EndTime    string      `json:"EndTime"`
+	StartTime  flexTime    `json:"StartTime"`
+	EndTime    flexTime    `json:"EndTime"`
 	Statistics []string    `json:"Statistics"`
 	Dimensions []dimension `json:"Dimensions"`
+}
+
+type flexTime struct {
+	raw string
+}
+
+func (f *flexTime) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		f.raw = ""
+		return nil
+	}
+
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return err
+		}
+		f.raw = strings.TrimSpace(s)
+		return nil
+	}
+
+	var number float64
+	if err := json.Unmarshal(trimmed, &number); err != nil {
+		return err
+	}
+	if number > 1e12 {
+		secs := int64(number) / 1000
+		nanos := (int64(number) % 1000) * int64(time.Millisecond)
+		f.raw = time.Unix(secs, nanos).UTC().Format(time.RFC3339Nano)
+		return nil
+	}
+	secs, frac := math.Modf(number)
+	f.raw = time.Unix(int64(secs), int64(frac*float64(time.Second))).UTC().Format(time.RFC3339Nano)
+	return nil
+}
+
+func (f flexTime) String() string {
+	return f.raw
 }
 
 type responseMetadata struct {
@@ -348,8 +388,8 @@ func (s *Service) getMetricStatistics(w http.ResponseWriter, r *http.Request, re
 		if ok {
 			ns = strings.TrimSpace(payload.Namespace)
 			name = strings.TrimSpace(payload.MetricName)
-			startRaw = payload.StartTime
-			endRaw = payload.EndTime
+			startRaw = payload.StartTime.String()
+			endRaw = payload.EndTime.String()
 			if len(payload.Statistics) > 0 {
 				stats = append([]string(nil), payload.Statistics...)
 			}
@@ -484,7 +524,7 @@ func parseMetricDataJSON(payload putMetricDataRequestJSON, now time.Time) ([]met
 			continue
 		}
 		timestamp := now
-		if raw := strings.TrimSpace(item.Timestamp); raw != "" {
+		if raw := item.Timestamp.String(); raw != "" {
 			parsed, err := parseTime(raw)
 			if err != nil {
 				return nil, validation("metric Timestamp is invalid")
