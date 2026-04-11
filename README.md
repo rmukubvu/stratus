@@ -172,15 +172,20 @@ Under the hood this expects:
 Release maintainers should also set the `HOMEBREW_TAP_GITHUB_TOKEN` repository
 secret in `rmukubvu/stratus` so the release workflow can update the tap repo.
 
-The first release flow is:
+The recommended release flow is:
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+1. push changes to `main`
+2. wait for the `CI` workflow, including `release-gate`, to pass
+3. open `Actions -> Promote Release`
+4. enter a version such as `v0.1.1`
 
-That tag triggers `.github/workflows/release.yml`, which publishes the release
-artifacts and updates the Homebrew formula.
+The promote workflow creates the tag only if the current `main` commit already
+has a successful `CI` run. That tag then triggers
+`.github/workflows/release.yml`, which publishes the release artifacts and
+updates the Homebrew formula.
+
+You can still create and push a tag manually if needed, but the promote
+workflow is the safer default.
 
 ## Running stratus
 
