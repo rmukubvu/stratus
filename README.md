@@ -171,6 +171,10 @@ Under the hood this expects:
 
 Release maintainers should also set the `HOMEBREW_TAP_GITHUB_TOKEN` repository
 secret in `rmukubvu/stratus` so the release workflow can update the tap repo.
+Set `STRATUS_RELEASE_GITHUB_TOKEN` as well if you want the guarded
+`Promote Release` workflow to create a tag that actually triggers the downstream
+`Release` workflow. This token should have `Contents: Read and write` on the
+`rmukubvu/stratus` repository.
 
 The recommended release flow is:
 

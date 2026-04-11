@@ -19,6 +19,7 @@ jobs:
       - name: Promote current main after green CI
         uses: actions/github-script@v8
         with:
+          github-token: ${{ secrets.STRATUS_RELEASE_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
             const version = String(context.payload.inputs?.version || '').trim();
             if (!/^v\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$/.test(version)) {
@@ -79,4 +80,11 @@ jobs:
               sha,
             });
 
+            const usingFallbackToken = !process.env.STRATUS_RELEASE_GITHUB_TOKEN;
+            if (usingFallbackToken) {
+              core.warning('created tag with default GITHUB_TOKEN; downstream tag-triggered workflows may not run. Set STRATUS_RELEASE_GITHUB_TOKEN to enable automatic Release workflow fan-out.');
+            }
+
             core.notice(`created tag ${version} at ${sha}`);
+        env:
+          STRATUS_RELEASE_GITHUB_TOKEN: ${{ secrets.STRATUS_RELEASE_GITHUB_TOKEN }}
