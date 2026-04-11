@@ -148,11 +148,20 @@ Useful files when orienting yourself:
 
 The release path for direct install is Homebrew tap plus GitHub Releases.
 
-Once releases are being published, the install command is:
+For macOS users, the recommended install is:
 
 ```bash
 brew install rmukubvu/tap/stratus
 ```
+
+Then run:
+
+```bash
+stratus
+```
+
+If you prefer building from source, or you are not using Homebrew, you can
+still build locally with Go as described below.
 
 Under the hood this expects:
 

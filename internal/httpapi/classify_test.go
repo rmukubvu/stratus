@@ -224,6 +224,66 @@ func TestClassifyCloudWatchQueryPost(t *testing.T) {
 	}
 }
 
+func TestClassifyS3ListBuckets(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:4566/", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	got, err := Classify(req)
+	if err != nil {
+		t.Fatalf("classify: %v", err)
+	}
+	if got.Service != "s3" || got.Operation != "ListBuckets" || got.Protocol != ProtocolS3 {
+		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
+func TestClassifyS3CreateBucket(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPut, "http://localhost:4566/demo-bucket", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	got, err := Classify(req)
+	if err != nil {
+		t.Fatalf("classify: %v", err)
+	}
+	if got.Service != "s3" || got.Operation != "CreateBucket" || got.Bucket != "demo-bucket" || got.Protocol != ProtocolS3 {
+		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
+func TestClassifyS3ListObjectsV2(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:4566/demo-bucket?list-type=2", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	got, err := Classify(req)
+	if err != nil {
+		t.Fatalf("classify: %v", err)
+	}
+	if got.Service != "s3" || got.Operation != "ListObjectsV2" || got.Bucket != "demo-bucket" || got.Protocol != ProtocolS3 {
+		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
+func TestClassifyS3PutObject(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPut, "http://localhost:4566/demo-bucket/path/to/file.json", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	got, err := Classify(req)
+	if err != nil {
+		t.Fatalf("classify: %v", err)
+	}
+	if got.Service != "s3" || got.Operation != "PutObject" || got.Bucket != "demo-bucket" || got.Key != "path/to/file.json" || got.Protocol != ProtocolS3 {
+		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
 func TestClassifyCloudWatchJSONTarget(t *testing.T) {
 	req, err := http.NewRequest(http.MethodPost, "http://localhost:4566/", strings.NewReader(`{"Namespace":"Stratus/Test"}`))
 	if err != nil {

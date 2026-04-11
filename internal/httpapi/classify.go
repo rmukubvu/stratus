@@ -157,10 +157,11 @@ func Classify(r *http.Request) (Classification, error) {
 
 	if bucket, key, ok := classifyVirtualHostS3(r.Host, r.URL.Path); ok {
 		return Classification{
-			Protocol: ProtocolS3,
-			Service:  "s3",
-			Bucket:   bucket,
-			Key:      key,
+			Protocol:  ProtocolS3,
+			Service:   "s3",
+			Operation: classifyS3Operation(r, bucket, key),
+			Bucket:    bucket,
+			Key:       key,
 		}, nil
 	}
 
@@ -180,10 +181,11 @@ func Classify(r *http.Request) (Classification, error) {
 
 	bucket, key := classifyPathStyleS3(r.URL.Path)
 	return Classification{
-		Protocol: ProtocolS3,
-		Service:  "s3",
-		Bucket:   bucket,
-		Key:      key,
+		Protocol:  ProtocolS3,
+		Service:   "s3",
+		Operation: classifyS3Operation(r, bucket, key),
+		Bucket:    bucket,
+		Key:       key,
 	}, nil
 }
 
@@ -277,6 +279,45 @@ func stripPort(host string) string {
 		return host[:idx]
 	}
 	return host
+}
+
+func classifyS3Operation(r *http.Request, bucket, key string) string {
+	query := r.URL.Query()
+	switch {
+	case bucket == "" && key == "" && r.Method == http.MethodGet:
+		return "ListBuckets"
+	case bucket != "" && key == "" && r.Method == http.MethodPut:
+		return "CreateBucket"
+	case bucket != "" && key == "" && r.Method == http.MethodGet:
+		if query.Get("list-type") == "2" || len(query) == 0 {
+			return "ListObjectsV2"
+		}
+	case bucket != "" && key == "" && r.Method == http.MethodHead:
+		return "HeadBucket"
+	case bucket != "" && key == "" && r.Method == http.MethodDelete:
+		return "DeleteBucket"
+	case bucket != "" && key != "" && r.Method == http.MethodPut && query.Get("uploadId") != "" && query.Get("partNumber") != "":
+		return "UploadPart"
+	case bucket != "" && key != "" && r.Method == http.MethodPost && query.Has("uploads"):
+		return "CreateMultipartUpload"
+	case bucket != "" && key != "" && r.Method == http.MethodPost && query.Get("uploadId") != "":
+		return "CompleteMultipartUpload"
+	case bucket != "" && key != "" && r.Method == http.MethodDelete && query.Get("uploadId") != "":
+		return "AbortMultipartUpload"
+	case bucket != "" && key != "" && r.Method == http.MethodPut && r.Header.Get("X-Amz-Copy-Source") != "":
+		return "CopyObject"
+	case bucket != "" && key != "" && r.Method == http.MethodPut:
+		return "PutObject"
+	case bucket != "" && key != "" && r.Method == http.MethodGet:
+		return "GetObject"
+	case bucket != "" && key != "" && r.Method == http.MethodHead:
+		return "HeadObject"
+	case bucket != "" && key != "" && r.Method == http.MethodDelete:
+		return "DeleteObject"
+	default:
+		return ""
+	}
+	return ""
 }
 
 func classifyLambdaOperation(r *http.Request) string {
