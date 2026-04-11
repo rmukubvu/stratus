@@ -33,3 +33,26 @@ func TestRuntimeExtraHostsSkipsHostGatewayWhenNotNeeded(t *testing.T) {
 		t.Fatalf("runtimeExtraHosts() = %v, want nil", got)
 	}
 }
+
+func TestRuntimeImageForNodejs20(t *testing.T) {
+	got, err := runtimeImageFor("nodejs20.x")
+	if err != nil {
+		t.Fatalf("runtimeImageFor() error = %v", err)
+	}
+	if got != runtimeImageNodejs20 {
+		t.Fatalf("runtimeImageFor() = %q, want %q", got, runtimeImageNodejs20)
+	}
+}
+
+func TestRuntimeLaunchConfigForNodejs20(t *testing.T) {
+	got, err := runtimeLaunchConfigFor("nodejs20.x", "index.handler", "demo")
+	if err != nil {
+		t.Fatalf("runtimeLaunchConfigFor() error = %v", err)
+	}
+	if got.PathEnvKey != "NODE_PATH" {
+		t.Fatalf("runtimeLaunchConfigFor().PathEnvKey = %q, want NODE_PATH", got.PathEnvKey)
+	}
+	if len(got.Entrypoint) != 2 || got.Entrypoint[0] != "node" {
+		t.Fatalf("unexpected entrypoint: %v", got.Entrypoint)
+	}
+}

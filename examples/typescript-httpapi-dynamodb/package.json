@@ -1,0 +1,13 @@
+{
+  "name": "stratus-typescript-httpapi-dynamodb",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "rm -rf dist && tsc && cd dist && zip -q function.zip index.js"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.147",
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.3"
+  }
+}

@@ -28,17 +28,17 @@ import (
 
 const (
 	runtimeImagePython311 = "public.ecr.aws/lambda/python:3.11"
+	runtimeImageNodejs20  = "public.ecr.aws/lambda/nodejs:20"
 	runtimePort           = "9001/tcp"
 )
 
 type Manager struct {
-	logger        *slog.Logger
-	client        *dockerclient.Client
-	blobRoot      string
-	runtimeDir    string
-	runtimeScript string
-	pool          *WarmPool
-	httpClient    *http.Client
+	logger     *slog.Logger
+	client     *dockerclient.Client
+	blobRoot   string
+	runtimeDir string
+	pool       *WarmPool
+	httpClient *http.Client
 }
 
 func NewManager(dataDir, blobRoot string, logger *slog.Logger) (*Manager, error) {
@@ -60,19 +60,23 @@ func NewManager(dataDir, blobRoot string, logger *slog.Logger) (*Manager, error)
 		return nil, fmt.Errorf("create runtime dir: %w", err)
 	}
 
-	runtimeScript := filepath.Join(runtimeDir, "lambda_runtime_server.py")
-	if err := os.WriteFile(runtimeScript, []byte(runtimeServerScript), 0o644); err != nil {
-		return nil, fmt.Errorf("write runtime server script: %w", err)
+	runtimeScripts := map[string]string{
+		"lambda_runtime_server.py": runtimeServerScriptPython,
+		"lambda_runtime_server.js": runtimeServerScriptNode,
+	}
+	for name, body := range runtimeScripts {
+		if err := os.WriteFile(filepath.Join(runtimeDir, name), []byte(body), 0o644); err != nil {
+			return nil, fmt.Errorf("write runtime server script %s: %w", name, err)
+		}
 	}
 
 	return &Manager{
-		logger:        logger,
-		client:        client,
-		blobRoot:      blobRoot,
-		runtimeDir:    runtimeDir,
-		runtimeScript: runtimeScript,
-		pool:          NewWarmPool(5 * time.Minute),
-		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		logger:     logger,
+		client:     client,
+		blobRoot:   blobRoot,
+		runtimeDir: runtimeDir,
+		pool:       NewWarmPool(5 * time.Minute),
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}, nil
 }
 
@@ -151,6 +155,11 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 	containerName := containerNameFor(spec.FunctionName)
 	_ = m.removeNamedContainer(ctx, containerName)
 
+	launchConfig, err := runtimeLaunchConfigFor(spec.Runtime, spec.Handler, spec.FunctionName)
+	if err != nil {
+		return nil, err
+	}
+
 	codeDir := filepath.Join(m.blobRoot, "lambda", spec.FunctionName, "source")
 	if _, err := os.Stat(codeDir); err != nil {
 		return nil, &apierror.Error{
@@ -170,18 +179,16 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		}},
 	}
 
-	env := []string{
-		"PYTHONUNBUFFERED=1",
-	}
-	pythonPathEntries := []string{"/var/task"}
+	env := append([]string(nil), launchConfig.BaseEnv...)
+	runtimePathEntries := append([]string(nil), launchConfig.PathEntries...)
 	for key, value := range spec.Environment {
 		env = append(env, key+"="+value)
 	}
 
 	cfg := &container.Config{
 		Image:        imageName,
-		Entrypoint:   []string{"python", "/opt/stratus/lambda_runtime_server.py"},
-		Cmd:          []string{"--handler", spec.Handler, "--port", "9001", "--function-name", spec.FunctionName},
+		Entrypoint:   launchConfig.Entrypoint,
+		Cmd:          launchConfig.Cmd,
 		ExposedPorts: portSet,
 		WorkingDir:   "/var/task",
 	}
@@ -213,9 +220,11 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 			Target:   target,
 			ReadOnly: true,
 		})
-		pythonPathEntries = append(pythonPathEntries, target, filepath.Join(target, "python"))
+		runtimePathEntries = appendRuntimeLayerPaths(spec.Runtime, runtimePathEntries, target)
 	}
-	env = append(env, "PYTHONPATH="+strings.Join(pythonPathEntries, ":"))
+	if launchConfig.PathEnvKey != "" {
+		env = append(env, launchConfig.PathEnvKey+"="+strings.Join(runtimePathEntries, ":"))
+	}
 	cfg.Env = env
 	if spec.MemorySize > 0 {
 		hostCfg.Memory = int64(spec.MemorySize) * 1024 * 1024
@@ -440,12 +449,59 @@ func runtimeImageFor(runtime string) (string, error) {
 	switch runtime {
 	case "python3.11":
 		return runtimeImagePython311, nil
+	case "nodejs20.x":
+		return runtimeImageNodejs20, nil
 	default:
 		return "", &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
 			Code:       "NotImplementedException",
 			Message:    "lambda execution for runtime is not supported yet: " + runtime,
 		}
+	}
+}
+
+type runtimeLaunchConfig struct {
+	Entrypoint  []string
+	Cmd         []string
+	BaseEnv     []string
+	PathEnvKey  string
+	PathEntries []string
+}
+
+func runtimeLaunchConfigFor(runtime, handler, functionName string) (runtimeLaunchConfig, error) {
+	switch runtime {
+	case "python3.11":
+		return runtimeLaunchConfig{
+			Entrypoint:  []string{"python", "/opt/stratus/lambda_runtime_server.py"},
+			Cmd:         []string{"--handler", handler, "--port", "9001", "--function-name", functionName},
+			BaseEnv:     []string{"PYTHONUNBUFFERED=1"},
+			PathEnvKey:  "PYTHONPATH",
+			PathEntries: []string{"/var/task"},
+		}, nil
+	case "nodejs20.x":
+		return runtimeLaunchConfig{
+			Entrypoint:  []string{"node", "/opt/stratus/lambda_runtime_server.js"},
+			Cmd:         []string{"--handler", handler, "--port", "9001", "--function-name", functionName},
+			PathEnvKey:  "NODE_PATH",
+			PathEntries: []string{"/var/task", "/var/task/node_modules"},
+		}, nil
+	default:
+		return runtimeLaunchConfig{}, &apierror.Error{
+			StatusCode: http.StatusNotImplemented,
+			Code:       "NotImplementedException",
+			Message:    "lambda execution for runtime is not supported yet: " + runtime,
+		}
+	}
+}
+
+func appendRuntimeLayerPaths(runtime string, entries []string, target string) []string {
+	switch runtime {
+	case "python3.11":
+		return append(entries, target, filepath.Join(target, "python"))
+	case "nodejs20.x":
+		return append(entries, target, filepath.Join(target, "nodejs"), filepath.Join(target, "nodejs", "node_modules"))
+	default:
+		return entries
 	}
 }
 
@@ -506,7 +562,7 @@ func defaultDockerHost() string {
 	return ""
 }
 
-const runtimeServerScript = `#!/usr/bin/env python3
+const runtimeServerScriptPython = `#!/usr/bin/env python3
 import argparse
 import asyncio
 import base64
@@ -622,4 +678,185 @@ def main():
 
 if __name__ == "__main__":
     main()
+`
+
+const runtimeServerScriptNode = `#!/usr/bin/env node
+const http = require("http");
+const path = require("path");
+
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const item = argv[i];
+    if (!item.startsWith("--")) {
+      continue;
+    }
+    args[item.slice(2)] = argv[i + 1];
+    i += 1;
+  }
+  return args;
+}
+
+function parseEvent(payloadB64) {
+  if (!payloadB64) {
+    return null;
+  }
+  const raw = Buffer.from(payloadB64, "base64");
+  if (raw.length === 0) {
+    return null;
+  }
+  const text = raw.toString("utf8");
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return text;
+  }
+}
+
+function payloadBuffer(value) {
+  if (value === undefined || value === null) {
+    return Buffer.from("null");
+  }
+  if (Buffer.isBuffer(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    return Buffer.from(value, "utf8");
+  }
+  return Buffer.from(JSON.stringify(value), "utf8");
+}
+
+function renderConsoleArg(value) {
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value);
+  } catch (_) {
+    return String(value);
+  }
+}
+
+function splitHandler(handler) {
+  const idx = handler.lastIndexOf(".");
+  if (idx === -1) {
+    throw new Error("handler must look like file.export");
+  }
+  return [handler.slice(0, idx), handler.slice(idx + 1)];
+}
+
+function lambdaContext(functionName) {
+  return {
+    functionName,
+    functionVersion: "$LATEST",
+    memoryLimitInMB: "128",
+    awsRequestId: "stratus",
+    invokedFunctionArn: functionName,
+    logGroupName: "/aws/lambda/" + functionName,
+    logStreamName: "stratus",
+    getRemainingTimeInMillis() {
+      return 30000;
+    },
+  };
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const handlerArg = args.handler;
+  const port = Number(args.port);
+  const functionName = args["function-name"];
+
+  const [moduleName, exportName] = splitHandler(handlerArg);
+  const modulePath = path.resolve(process.cwd(), moduleName);
+  const loaded = require(modulePath);
+  const lambdaHandler =
+    loaded[exportName] ||
+    (loaded.default && loaded.default[exportName]);
+  if (typeof lambdaHandler !== "function") {
+    throw new Error("handler export was not found: " + handlerArg);
+  }
+
+  const server = http.createServer(async (req, res) => {
+    if (req.method === "GET" && req.url === "/healthz") {
+      const body = Buffer.from(JSON.stringify({ status: "ok" }));
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Content-Length": String(body.length),
+      });
+      res.end(body);
+      return;
+    }
+
+    if (req.method !== "POST" || req.url !== "/invoke") {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+
+    const raw = Buffer.concat(chunks).toString("utf8");
+    const request = raw ? JSON.parse(raw) : {};
+    const logs = [];
+    const originalConsole = {
+      log: console.log,
+      info: console.info,
+      warn: console.warn,
+      error: console.error,
+    };
+    const capture = (...items) => {
+      logs.push(items.map(renderConsoleArg).join(" "));
+    };
+    console.log = capture;
+    console.info = capture;
+    console.warn = capture;
+    console.error = capture;
+
+    let response;
+    try {
+      const event = parseEvent(request.payload_b64 || "");
+      const result = await Promise.resolve(lambdaHandler(event, lambdaContext(functionName)));
+      response = {
+        ok: true,
+        payload_base64: payloadBuffer(result).toString("base64"),
+        logs: logs.length ? logs.join("\n") + "\n" : "",
+        function_error: "",
+      };
+    } catch (error) {
+      const payload = {
+        errorMessage: error && error.message ? error.message : String(error),
+        errorType: error && error.name ? error.name : "Error",
+        stackTrace: error && error.stack ? String(error.stack).split("\n") : [],
+      };
+      response = {
+        ok: false,
+        payload_base64: Buffer.from(JSON.stringify(payload), "utf8").toString("base64"),
+        logs: (logs.length ? logs.join("\n") + "\n" : "") + (error && error.stack ? String(error.stack) : String(error)),
+        function_error: "Handled",
+      };
+    } finally {
+      console.log = originalConsole.log;
+      console.info = originalConsole.info;
+      console.warn = originalConsole.warn;
+      console.error = originalConsole.error;
+    }
+
+    const body = Buffer.from(JSON.stringify(response), "utf8");
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Content-Length": String(body.length),
+    });
+    res.end(body);
+  });
+
+  server.listen(port, "0.0.0.0");
+}
+
+main().catch((error) => {
+  console.error(error && error.stack ? error.stack : error);
+  process.exit(1);
+});
 `

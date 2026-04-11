@@ -34,6 +34,11 @@ Current design priorities:
 - permissive local auth handling
 - black-box contract tests over implementation-driven confidence
 
+Current Lambda execution runtimes:
+
+- `python3.11`
+- `nodejs20.x`
+
 ## What Works Today
 
 `stratus` currently includes first-class support for 26 service families:
@@ -80,6 +85,12 @@ The strongest current proof path for `stratus` is:
 
 This matters more than raw service count. The product claim is backed by real
 tooling, real deployment, and black-box validation on the same local stack.
+
+There is also a runnable example for:
+
+- `API Gateway -> TypeScript Lambda -> DynamoDB`
+
+See [examples/typescript-httpapi-dynamodb/README.md](/Users/robson/awsdev/stratus-git/examples/typescript-httpapi-dynamodb/README.md).
 
 ## Architecture
 

@@ -35,6 +35,12 @@ type harness struct {
 	output  *bytes.Buffer
 }
 
+func dockerReachableEndpoint(endpoint string) string {
+	endpoint = strings.Replace(endpoint, "http://127.0.0.1", "http://host.docker.internal", 1)
+	endpoint = strings.Replace(endpoint, "http://localhost", "http://host.docker.internal", 1)
+	return endpoint
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	h := startHarness(t)
 	defer h.Close()
@@ -1136,6 +1142,132 @@ func TestAWSCLIAPIGatewayV2HTTPAPI(t *testing.T) {
 	}
 	if string(body) != "hello from api" {
 		t.Fatalf("unexpected api invoke body: %s", body)
+	}
+}
+
+func TestAWSCLINodeLambdaHTTPAPIToDynamoDB(t *testing.T) {
+	h := startHarness(t)
+	defer h.Close()
+
+	runAWS(t, h.baseURL,
+		"dynamodb", "create-table",
+		"--table-name", "http-items",
+		"--attribute-definitions", "AttributeName=id,AttributeType=S",
+		"--key-schema", "AttributeName=id,KeyType=HASH",
+		"--billing-mode", "PAY_PER_REQUEST",
+		"--output", "json",
+	)
+
+	zipPath := filepath.Join(t.TempDir(), "node-http-ddb.zip")
+	if err := writeZip(zipPath, map[string]string{
+		"index.js": `
+exports.handler = async (event) => {
+  const payload = JSON.parse(event.body || "{}");
+  const response = await fetch(process.env.STRATUS_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-amz-json-1.0",
+      "x-amz-target": "DynamoDB_20120810.PutItem"
+    },
+    body: JSON.stringify({
+      TableName: process.env.TABLE_NAME,
+      Item: {
+        id: { S: payload.id },
+        status: { S: "stored" }
+      }
+    })
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return {
+    statusCode: 202,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: payload.id, status: "stored" })
+  };
+};
+`,
+	}); err != nil {
+		t.Fatalf("write node lambda zip: %v", err)
+	}
+
+	runAWS(t, h.baseURL,
+		"lambda", "create-function",
+		"--function-name", "node-http-ddb",
+		"--runtime", "nodejs20.x",
+		"--role", "arn:aws:iam::000000000000:role/node-http-ddb-role",
+		"--handler", "index.handler",
+		"--zip-file", "fileb://"+zipPath,
+		"--environment", fmt.Sprintf("Variables={TABLE_NAME=http-items,STRATUS_ENDPOINT=%s}", dockerReachableEndpoint(h.baseURL)),
+		"--output", "json",
+	)
+
+	createAPIOut := runAWS(t, h.baseURL, "apigatewayv2", "create-api", "--name", "node-http-api", "--protocol-type", "HTTP", "--output", "json")
+	var apiPayload struct {
+		APIEndpoint string `json:"ApiEndpoint"`
+		APIID       string `json:"ApiId"`
+	}
+	if err := json.Unmarshal(createAPIOut, &apiPayload); err != nil {
+		t.Fatalf("decode create-api output: %v\n%s", err, createAPIOut)
+	}
+
+	uri := "arn:aws:lambda:us-east-1:000000000000:function:node-http-ddb"
+	createIntegrationOut := runAWS(t, h.baseURL,
+		"apigatewayv2", "create-integration",
+		"--api-id", apiPayload.APIID,
+		"--integration-type", "AWS_PROXY",
+		"--integration-uri", uri,
+		"--payload-format-version", "2.0",
+		"--output", "json",
+	)
+	var integrationPayload struct {
+		IntegrationID string `json:"IntegrationId"`
+	}
+	if err := json.Unmarshal(createIntegrationOut, &integrationPayload); err != nil {
+		t.Fatalf("decode create-integration output: %v\n%s", err, createIntegrationOut)
+	}
+
+	runAWS(t, h.baseURL,
+		"apigatewayv2", "create-route",
+		"--api-id", apiPayload.APIID,
+		"--route-key", "POST /items",
+		"--target", "integrations/"+integrationPayload.IntegrationID,
+		"--output", "json",
+	)
+	runAWS(t, h.baseURL,
+		"apigatewayv2", "create-stage",
+		"--api-id", apiPayload.APIID,
+		"--stage-name", "$default",
+		"--auto-deploy",
+		"--output", "json",
+	)
+
+	req, err := http.NewRequest(http.MethodPost, apiPayload.APIEndpoint+"/items", strings.NewReader(`{"id":"item-123"}`))
+	if err != nil {
+		t.Fatalf("new http api request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("invoke node http api: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("unexpected node api status %d: %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"item-123"`) {
+		t.Fatalf("unexpected node api body: %s", body)
+	}
+
+	getOut := runAWS(t, h.baseURL,
+		"dynamodb", "get-item",
+		"--table-name", "http-items",
+		"--key", `{"id":{"S":"item-123"}}`,
+		"--output", "json",
+	)
+	if !strings.Contains(string(getOut), `"stored"`) {
+		t.Fatalf("expected item written by node lambda, got: %s", getOut)
 	}
 }
 
