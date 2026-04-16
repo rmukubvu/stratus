@@ -303,6 +303,15 @@ func (s *Service) handleJSON(w http.ResponseWriter, r *http.Request, operation, 
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"Attributes": attrs})
 		return nil
+	case "ListQueueTags":
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		if _, err := s.queueFromForm(r, form); err != nil {
+			return err
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"Tags": map[string]string{}})
+		return nil
 	case "SetQueueAttributes":
 		if err := s.setQueueAttributes(recorder, xmlReq, requestID); err != nil {
 			return err
@@ -398,6 +407,8 @@ func jsonRequestToForm(r *http.Request, operation string) (url.Values, error) {
 	case "GetQueueAttributes":
 		setStringField(form, "QueueUrl", payload["QueueUrl"])
 		appendStringList(form, "AttributeName", payload["AttributeNames"])
+	case "ListQueueTags":
+		setStringField(form, "QueueUrl", payload["QueueUrl"])
 	case "SetQueueAttributes":
 		setStringField(form, "QueueUrl", payload["QueueUrl"])
 		appendAttributeMap(form, payload["Attributes"])
@@ -1120,13 +1131,14 @@ func requestedAttributeNames(form url.Values) []string {
 func normalizeAttributes(input map[string]string) (map[string]string, error) {
 	attrs := map[string]string{
 		"DelaySeconds":                  "0",
+		"MaximumMessageSize":            "262144",
 		"MessageRetentionPeriod":        "345600",
 		"ReceiveMessageWaitTimeSeconds": "0",
 		"VisibilityTimeout":             "30",
 	}
 	for name, value := range input {
 		switch name {
-		case "DelaySeconds", "MessageRetentionPeriod", "ReceiveMessageWaitTimeSeconds", "VisibilityTimeout":
+		case "DelaySeconds", "MaximumMessageSize", "MessageRetentionPeriod", "ReceiveMessageWaitTimeSeconds", "VisibilityTimeout":
 			if _, err := strconv.Atoi(value); err != nil {
 				return nil, badRequest("InvalidAttributeValue", name+" must be an integer.")
 			}

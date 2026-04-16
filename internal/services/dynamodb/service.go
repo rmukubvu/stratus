@@ -62,6 +62,8 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.describeTable(w, r)
 	case "DescribeContinuousBackups":
 		return s.describeContinuousBackups(w, r)
+	case "DescribeTimeToLive":
+		return s.describeTimeToLive(w, r)
 	case "ListTables":
 		return s.listTables(w)
 	case "ListTagsOfResource":
@@ -217,6 +219,24 @@ func (s *Service) describeContinuousBackups(w http.ResponseWriter, r *http.Reque
 				"PointInTimeRecoveryStatus": "DISABLED",
 			},
 			"TableName": record.TableName,
+		},
+	})
+	return nil
+}
+
+func (s *Service) describeTimeToLive(w http.ResponseWriter, r *http.Request) error {
+	var input struct {
+		TableName string `json:"TableName"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return badRequest("ValidationException", "request body is not valid JSON")
+	}
+	if _, err := s.loadTable(input.TableName); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"TimeToLiveDescription": map[string]any{
+			"TimeToLiveStatus": "DISABLED",
 		},
 	})
 	return nil

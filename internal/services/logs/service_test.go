@@ -100,3 +100,34 @@ func TestCreateLogStreamRequiresExistingGroup(t *testing.T) {
 		t.Fatalf("unexpected error: %+v", apiErr)
 	}
 }
+
+func TestDescribeLogGroupsFiltersByPrefix(t *testing.T) {
+	metadata, err := bbolt.Open(t.TempDir() + "/state.db")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = metadata.Close() })
+
+	svc := NewService(metadata)
+	for _, name := range []string{"/aws/lambda/alpha", "/aws/apigateway/http"} {
+		body, err := json.Marshal(map[string]any{"logGroupName": name})
+		if err != nil {
+			t.Fatalf("marshal payload: %v", err)
+		}
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "http://localhost:4566/", bytes.NewReader(body))
+		if err := svc.Handle(rec, req, "CreateLogGroup"); err != nil {
+			t.Fatalf("CreateLogGroup failed: %v", err)
+		}
+	}
+
+	body := bytes.NewBufferString(`{"logGroupNamePrefix":"/aws/lambda/"}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "http://localhost:4566/", body)
+	if err := svc.Handle(rec, req, "DescribeLogGroups"); err != nil {
+		t.Fatalf("DescribeLogGroups failed: %v", err)
+	}
+	if got := rec.Body.String(); !bytes.Contains([]byte(got), []byte("/aws/lambda/alpha")) || bytes.Contains([]byte(got), []byte("/aws/apigateway/http")) {
+		t.Fatalf("unexpected DescribeLogGroups response: %s", got)
+	}
+}

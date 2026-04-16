@@ -2,9 +2,11 @@ package logs
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -70,6 +72,10 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.createLogStream(w, r)
 	case "PutLogEvents":
 		return s.putLogEvents(w, r)
+	case "DescribeLogGroups":
+		return s.describeLogGroups(w, r)
+	case "ListTagsForResource":
+		return s.listTagsForResource(w, r)
 	case "DescribeLogStreams":
 		return s.describeLogStreams(w, r)
 	default:
@@ -169,6 +175,57 @@ func (s *Service) putLogEvents(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"nextSequenceToken": strconv.FormatInt(record.SequenceToken, 10),
 	})
+	return nil
+}
+
+func (s *Service) describeLogGroups(w http.ResponseWriter, r *http.Request) error {
+	var input struct {
+		LogGroupNamePrefix string `json:"logGroupNamePrefix"`
+	}
+	if r.Body != nil {
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&input); err != nil && err != io.EOF {
+			return badRequest("InvalidParameterException", "request body is not valid JSON")
+		}
+	}
+	groups := make([]map[string]any, 0)
+	if err := s.metadata.Scan(logGroupsBucket, input.LogGroupNamePrefix, func(_, v []byte) error {
+		var record logGroupRecord
+		if err := json.Unmarshal(v, &record); err != nil {
+			return nil
+		}
+		if input.LogGroupNamePrefix != "" && !hasPrefix(record.Name, input.LogGroupNamePrefix) {
+			return nil
+		}
+		groups = append(groups, map[string]any{
+			"arn":          "arn:aws:logs:us-east-1:000000000000:log-group:" + record.Name,
+			"creationTime": record.CreatedAt.UnixMilli(),
+			"logGroupName": record.Name,
+			"storedBytes":  0,
+		})
+		return nil
+	}); err != nil {
+		return internal(err)
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i]["logGroupName"].(string) < groups[j]["logGroupName"].(string)
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"logGroups": groups})
+	return nil
+}
+
+func (s *Service) listTagsForResource(w http.ResponseWriter, r *http.Request) error {
+	var input struct {
+		ResourceArn string `json:"resourceArn"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return badRequest("InvalidParameterException", "request body is not valid JSON")
+	}
+	name := logGroupNameFromARN(input.ResourceArn)
+	if err := s.ensureGroup(name); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tags": map[string]string{}})
 	return nil
 }
 
@@ -317,6 +374,29 @@ func (s *Service) loadStream(group, stream string) (logStreamRecord, error) {
 
 func streamKey(group, stream string) string {
 	return group + "|" + stream
+}
+
+func logGroupNameFromARN(arn string) string {
+	const marker = ":log-group:"
+	idx := strings.Index(arn, marker)
+	if idx == -1 {
+		return arn
+	}
+	name := arn[idx+len(marker):]
+	if suffix := strings.Index(name, ":"); suffix >= 0 {
+		return name[:suffix]
+	}
+	return name
+}
+
+func hasPrefix(value, prefix string) bool {
+	if prefix == "" {
+		return true
+	}
+	if len(value) < len(prefix) {
+		return false
+	}
+	return value[:len(prefix)] == prefix
 }
 
 func badRequest(code, message string) error {

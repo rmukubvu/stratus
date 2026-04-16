@@ -47,6 +47,8 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.deleteParameter(w, r)
 	case "DescribeParameters":
 		return s.describeParameters(w)
+	case "ListTagsForResource":
+		return s.listTagsForResource(w, r)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
@@ -218,6 +220,33 @@ func (s *Service) describeParameters(w http.ResponseWriter) error {
 	})
 	writeJSON(w, http.StatusOK, map[string]any{
 		"Parameters": parameters,
+	})
+	return nil
+}
+
+func (s *Service) listTagsForResource(w http.ResponseWriter, r *http.Request) error {
+	var input struct {
+		ResourceID   string `json:"ResourceId"`
+		ResourceType string `json:"ResourceType"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return badRequest("InvalidRequest", "request body is not valid JSON")
+	}
+	if input.ResourceID == "" {
+		return badRequest("ValidationException", "ResourceId is required")
+	}
+	if input.ResourceType != "" && input.ResourceType != "Parameter" {
+		return &apierror.Error{
+			StatusCode: http.StatusNotImplemented,
+			Code:       "NotImplementedException",
+			Message:    "only Parameter resource tags are supported",
+		}
+	}
+	if _, err := s.load(input.ResourceID); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"TagList": []map[string]string{},
 	})
 	return nil
 }

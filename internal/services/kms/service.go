@@ -92,6 +92,12 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.createKey(w, r)
 	case "DescribeKey":
 		return s.describeKey(w, r)
+	case "GetKeyPolicy":
+		return s.getKeyPolicy(w, r)
+	case "GetKeyRotationStatus":
+		return s.getKeyRotationStatus(w, r)
+	case "ListResourceTags":
+		return s.listResourceTags(w, r)
 	case "ListKeys":
 		return s.listKeys(w)
 	case "CreateAlias":
@@ -242,6 +248,68 @@ func (s *Service) describeKey(w http.ResponseWriter, r *http.Request) error {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"KeyMetadata": s.keyMetadata(record),
+	})
+	return nil
+}
+
+func (s *Service) getKeyPolicy(w http.ResponseWriter, r *http.Request) error {
+	var input struct {
+		KeyID      string `json:"KeyId"`
+		PolicyName string `json:"PolicyName"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return validation("request body is not valid JSON")
+	}
+	if input.PolicyName == "" {
+		input.PolicyName = "default"
+	}
+	if input.PolicyName != "default" {
+		return notImplemented("only the default key policy is supported")
+	}
+	record, err := s.resolveKeyReference(input.KeyID)
+	if err != nil {
+		return err
+	}
+	policy := record.Policy
+	if policy == "" {
+		policy = defaultKeyPolicy()
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"Policy":     policy,
+		"PolicyName": input.PolicyName,
+	})
+	return nil
+}
+
+func (s *Service) getKeyRotationStatus(w http.ResponseWriter, r *http.Request) error {
+	var input struct {
+		KeyID string `json:"KeyId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return validation("request body is not valid JSON")
+	}
+	if _, err := s.resolveKeyReference(input.KeyID); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"KeyRotationEnabled": false,
+	})
+	return nil
+}
+
+func (s *Service) listResourceTags(w http.ResponseWriter, r *http.Request) error {
+	var input struct {
+		KeyID string `json:"KeyId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return validation("request body is not valid JSON")
+	}
+	if _, err := s.resolveKeyReference(input.KeyID); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"Tags":      []map[string]string{},
+		"Truncated": false,
 	})
 	return nil
 }
@@ -485,7 +553,7 @@ func (s *Service) keyMetadata(record keyRecord) map[string]any {
 	return map[string]any{
 		"AWSAccountId":         accountID,
 		"Arn":                  record.Arn,
-		"CreationDate":         record.CreatedAt,
+		"CreationDate":         float64(record.CreatedAt.Unix()),
 		"Description":          record.Description,
 		"Enabled":              record.Enabled,
 		"EncryptionAlgorithms": algorithms,
@@ -505,6 +573,10 @@ func keyARN(keyID string) string {
 
 func aliasARN(aliasName string) string {
 	return fmt.Sprintf("arn:aws:kms:%s:%s:%s", region, accountID, aliasName)
+}
+
+func defaultKeyPolicy() string {
+	return fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Sid":"EnableRoot","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::%s:root"},"Action":"kms:*","Resource":"*"}]}`, accountID)
 }
 
 func validateAliasName(name string) error {
