@@ -30,6 +30,7 @@ const (
 	layersBucket        = "lambda-layers"
 	mappingsBucket      = "lambda-event-source-mappings"
 	invokeConfigsBucket = "lambda-invoke-configs"
+	permissionsBucket   = "lambda-permissions"
 	codeNamespace       = "lambda"
 	accountID           = "000000000000"
 )
@@ -194,6 +195,17 @@ type eventInvokeConfigRecord struct {
 	OnSuccessArn string `json:"on_success_arn,omitempty"`
 }
 
+type permissionRecord struct {
+	Action        string `json:"action"`
+	FunctionName  string `json:"function_name"`
+	Principal     string `json:"principal"`
+	Qualifier     string `json:"qualifier,omitempty"`
+	RevisionID    string `json:"revision_id"`
+	SourceAccount string `json:"source_account,omitempty"`
+	SourceARN     string `json:"source_arn,omitempty"`
+	StatementID   string `json:"statement_id"`
+}
+
 type functionConfigurationResponse struct {
 	Architectures []string          `json:"Architectures,omitempty"`
 	CodeSha256    string            `json:"CodeSha256"`
@@ -299,6 +311,14 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.getFunctionEventInvokeConfig(w, r)
 	case "DeleteFunctionEventInvokeConfig":
 		return s.deleteFunctionEventInvokeConfig(w, r)
+	case "GetFunctionCodeSigningConfig":
+		return s.getFunctionCodeSigningConfig(w, r)
+	case "AddPermission":
+		return s.addPermission(w, r)
+	case "GetPolicy":
+		return s.getPolicy(w, r)
+	case "RemovePermission":
+		return s.removePermission(w, r)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
@@ -754,6 +774,119 @@ func (s *Service) deleteFunctionEventInvokeConfig(w http.ResponseWriter, r *http
 	return nil
 }
 
+func (s *Service) getFunctionCodeSigningConfig(w http.ResponseWriter, r *http.Request) error {
+	name, err := functionNameFromCodeSigningConfigPath(r.URL.Path)
+	if err != nil {
+		return err
+	}
+	if _, err := s.loadRecord(name); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"CodeSigningConfigArn": "",
+		"FunctionName":         name,
+	})
+	return nil
+}
+
+func (s *Service) addPermission(w http.ResponseWriter, r *http.Request) error {
+	name, err := functionNameFromPolicyPath(r.URL.Path)
+	if err != nil {
+		return err
+	}
+	qualifier := r.URL.Query().Get("Qualifier")
+	if _, err := s.resolveRecord(name, qualifier); err != nil {
+		return err
+	}
+
+	var input struct {
+		Action        string `json:"Action"`
+		Principal     string `json:"Principal"`
+		SourceARN     string `json:"SourceArn"`
+		SourceAccount string `json:"SourceAccount"`
+		StatementID   string `json:"StatementId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return badRequest("InvalidRequestContentException", "request body is not valid JSON")
+	}
+	if input.StatementID == "" {
+		return badRequest("InvalidParameterValueException", "StatementId is required")
+	}
+	if input.Action == "" {
+		return badRequest("InvalidParameterValueException", "Action is required")
+	}
+	if input.Principal == "" {
+		return badRequest("InvalidParameterValueException", "Principal is required")
+	}
+
+	record := permissionRecord{
+		Action:        input.Action,
+		FunctionName:  name,
+		Principal:     input.Principal,
+		Qualifier:     qualifier,
+		RevisionID:    uuid.NewString(),
+		SourceAccount: input.SourceAccount,
+		SourceARN:     input.SourceARN,
+		StatementID:   input.StatementID,
+	}
+	if err := s.putPermissionRecord(record); err != nil {
+		return err
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"Statement": permissionStatementJSON(record),
+	})
+	return nil
+}
+
+func (s *Service) getPolicy(w http.ResponseWriter, r *http.Request) error {
+	name, err := functionNameFromPolicyPath(r.URL.Path)
+	if err != nil {
+		return err
+	}
+	qualifier := r.URL.Query().Get("Qualifier")
+	if _, err := s.resolveRecord(name, qualifier); err != nil {
+		return err
+	}
+
+	records, err := s.listPermissionRecords(name, qualifier)
+	if err != nil {
+		return err
+	}
+	if len(records) == 0 {
+		return &apierror.Error{
+			StatusCode: http.StatusNotFound,
+			Code:       "ResourceNotFoundException",
+			Message:    "The resource you requested does not exist.",
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"Policy":     permissionPolicyJSON(records),
+		"RevisionId": records[0].RevisionID,
+	})
+	return nil
+}
+
+func (s *Service) removePermission(w http.ResponseWriter, r *http.Request) error {
+	name, statementID, err := functionNameAndStatementIDFromPolicyPath(r.URL.Path)
+	if err != nil {
+		return err
+	}
+	qualifier := r.URL.Query().Get("Qualifier")
+	if _, err := s.resolveRecord(name, qualifier); err != nil {
+		return err
+	}
+	if _, err := s.loadPermissionRecord(name, qualifier, statementID); err != nil {
+		return err
+	}
+	if err := s.metadata.Delete(permissionsBucket, permissionKey(name, qualifier, statementID)); err != nil {
+		return internal(err)
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 func (s *Service) DispatchSQSEvent(ctx context.Context, queueARN string, messageID, receiptHandle, body string, attributes map[string]string) {
 	event := map[string]any{
 		"Records": []map[string]any{{
@@ -802,6 +935,9 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 		return internal(err)
 	}
 	if err := s.metadata.DeletePrefix(aliasesBucket, name+"|"); err != nil {
+		return internal(err)
+	}
+	if err := s.metadata.DeletePrefix(permissionsBucket, permissionPrefix(name, "")); err != nil {
 		return internal(err)
 	}
 	mappings, err := s.listEventSourceMappingRecords(name, "")
@@ -932,6 +1068,54 @@ func (s *Service) loadAlias(name, aliasName string) (aliasRecord, error) {
 		return aliasRecord{}, internal(err)
 	}
 	return alias, nil
+}
+
+func (s *Service) putPermissionRecord(record permissionRecord) error {
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return internal(err)
+	}
+	if err := s.metadata.Put(permissionsBucket, permissionKey(record.FunctionName, record.Qualifier, record.StatementID), payload); err != nil {
+		return internal(err)
+	}
+	return nil
+}
+
+func (s *Service) loadPermissionRecord(name, qualifier, statementID string) (permissionRecord, error) {
+	raw, err := s.metadata.Get(permissionsBucket, permissionKey(name, qualifier, statementID))
+	if err != nil {
+		return permissionRecord{}, internal(err)
+	}
+	if raw == nil {
+		return permissionRecord{}, &apierror.Error{
+			StatusCode: http.StatusNotFound,
+			Code:       "ResourceNotFoundException",
+			Message:    "The resource you requested does not exist.",
+		}
+	}
+	var record permissionRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return permissionRecord{}, internal(err)
+	}
+	return record, nil
+}
+
+func (s *Service) listPermissionRecords(name, qualifier string) ([]permissionRecord, error) {
+	records := make([]permissionRecord, 0)
+	if err := s.metadata.Scan(permissionsBucket, permissionPrefix(name, qualifier), func(_, v []byte) error {
+		var record permissionRecord
+		if err := json.Unmarshal(v, &record); err != nil {
+			return err
+		}
+		records = append(records, record)
+		return nil
+	}); err != nil {
+		return nil, internal(err)
+	}
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].StatementID < records[j].StatementID
+	})
+	return records, nil
 }
 
 func (s *Service) resolveRecord(name, qualifier string) (functionRecord, error) {
@@ -1659,6 +1843,45 @@ func functionNameAndQualifierFromInvokeConfigPath(p string) (string, string, err
 	return name, qualifier, nil
 }
 
+func functionNameFromCodeSigningConfigPath(p string) (string, error) {
+	clean := path.Clean(p)
+	parts := strings.Split(strings.TrimPrefix(clean, "/"), "/")
+	if len(parts) != 4 || (parts[0] != "2019-09-25" && parts[0] != "2020-06-30") || parts[1] != "functions" || parts[3] != "code-signing-config" {
+		return "", &apierror.Error{StatusCode: http.StatusNotFound, Code: "ResourceNotFoundException", Message: "Function code signing config not found"}
+	}
+	name := parts[2]
+	if name == "" {
+		return "", badRequest("InvalidParameterValueException", "FunctionName is required")
+	}
+	return name, nil
+}
+
+func functionNameFromPolicyPath(p string) (string, error) {
+	clean := path.Clean(p)
+	parts := strings.Split(strings.TrimPrefix(clean, "/"), "/")
+	if len(parts) != 4 || parts[0] != "2015-03-31" || parts[1] != "functions" || parts[3] != "policy" {
+		return "", &apierror.Error{StatusCode: http.StatusNotFound, Code: "ResourceNotFoundException", Message: "The resource you requested does not exist."}
+	}
+	name := parts[2]
+	if name == "" {
+		return "", badRequest("InvalidParameterValueException", "FunctionName is required")
+	}
+	return name, nil
+}
+
+func functionNameAndStatementIDFromPolicyPath(p string) (string, string, error) {
+	clean := path.Clean(p)
+	parts := strings.Split(strings.TrimPrefix(clean, "/"), "/")
+	if len(parts) != 5 || parts[0] != "2015-03-31" || parts[1] != "functions" || parts[3] != "policy" || parts[4] == "" {
+		return "", "", &apierror.Error{StatusCode: http.StatusNotFound, Code: "ResourceNotFoundException", Message: "The resource you requested does not exist."}
+	}
+	name := parts[2]
+	if name == "" {
+		return "", "", badRequest("InvalidParameterValueException", "FunctionName is required")
+	}
+	return name, parts[4], nil
+}
+
 func aliasPathParts(p string, requireAlias bool) (string, string, error) {
 	clean := path.Clean(p)
 	parts := strings.Split(strings.TrimPrefix(clean, "/"), "/")
@@ -1692,6 +1915,59 @@ func qualifiedFunctionARN(name, qualifier string) string {
 
 func aliasARN(name, alias string) string {
 	return qualifiedFunctionARN(name, alias)
+}
+
+func permissionPrefix(name, qualifier string) string {
+	return permissionKey(name, qualifier, "")
+}
+
+func permissionKey(name, qualifier, statementID string) string {
+	if qualifier == "" {
+		return name + "||" + statementID
+	}
+	return name + "|" + qualifier + "|" + statementID
+}
+
+func permissionStatementJSON(record permissionRecord) string {
+	statement := map[string]any{
+		"Action":    record.Action,
+		"Effect":    "Allow",
+		"Principal": map[string]string{"Service": record.Principal},
+		"Resource":  qualifiedFunctionARN(record.FunctionName, record.Qualifier),
+		"Sid":       record.StatementID,
+	}
+	if record.SourceARN != "" {
+		statement["Condition"] = map[string]map[string]string{
+			"ArnLike": {"AWS:SourceArn": record.SourceARN},
+		}
+	}
+	body, _ := json.Marshal(statement)
+	return string(body)
+}
+
+func permissionPolicyJSON(records []permissionRecord) string {
+	statements := make([]map[string]any, 0, len(records))
+	for _, record := range records {
+		statement := map[string]any{
+			"Action":    record.Action,
+			"Effect":    "Allow",
+			"Principal": map[string]string{"Service": record.Principal},
+			"Resource":  qualifiedFunctionARN(record.FunctionName, record.Qualifier),
+			"Sid":       record.StatementID,
+		}
+		if record.SourceARN != "" {
+			statement["Condition"] = map[string]map[string]string{
+				"ArnLike": {"AWS:SourceArn": record.SourceARN},
+			}
+		}
+		statements = append(statements, statement)
+	}
+	body, _ := json.Marshal(map[string]any{
+		"Id":        "default",
+		"Statement": statements,
+		"Version":   "2012-10-17",
+	})
+	return string(body)
 }
 
 func lambdaCodeLocation(r *http.Request, name string) string {

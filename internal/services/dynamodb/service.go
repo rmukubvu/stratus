@@ -60,8 +60,12 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.createTable(w, r)
 	case "DescribeTable":
 		return s.describeTable(w, r)
+	case "DescribeContinuousBackups":
+		return s.describeContinuousBackups(w, r)
 	case "ListTables":
 		return s.listTables(w)
+	case "ListTagsOfResource":
+		return s.listTagsOfResource(w, r)
 	case "PutItem":
 		return s.putItem(w, r)
 	case "GetItem":
@@ -96,7 +100,7 @@ func (s *Service) createTable(w http.ResponseWriter, r *http.Request) error {
 			StreamEnabled  bool   `json:"StreamEnabled"`
 			StreamViewType string `json:"StreamViewType"`
 		} `json:"StreamSpecification"`
-		TableName            string                `json:"TableName"`
+		TableName string `json:"TableName"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		return badRequest("ValidationException", "request body is not valid JSON")
@@ -192,6 +196,48 @@ func (s *Service) listTables(w http.ResponseWriter) error {
 	}
 	sort.Strings(tables)
 	writeJSON(w, http.StatusOK, map[string]any{"TableNames": tables})
+	return nil
+}
+
+func (s *Service) describeContinuousBackups(w http.ResponseWriter, r *http.Request) error {
+	var input struct {
+		TableName string `json:"TableName"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return badRequest("ValidationException", "request body is not valid JSON")
+	}
+	record, err := s.loadTable(input.TableName)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ContinuousBackupsDescription": map[string]any{
+			"ContinuousBackupsStatus": "DISABLED",
+			"PointInTimeRecoveryDescription": map[string]any{
+				"PointInTimeRecoveryStatus": "DISABLED",
+			},
+			"TableName": record.TableName,
+		},
+	})
+	return nil
+}
+
+func (s *Service) listTagsOfResource(w http.ResponseWriter, r *http.Request) error {
+	var input struct {
+		ResourceArn string `json:"ResourceArn"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return badRequest("ValidationException", "request body is not valid JSON")
+	}
+	tableName := tableNameFromARN(input.ResourceArn)
+	record, err := s.loadTable(tableName)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"Tags":        []map[string]string{},
+		"ResourceArn": "arn:aws:dynamodb:us-east-1:000000000000:table/" + record.TableName,
+	})
 	return nil
 }
 
@@ -520,6 +566,14 @@ func (s *Service) tableDescription(record tableRecord) map[string]any {
 		"TableStatus":           record.TableStatus,
 		"TableSizeBytes":        0,
 	}
+}
+
+func tableNameFromARN(arn string) string {
+	const marker = ":table/"
+	if idx := strings.Index(arn, marker); idx >= 0 {
+		return arn[idx+len(marker):]
+	}
+	return arn
 }
 
 func (s *Service) emitStreamRecord(table tableRecord, oldImage, newImage map[string]any, eventName string) error {

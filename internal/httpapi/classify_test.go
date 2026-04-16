@@ -224,6 +224,36 @@ func TestClassifyCloudWatchQueryPost(t *testing.T) {
 	}
 }
 
+func TestClassifyLambdaGetFunctionCodeSigningConfig(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "http://localhost:4566/2020-06-30/functions/demo-function/code-signing-config", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	got, err := Classify(req)
+	if err != nil {
+		t.Fatalf("classify: %v", err)
+	}
+	if got.Service != "lambda" || got.Operation != "GetFunctionCodeSigningConfig" || got.Protocol != ProtocolREST {
+		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
+func TestClassifyLambdaAddPermission(t *testing.T) {
+	req, err := http.NewRequest(http.MethodPost, "http://localhost:4566/2015-03-31/functions/demo-function/policy", strings.NewReader(`{"StatementId":"sid-1"}`))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	got, err := Classify(req)
+	if err != nil {
+		t.Fatalf("classify: %v", err)
+	}
+	if got.Service != "lambda" || got.Operation != "AddPermission" || got.Protocol != ProtocolREST {
+		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
 func TestClassifyS3ListBuckets(t *testing.T) {
 	req, err := http.NewRequest(http.MethodGet, "http://localhost:4566/", nil)
 	if err != nil {

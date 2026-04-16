@@ -43,6 +43,7 @@ type Service struct {
 
 type APIRecord struct {
 	APIID                     string            `json:"api_id"`
+	APIKeySelectionExpression string            `json:"api_key_selection_expression"`
 	CreatedAt                 time.Time         `json:"created_at"`
 	Description               string            `json:"description,omitempty"`
 	DisableExecuteAPIEndpoint bool              `json:"disable_execute_api_endpoint"`
@@ -84,6 +85,7 @@ type StageRecord struct {
 }
 
 type CreateAPIInput struct {
+	APIKeySelectionExpression string            `json:"apiKeySelectionExpression"`
 	Description               string            `json:"description"`
 	DisableExecuteAPIEndpoint bool              `json:"disableExecuteApiEndpoint"`
 	Name                      string            `json:"name"`
@@ -137,20 +139,28 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request) error {
 			return s.getAPIs(w, r)
 		case len(parts) == 3 && r.Method == http.MethodGet:
 			return s.getAPI(w, r, parts[2])
+		case len(parts) == 3 && r.Method == http.MethodPatch:
+			return s.updateAPI(w, r, parts[2])
 		case len(parts) == 3 && r.Method == http.MethodDelete:
 			return s.deleteAPI(w, parts[2])
 		case len(parts) == 4 && parts[3] == "integrations" && r.Method == http.MethodPost:
 			return s.createIntegration(w, r, parts[2])
 		case len(parts) == 4 && parts[3] == "integrations" && r.Method == http.MethodGet:
 			return s.getIntegrations(w, parts[2])
+		case len(parts) == 5 && parts[3] == "integrations" && r.Method == http.MethodGet:
+			return s.getIntegration(w, parts[2], parts[4])
 		case len(parts) == 4 && parts[3] == "routes" && r.Method == http.MethodPost:
 			return s.createRoute(w, r, parts[2])
 		case len(parts) == 4 && parts[3] == "routes" && r.Method == http.MethodGet:
 			return s.getRoutes(w, parts[2])
+		case len(parts) == 5 && parts[3] == "routes" && r.Method == http.MethodGet:
+			return s.getRoute(w, parts[2], parts[4])
 		case len(parts) == 4 && parts[3] == "stages" && r.Method == http.MethodPost:
 			return s.createStage(w, r, parts[2])
 		case len(parts) == 4 && parts[3] == "stages" && r.Method == http.MethodGet:
 			return s.getStages(w, parts[2])
+		case len(parts) == 5 && parts[3] == "stages" && r.Method == http.MethodGet:
+			return s.getStage(w, parts[2], parts[4])
 		}
 	}
 
@@ -187,8 +197,12 @@ func (s *Service) CreateAPI(input CreateAPIInput) (APIRecord, error) {
 	if input.RouteSelectionExpression == "" {
 		input.RouteSelectionExpression = "$request.method $request.path"
 	}
+	if input.APIKeySelectionExpression == "" {
+		input.APIKeySelectionExpression = "$request.header.x-api-key"
+	}
 	record := APIRecord{
 		APIID:                     shortID(),
+		APIKeySelectionExpression: input.APIKeySelectionExpression,
 		CreatedAt:                 s.now().UTC(),
 		Description:               input.Description,
 		DisableExecuteAPIEndpoint: input.DisableExecuteAPIEndpoint,
@@ -201,6 +215,47 @@ func (s *Service) CreateAPI(input CreateAPIInput) (APIRecord, error) {
 		return APIRecord{}, err
 	}
 	return record, nil
+}
+
+func (s *Service) updateAPI(w http.ResponseWriter, r *http.Request, apiID string) error {
+	record, err := s.loadAPI(apiID)
+	if err != nil {
+		return err
+	}
+	var input struct {
+		APIKeySelectionExpression *string           `json:"apiKeySelectionExpression"`
+		Description               *string           `json:"description"`
+		DisableExecuteAPIEndpoint *bool             `json:"disableExecuteApiEndpoint"`
+		Name                      *string           `json:"name"`
+		RouteSelectionExpression  *string           `json:"routeSelectionExpression"`
+		Tags                      map[string]string `json:"tags"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return validation("request body is not valid JSON")
+	}
+	if input.APIKeySelectionExpression != nil && *input.APIKeySelectionExpression != "" {
+		record.APIKeySelectionExpression = *input.APIKeySelectionExpression
+	}
+	if input.Description != nil {
+		record.Description = *input.Description
+	}
+	if input.DisableExecuteAPIEndpoint != nil {
+		record.DisableExecuteAPIEndpoint = *input.DisableExecuteAPIEndpoint
+	}
+	if input.Name != nil && *input.Name != "" {
+		record.Name = *input.Name
+	}
+	if input.RouteSelectionExpression != nil && *input.RouteSelectionExpression != "" {
+		record.RouteSelectionExpression = *input.RouteSelectionExpression
+	}
+	if input.Tags != nil {
+		record.Tags = cloneMap(input.Tags)
+	}
+	if err := s.putJSON(apisBucket, record.APIID, record); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, s.apiResponse(r, record))
+	return nil
 }
 
 func (s *Service) getAPIs(w http.ResponseWriter, r *http.Request) error {
@@ -354,6 +409,15 @@ func (s *Service) getIntegrations(w http.ResponseWriter, apiID string) error {
 	return nil
 }
 
+func (s *Service) getIntegration(w http.ResponseWriter, apiID, integrationID string) error {
+	record, err := s.loadIntegration(apiID, integrationID)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, integrationResponse(record))
+	return nil
+}
+
 func (s *Service) createRoute(w http.ResponseWriter, r *http.Request, apiID string) error {
 	var input CreateRouteInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -415,6 +479,15 @@ func (s *Service) getRoutes(w http.ResponseWriter, apiID string) error {
 	return nil
 }
 
+func (s *Service) getRoute(w http.ResponseWriter, apiID, routeID string) error {
+	record, err := s.loadRoute(apiID, routeID)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, routeResponse(record))
+	return nil
+}
+
 func (s *Service) createStage(w http.ResponseWriter, r *http.Request, apiID string) error {
 	var input CreateStageInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -466,6 +539,15 @@ func (s *Service) getStages(w http.ResponseWriter, apiID string) error {
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i]["stageName"].(string) < items[j]["stageName"].(string) })
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	return nil
+}
+
+func (s *Service) getStage(w http.ResponseWriter, apiID, stageName string) error {
+	record, err := s.loadStage(apiID, stageName)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, stageResponse(record))
 	return nil
 }
 
@@ -591,6 +673,36 @@ func (s *Service) loadIntegration(apiID, integrationID string) (IntegrationRecor
 	return record, nil
 }
 
+func (s *Service) loadRoute(apiID, routeID string) (RouteRecord, error) {
+	raw, err := s.metadata.Get(routesBucket, routeStoreKey(apiID, routeID))
+	if err != nil {
+		return RouteRecord{}, internal(err)
+	}
+	if raw == nil {
+		return RouteRecord{}, &apierror.Error{StatusCode: http.StatusNotFound, Code: "NotFoundException", Message: "route " + routeID + " was not found"}
+	}
+	var record RouteRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return RouteRecord{}, internal(err)
+	}
+	return record, nil
+}
+
+func (s *Service) loadStage(apiID, stageName string) (StageRecord, error) {
+	raw, err := s.metadata.Get(stagesBucket, stageStoreKey(apiID, stageName))
+	if err != nil {
+		return StageRecord{}, internal(err)
+	}
+	if raw == nil {
+		return StageRecord{}, &apierror.Error{StatusCode: http.StatusNotFound, Code: "NotFoundException", Message: "stage " + stageName + " was not found"}
+	}
+	var record StageRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return StageRecord{}, internal(err)
+	}
+	return record, nil
+}
+
 func (s *Service) listRouteRecords(apiID string) ([]RouteRecord, error) {
 	routes := make([]RouteRecord, 0)
 	if err := s.metadata.Scan(routesBucket, apiID+"|", func(_, v []byte) error {
@@ -638,6 +750,7 @@ func (s *Service) apiResponse(r *http.Request, record APIRecord) map[string]any 
 	return map[string]any{
 		"apiEndpoint":               apiEndpoint(r, record.APIID),
 		"apiId":                     record.APIID,
+		"apiKeySelectionExpression": record.APIKeySelectionExpression,
 		"createdDate":               record.CreatedAt,
 		"description":               record.Description,
 		"disableExecuteApiEndpoint": record.DisableExecuteAPIEndpoint,

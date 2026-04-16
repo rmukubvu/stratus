@@ -118,6 +118,7 @@ var signedQueryServices = map[string]struct{}{
 var restPrefixToService = map[string]string{
 	"/2015-03-31/functions":             "lambda",
 	"/2019-09-25/functions":             "lambda",
+	"/2020-06-30/functions":             "lambda",
 	"/2015-03-31/event-source-mappings": "lambda",
 	"/2018-10-31/layers":                "lambda",
 	"/restapis":                         "apigateway",
@@ -343,6 +344,14 @@ func classifyLambdaOperation(r *http.Request) string {
 		return "GetFunctionEventInvokeConfig"
 	case r.Method == http.MethodDelete && strings.HasSuffix(path, "/event-invoke-config"):
 		return "DeleteFunctionEventInvokeConfig"
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/code-signing-config"):
+		return "GetFunctionCodeSigningConfig"
+	case r.Method == http.MethodPost && strings.HasSuffix(path, "/policy"):
+		return "AddPermission"
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/policy"):
+		return "GetPolicy"
+	case r.Method == http.MethodDelete && strings.Contains(path, "/policy/"):
+		return "RemovePermission"
 	case r.Method == http.MethodPost && path == "/2015-03-31/functions":
 		return "CreateFunction"
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/versions"):

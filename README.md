@@ -92,6 +92,40 @@ There is also a runnable example for:
 
 See [examples/typescript-httpapi-dynamodb/README.md](/Users/robson/awsdev/stratus-git/examples/typescript-httpapi-dynamodb/README.md).
 
+## Pulumi
+
+`stratus` now has a validated Pulumi path as well.
+
+The current Pulumi fixture lives in the `preflight` repository and uses:
+
+- Pulumi in C#
+- a `nodejs20.x` Lambda
+- API Gateway v2
+- `preflight deploy` against `stratus`
+
+The exact fixture is:
+
+- [preflight/test/fixtures/pulumi-csharp-httpapi-dynamodb](https://github.com/rmukubvu/preflight/tree/main/test/fixtures/pulumi-csharp-httpapi-dynamodb)
+
+What is proven today:
+
+1. Pulumi C# can deploy the stack into `stratus`
+2. Lambda permission and API Gateway wiring are created successfully
+3. `preflight` can validate the live HTTP path from the outside
+
+Run it with:
+
+```bash
+cd /path/to/preflight
+EMULATOR_COMMAND=stratus bash ./scripts/smoke-fixtures.sh pulumi
+```
+
+Current boundary:
+
+- the infrastructure is Pulumi C#
+- the Lambda runtime in this fixture is still `nodejs20.x`
+- a true C# Lambda execution example is a separate next tranche
+
 ## Architecture
 
 `stratus` is split into a few clear layers:
@@ -154,6 +188,7 @@ Useful files when orienting yourself:
 - AWS CLI for contract and smoke flows
 - Node.js for the CDK fixture
 - Java 17+ and Maven for the Java SDK fixture
+- Pulumi CLI and .NET for the Pulumi C# fixture
 
 ## Install
 
