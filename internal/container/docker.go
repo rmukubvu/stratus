@@ -39,6 +39,7 @@ type Manager struct {
 	runtimeDir string
 	pool       *WarmPool
 	httpClient *http.Client
+	owner      Owner
 }
 
 func NewManager(dataDir, blobRoot string, logger *slog.Logger) (*Manager, error) {
@@ -70,14 +71,32 @@ func NewManager(dataDir, blobRoot string, logger *slog.Logger) (*Manager, error)
 		}
 	}
 
-	return &Manager{
+	m := &Manager{
 		logger:     logger,
 		client:     client,
 		blobRoot:   blobRoot,
 		runtimeDir: runtimeDir,
 		pool:       NewWarmPool(5 * time.Minute),
 		httpClient: &http.Client{Timeout: 30 * time.Second},
-	}, nil
+		owner:      NewOwner(dataDir),
+	}
+	m.reapOrphans()
+	return m, nil
+}
+
+// reapOrphans removes containers left behind by earlier Stratus processes.
+// Docker may be unavailable at startup; that is not fatal, since Lambda is
+// the only feature that needs it.
+func (m *Manager) reapOrphans() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	removed, err := ReapOrphans(ctx, m.client, m.owner, processAlive)
+	if err != nil {
+		m.logger.Debug("orphan container cleanup skipped", "error", err)
+	}
+	if removed > 0 {
+		m.logger.Info("removed orphaned lambda containers", "count", removed)
+	}
 }
 
 func (m *Manager) Close() error {
@@ -166,7 +185,7 @@ func (m *Manager) ensureImage(ctx context.Context, imageName string) error {
 }
 
 func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpec, imageName string) (*WarmContainer, error) {
-	containerName := containerNameFor(spec.FunctionName)
+	containerName := m.owner.ContainerName(spec.FunctionName)
 	_ = m.removeNamedContainer(ctx, containerName)
 
 	launchConfig, err := runtimeLaunchConfigFor(spec.Runtime, spec.Handler, spec.FunctionName)
@@ -205,6 +224,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		Cmd:          launchConfig.Cmd,
 		ExposedPorts: portSet,
 		WorkingDir:   "/var/task",
+		Labels:       m.owner.Labels(),
 	}
 
 	hostCfg := &container.HostConfig{
@@ -527,7 +547,7 @@ func timeoutPayload(seconds int) []byte {
 	return []byte(fmt.Sprintf(`{"errorMessage":"Task timed out after %d.00 seconds"}`, timeoutSeconds))
 }
 
-func containerNameFor(functionName string) string {
+func sanitizeName(functionName string) string {
 	name := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z':
@@ -545,7 +565,7 @@ func containerNameFor(functionName string) string {
 	if len(name) > 48 {
 		name = name[:48]
 	}
-	return "stratus-lambda-" + name
+	return name
 }
 
 func intPtr(v int) *int {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stratus/internal/app"
+	"github.com/stratus/internal/ci"
 	"github.com/stratus/internal/cli"
 	"github.com/stratus/internal/config"
 )
@@ -24,6 +25,12 @@ func main() {
 	}
 
 	mode, args := cli.ParseMode(os.Args[1:])
+	if mode == cli.ModeCI {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		code := cli.RunCI(ctx, args, ci.DefaultRunner(), os.Stderr)
+		stop()
+		os.Exit(code)
+	}
 	if mode.IsControl() {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		code := cli.RunControl(ctx, mode, args, cli.DefaultClientFactory, os.Stdout, os.Stderr)
@@ -111,6 +118,12 @@ Usage:
   stratus serve [flags]         Start the emulator in headless mode
   stratus --port 4566           Legacy headless form, equivalent to serve
 
+Run tests against a private, throwaway Stratus (isolated and self-cleaning):
+  stratus ci [--seed DIR] -- <command> [args...]
+                                Free port, fresh data dir, AWS_ENDPOINT_URL set,
+                                everything removed afterwards. Exit code is the
+                                command's, or 125 if Stratus failed.
+
 Control a running Stratus (for CI and agents; output is JSON):
   stratus wait [--timeout 60s]          Block until Stratus is ready
   stratus reset [service...]            Reset all state, or only the named services
@@ -125,6 +138,7 @@ Common flags:
   --data-dir <dir>              Persistent data directory (default: ./data)
   --log-level <level>           debug, info, warn, error
   --log-format <format>         auto, json, pretty
+  --seed <dir>                  Initialise an empty data dir from a snapshot dir
 
 Dev-only flags:
   --no-open                     Do not open the operator portal in the browser

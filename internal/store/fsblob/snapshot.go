@@ -85,6 +85,12 @@ func (s *Store) ReplaceWith(src string) error {
 	return nil
 }
 
+// CloneTree copies the blob tree at src into dst, hard-linking files where
+// the filesystem allows. It is used to seed a fresh data directory.
+func CloneTree(src, dst string) error {
+	return cloneTree(src, dst)
+}
+
 func cloneTree(src, dst string) error {
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
