@@ -84,6 +84,20 @@ func (m *Manager) Close() error {
 	return m.pool.CloseAll(context.Background(), m.removeContainer)
 }
 
+// Reset stops every warm Lambda container. The next invocation of each
+// function starts a fresh container, so restored or reset state is picked up.
+func (m *Manager) Reset(ctx context.Context) error {
+	return m.pool.CloseAll(ctx, m.removeContainer)
+}
+
+// Ping reports whether the Docker daemon used for Lambda runtimes is reachable.
+func (m *Manager) Ping(ctx context.Context) error {
+	if _, err := m.client.Ping(ctx); err != nil {
+		return fmt.Errorf("docker daemon unreachable: %w", err)
+	}
+	return nil
+}
+
 func (m *Manager) CleanupFunction(ctx context.Context, functionName string) error {
 	return m.pool.Remove(ctx, functionName, m.removeContainer)
 }

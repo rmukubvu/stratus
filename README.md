@@ -329,6 +329,22 @@ Then use the portal to copy or verify:
 This is the intended onboarding path now. You should not need to remember the
 older longer command lines just to get started.
 
+## Control API for CI and Agents
+
+Stratus exposes a control API at `/_stratus/control/v1` for health checks,
+resets and snapshots, plus matching CLI commands:
+
+```sh
+stratus wait                       # block until ready
+stratus snapshot save seeded       # capture state after seeding
+stratus snapshot restore seeded    # return to it before each test suite
+stratus reset s3 sqs               # clear selected services (or all)
+```
+
+Snapshots hard-link blobs, so they are fast and cheap even with large S3
+objects. See [docs/control-api.md](docs/control-api.md) for endpoints,
+error codes and consistency guarantees.
+
 ## Logging and Terminal Output
 
 `stratus` supports:

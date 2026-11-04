@@ -12,6 +12,7 @@ import (
 
 	"github.com/stratus/internal/config"
 	"github.com/stratus/internal/container"
+	"github.com/stratus/internal/control"
 	"github.com/stratus/internal/httpapi"
 	"github.com/stratus/internal/operator"
 	"github.com/stratus/internal/services/acm"
@@ -117,6 +118,18 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	operatorStore := operator.NewStore("http://127.0.0.1"+cfg.Address(), cfg.DataDir, cfg.LogLevel, cfg.LogFormat)
 	operatorService := operator.NewService(operatorStore, logsService)
 
+	snapshotRepo, err := control.NewFSSnapshotRepository(filepath.Join(cfg.DataDir, "snapshots"))
+	if err != nil {
+		return nil, err
+	}
+	controlService := control.NewService(control.Options{
+		Catalog:   control.DefaultCatalog(),
+		State:     metaStore,
+		Blobs:     blobStore,
+		Runtime:   lambdaRuntime,
+		Snapshots: snapshotRepo,
+	})
+
 	handler := httpapi.NewServer(httpapi.Options{
 		Logger:     logger,
 		STS:        sts.NewService(),
@@ -160,6 +173,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		ElastiCache:     elastiCacheService,
 		DynamoDBStreams: streamsService,
 		Operator:        operatorService,
+		Control:         control.NewHandler(controlService),
+		Gate:            controlService.Gate(),
 	})
 
 	server := &http.Server{
