@@ -5,9 +5,23 @@ import "strings"
 type Mode string
 
 const (
-	ModeDev   Mode = "dev"
-	ModeServe Mode = "serve"
+	ModeDev      Mode = "dev"
+	ModeServe    Mode = "serve"
+	ModeWait     Mode = "wait"
+	ModeReset    Mode = "reset"
+	ModeSnapshot Mode = "snapshot"
 )
+
+// IsControl reports whether the mode talks to a running Stratus instead of
+// starting one.
+func (m Mode) IsControl() bool {
+	switch m {
+	case ModeWait, ModeReset, ModeSnapshot:
+		return true
+	default:
+		return false
+	}
+}
 
 func ParseMode(args []string) (Mode, []string) {
 	if len(args) == 0 {
@@ -15,11 +29,9 @@ func ParseMode(args []string) (Mode, []string) {
 	}
 
 	head := strings.TrimSpace(args[0])
-	switch head {
-	case "dev":
-		return ModeDev, args[1:]
-	case "serve":
-		return ModeServe, args[1:]
+	switch Mode(head) {
+	case ModeDev, ModeServe, ModeWait, ModeReset, ModeSnapshot:
+		return Mode(head), args[1:]
 	default:
 		if strings.HasPrefix(head, "-") {
 			return ModeServe, args

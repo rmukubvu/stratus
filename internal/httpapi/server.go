@@ -14,6 +14,7 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/control"
 	"github.com/stratus/internal/operator"
 	"github.com/stratus/internal/services/acm"
 	"github.com/stratus/internal/services/apigateway"
@@ -72,6 +73,11 @@ type Options struct {
 	ElastiCache     *elasticache.Service
 	DynamoDBStreams *dynamodbstreams.Service
 	Operator        *operator.Service
+	// Control serves /_stratus/control/v1. Optional.
+	Control http.Handler
+	// Gate, when set, admits each AWS API request so control operations
+	// such as reset and restore never interleave with in-flight requests.
+	Gate *control.Gate
 }
 
 type Server struct {
@@ -103,6 +109,8 @@ type Server struct {
 	elastiCache     *elasticache.Service
 	dynamodbStreams *dynamodbstreams.Service
 	operator        *operator.Service
+	control         http.Handler
+	gate            *control.Gate
 }
 
 func NewServer(opts Options) *Server {
@@ -140,12 +148,21 @@ func NewServer(opts Options) *Server {
 		elastiCache:     opts.ElastiCache,
 		dynamodbStreams: opts.DynamoDBStreams,
 		operator:        opts.Operator,
+		control:         opts.Control,
+		gate:            opts.Gate,
 	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if s.handleControl(w, r) {
+		return
+	}
 	if s.handleOperator(w, r) {
 		return
+	}
+	if s.gate != nil {
+		release := s.gate.Admit()
+		defer release()
 	}
 
 	start := time.Now()
@@ -229,6 +246,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ErrorMessage: errorMessage(apiErr),
 		})
 	}
+}
+
+// handleControl serves the control API. It runs outside the gate because
+// control operations take the gate exclusively themselves.
+func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) bool {
+	if !control.Matches(r.URL.Path) {
+		return false
+	}
+	if s.control == nil {
+		WriteJSON(w, http.StatusNotImplemented, map[string]any{"error": map[string]string{
+			"code":    "ControlAPIDisabled",
+			"message": "the control API is not configured on this server",
+		}})
+		return true
+	}
+	s.control.ServeHTTP(w, r)
+	return true
 }
 
 func (s *Server) handleOperator(w http.ResponseWriter, r *http.Request) bool {

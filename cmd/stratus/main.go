@@ -24,6 +24,13 @@ func main() {
 	}
 
 	mode, args := cli.ParseMode(os.Args[1:])
+	if mode.IsControl() {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		code := cli.RunControl(ctx, mode, args, cli.DefaultClientFactory, os.Stdout, os.Stderr)
+		stop()
+		os.Exit(code)
+	}
+
 	var (
 		cfg    *config.Config
 		noOpen bool
@@ -104,6 +111,15 @@ Usage:
   stratus serve [flags]         Start the emulator in headless mode
   stratus --port 4566           Legacy headless form, equivalent to serve
 
+Control a running Stratus (for CI and agents; output is JSON):
+  stratus wait [--timeout 60s]          Block until Stratus is ready
+  stratus reset [service...]            Reset all state, or only the named services
+  stratus snapshot save [name]          Capture all current state
+  stratus snapshot restore <name>       Return to a captured state
+  stratus snapshot list                 List snapshots
+  stratus snapshot delete <name>        Delete a snapshot
+  Control flags go before arguments: --endpoint <url> (env STRATUS_ENDPOINT)
+
 Common flags:
   --port <port>                 Port to listen on (default: 4566)
   --data-dir <dir>              Persistent data directory (default: ./data)
@@ -117,6 +133,7 @@ Key endpoints:
   /_stratus/                    Built-in operator portal
   /_stratus/health              Health check
   /_stratus/operator/bootstrap  Service inventory and quick-start data
+  /_stratus/control/v1/         Control API: health, ready, reset, snapshots
 `)
 }
 
