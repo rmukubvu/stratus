@@ -2,7 +2,7 @@
 
 Control a local [Stratus](../../README.md) from tests and agents: wait for it,
 reset it, snapshot and roll back state, run seeded chaos, and ask why calls
-failed. Standard library only; Python 3.9+.
+failed. Standard library only; Python 3.11+.
 
 ```sh
 pip install "git+https://github.com/rmukubvu/stratus#subdirectory=sdk/python"

@@ -98,7 +98,7 @@ jobs:
       matrix:
         include:
           - node: "20"
-            python: "3.9"
+            python: "3.11"
           - node: "22"
             python: "3.13"
     runs-on: ubuntu-latest
