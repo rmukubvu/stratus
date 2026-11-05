@@ -85,6 +85,7 @@ func Tools(api ControlAPI) []Tool {
 						"AWS_ACCESS_KEY_ID":     "test",
 						"AWS_SECRET_ACCESS_KEY": "test",
 						"AWS_REGION":            "us-east-1",
+						"AWS_DEFAULT_REGION":    "us-east-1",
 					},
 					"note": "Stratus accepts any credentials. Lambda functions reach Stratus at http://host.docker.internal:<port>.",
 				}, nil
