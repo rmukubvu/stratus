@@ -279,3 +279,25 @@ func TestCustomErrorGetsDefaultMessage(t *testing.T) {
 		t.Fatalf("error: %+v", d.Error)
 	}
 }
+
+func TestHitsSurviveStopForAttribution(t *testing.T) {
+	e, _ := newEngine()
+	if len(e.Hits()) != 0 {
+		t.Fatal("fresh engine has hits")
+	}
+	mustStart(t, e, Spec{Rules: []Rule{{ID: "t", Service: "sqs", Action: ActionThrottle}}})
+	e.Decide(sqsSend("req-1"))
+	if hits := e.Hits(); len(hits) != 1 || hits[0].RequestID != "req-1" {
+		t.Fatalf("running hits: %+v", hits)
+	}
+	if _, err := e.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if hits := e.Hits(); len(hits) != 1 || hits[0].RuleID != "t" {
+		t.Fatalf("hits after stop: %+v", hits)
+	}
+	mustStart(t, e, Spec{Rules: []Rule{{Service: "s3", Action: ActionDrop}}})
+	if len(e.Hits()) != 0 {
+		t.Fatal("new experiment should start with no hits")
+	}
+}

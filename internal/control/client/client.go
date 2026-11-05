@@ -143,6 +143,19 @@ func (c *Client) StopChaos(ctx context.Context) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodDelete, "/chaos", nil)
 }
 
+// Diagnose explains recent failures. query may set since, service,
+// exclude_injected and max_groups.
+func (c *Client) Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error) {
+	path := "/diagnostics"
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	return c.Do(ctx, http.MethodGet, path, nil)
+}
+
+// Endpoint returns the base URL the client talks to.
+func (c *Client) Endpoint() string { return c.base.String() }
+
 // WaitReady polls until the emulator reports ready or ctx ends. Connection
 // errors are expected while the server starts and are retried.
 func (c *Client) WaitReady(ctx context.Context, interval time.Duration) error {

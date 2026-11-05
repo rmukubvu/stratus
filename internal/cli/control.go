@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"time"
 
@@ -27,6 +28,7 @@ type ControlClient interface {
 	StartChaos(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
 	ChaosReport(ctx context.Context) (json.RawMessage, error)
 	StopChaos(ctx context.Context) (json.RawMessage, error)
+	Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error)
 }
 
 // ClientFactory builds a client for an endpoint; tests substitute a fake.
@@ -49,6 +51,9 @@ func RunControl(ctx context.Context, mode Mode, args []string, newClient ClientF
 	}
 	endpoint := fs.String("endpoint", defaultEndpoint, "Stratus endpoint (env "+EndpointEnv+")")
 	timeout := fs.Duration("timeout", 60*time.Second, "How long to wait (wait only)")
+	since := fs.String("since", "", "Only failures this recent, e.g. 5m (diagnose only)")
+	service := fs.String("service", "", "Only this service (diagnose only)")
+	excludeInjected := fs.Bool("exclude-injected", false, "Leave out chaos faults (diagnose only)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -76,6 +81,18 @@ func RunControl(ctx context.Context, mode Mode, args []string, newClient ClientF
 		if errors.Is(err, errUsage) {
 			return 2
 		}
+	case ModeDiagnose:
+		q := url.Values{}
+		if *since != "" {
+			q.Set("since", *since)
+		}
+		if *service != "" {
+			q.Set("service", *service)
+		}
+		if *excludeInjected {
+			q.Set("exclude_injected", "true")
+		}
+		out, err = c.Diagnose(ctx, q)
 	case ModeChaos:
 		out, err = runChaos(ctx, c, rest, stderr)
 		if errors.Is(err, errUsage) {

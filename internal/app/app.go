@@ -15,6 +15,7 @@ import (
 	"github.com/stratus/internal/config"
 	"github.com/stratus/internal/container"
 	"github.com/stratus/internal/control"
+	"github.com/stratus/internal/diagnose"
 	"github.com/stratus/internal/httpapi"
 	"github.com/stratus/internal/operator"
 	"github.com/stratus/internal/services/acm"
@@ -143,6 +144,11 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 
 	controlHandler := control.NewHandler(controlService)
 	chaos.RegisterRoutes(controlHandler, chaosEngine)
+	diagnose.RegisterRoutes(controlHandler, diagnose.NewService(
+		failuresFrom(operatorStore),
+		injectionsFrom(chaosEngine),
+		nil,
+	))
 
 	handler := httpapi.NewServer(httpapi.Options{
 		Logger:     logger,
@@ -292,4 +298,36 @@ func (a *App) closeResources() error {
 		}
 	}
 	return firstErr
+}
+
+// failuresFrom adapts the operator's request log to the diagnosis port.
+func failuresFrom(store *operator.Store) diagnose.FailureSource {
+	return func() []diagnose.Failure {
+		records := store.Errors(200)
+		out := make([]diagnose.Failure, 0, len(records))
+		for _, r := range records {
+			out = append(out, diagnose.Failure{
+				Time: r.Time, RequestID: r.RequestID, Service: r.Service, Operation: r.Operation,
+				Method: r.Method, Path: r.Path, Status: r.Status, Code: r.ErrorCode, Message: r.ErrorMessage,
+			})
+		}
+		return out
+	}
+}
+
+// injectionsFrom adapts chaos hits to the diagnosis port.
+func injectionsFrom(engine *chaos.Engine) diagnose.InjectionSource {
+	return func() map[string]diagnose.Injection {
+		hits := engine.Hits()
+		out := make(map[string]diagnose.Injection, len(hits))
+		for _, h := range hits {
+			// Latency and cold starts don't fail a request by themselves, so
+			// a failure after one of them is not attributed to chaos.
+			if h.Action == chaos.ActionLatency || h.Action == chaos.ActionColdStart {
+				continue
+			}
+			out[h.RequestID] = diagnose.Injection{RuleID: h.RuleID, Action: string(h.Action)}
+		}
+		return out
+	}
 }
