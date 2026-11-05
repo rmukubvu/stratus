@@ -395,6 +395,16 @@ Test code can use the [TypeScript](sdk/typescript/README.md) and
 [Python](sdk/python/README.md) SDKs, which add snapshot and chaos scopes that
 always clean up, plus pytest fixtures. See [docs/agents.md](docs/agents.md).
 
+## Proof
+
+- [Test isolation benchmark](docs/benchmark.md): restoring a snapshot gets a
+  suite back to its seeded state about 80x faster than rerunning setup,
+  taking 200 tests from about 3 minutes of overhead to about 2 seconds.
+  CI reruns it on every push.
+- [Agent demo](examples/agent-demo/README.md): an agent loop over MCP that
+  diagnoses a failing test, fixes it, and shows the fix holds under seeded
+  throttling. CI replays it on every push.
+
 ## Logging and Terminal Output
 
 `stratus` supports:
