@@ -391,7 +391,9 @@ claude mcp add stratus -- stratus mcp --start
 stratus diagnose --since 5m   # grouped failures, likely cause, next step
 ```
 
-See [docs/agents.md](docs/agents.md).
+Test code can use the [TypeScript](sdk/typescript/README.md) and
+[Python](sdk/python/README.md) SDKs, which add snapshot and chaos scopes that
+always clean up, plus pytest fixtures. See [docs/agents.md](docs/agents.md).
 
 ## Logging and Terminal Output
 
