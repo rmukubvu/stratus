@@ -24,6 +24,9 @@ type ControlClient interface {
 	RestoreSnapshot(ctx context.Context, name string) (json.RawMessage, error)
 	DeleteSnapshot(ctx context.Context, name string) error
 	WaitReady(ctx context.Context, interval time.Duration) error
+	StartChaos(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
+	ChaosReport(ctx context.Context) (json.RawMessage, error)
+	StopChaos(ctx context.Context) (json.RawMessage, error)
 }
 
 // ClientFactory builds a client for an endpoint; tests substitute a fake.
@@ -70,6 +73,11 @@ func RunControl(ctx context.Context, mode Mode, args []string, newClient ClientF
 		out, err = c.Reset(ctx, rest...)
 	case ModeSnapshot:
 		out, err = runSnapshot(ctx, c, rest, stderr)
+		if errors.Is(err, errUsage) {
+			return 2
+		}
+	case ModeChaos:
+		out, err = runChaos(ctx, c, rest, stderr)
 		if errors.Is(err, errUsage) {
 			return 2
 		}
@@ -138,4 +146,46 @@ func runSnapshot(ctx context.Context, c ControlClient, args []string, stderr io.
 		fmt.Fprintf(stderr, "stratus snapshot: unknown command %q\n%s", verb, snapshotUsage)
 		return nil, errUsage
 	}
+}
+
+const chaosUsage = `usage:
+  stratus chaos start <experiment.json | ->   start a chaos experiment (replaces any current one)
+  stratus chaos status                        show per-rule counts and recent faults
+  stratus chaos stop                          stop and print the final report
+`
+
+func runChaos(ctx context.Context, c ControlClient, args []string, stderr io.Writer) (json.RawMessage, error) {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, chaosUsage)
+		return nil, errUsage
+	}
+	switch verb, rest := args[0], args[1:]; verb {
+	case "start":
+		if len(rest) != 1 {
+			fmt.Fprint(stderr, chaosUsage)
+			return nil, errUsage
+		}
+		spec, err := readSpec(rest[0])
+		if err != nil {
+			return nil, err
+		}
+		if !json.Valid(spec) {
+			return nil, fmt.Errorf("%s is not valid JSON", rest[0])
+		}
+		return c.StartChaos(ctx, spec)
+	case "status":
+		return c.ChaosReport(ctx)
+	case "stop":
+		return c.StopChaos(ctx)
+	default:
+		fmt.Fprintf(stderr, "stratus chaos: unknown command %q\n%s", verb, chaosUsage)
+		return nil, errUsage
+	}
+}
+
+func readSpec(path string) ([]byte, error) {
+	if path == "-" {
+		return io.ReadAll(os.Stdin)
+	}
+	return os.ReadFile(path)
 }

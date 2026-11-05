@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/stratus/internal/chaos"
 	"github.com/stratus/internal/config"
 	"github.com/stratus/internal/container"
 	"github.com/stratus/internal/control"
@@ -131,6 +132,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	chaosEngine := chaos.NewEngine(control.DefaultCatalog().Names(), nil)
 	controlService := control.NewService(control.Options{
 		Catalog:   control.DefaultCatalog(),
 		State:     metaStore,
@@ -138,6 +140,9 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Runtime:   lambdaRuntime,
 		Snapshots: snapshotRepo,
 	})
+
+	controlHandler := control.NewHandler(controlService)
+	chaos.RegisterRoutes(controlHandler, chaosEngine)
 
 	handler := httpapi.NewServer(httpapi.Options{
 		Logger:     logger,
@@ -182,8 +187,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		ElastiCache:     elastiCacheService,
 		DynamoDBStreams: streamsService,
 		Operator:        operatorService,
-		Control:         control.NewHandler(controlService),
+		Control:         controlHandler,
 		Gate:            controlService.Gate(),
+		Faults:          chaosEngine,
+		ColdStart:       lambdaRuntime.CleanupFunction,
 	})
 
 	server := &http.Server{

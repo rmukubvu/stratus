@@ -131,6 +131,9 @@ Control a running Stratus (for CI and agents; output is JSON):
   stratus snapshot restore <name>       Return to a captured state
   stratus snapshot list                 List snapshots
   stratus snapshot delete <name>        Delete a snapshot
+  stratus chaos start <file|->          Start a seeded chaos experiment (JSON)
+  stratus chaos status                  Show injected faults so far
+  stratus chaos stop                    Stop and print the final report
   Control flags go before arguments: --endpoint <url> (env STRATUS_ENDPOINT)
 
 Common flags:
@@ -147,7 +150,7 @@ Key endpoints:
   /_stratus/                    Built-in operator portal
   /_stratus/health              Health check
   /_stratus/operator/bootstrap  Service inventory and quick-start data
-  /_stratus/control/v1/         Control API: health, ready, reset, snapshots
+  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, chaos
 `)
 }
 

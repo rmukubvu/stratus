@@ -11,13 +11,14 @@ const (
 	ModeReset    Mode = "reset"
 	ModeSnapshot Mode = "snapshot"
 	ModeCI       Mode = "ci"
+	ModeChaos    Mode = "chaos"
 )
 
 // IsControl reports whether the mode talks to a running Stratus instead of
 // starting one.
 func (m Mode) IsControl() bool {
 	switch m {
-	case ModeWait, ModeReset, ModeSnapshot:
+	case ModeWait, ModeReset, ModeSnapshot, ModeChaos:
 		return true
 	default:
 		return false
@@ -31,7 +32,7 @@ func ParseMode(args []string) (Mode, []string) {
 
 	head := strings.TrimSpace(args[0])
 	switch Mode(head) {
-	case ModeDev, ModeServe, ModeWait, ModeReset, ModeSnapshot, ModeCI:
+	case ModeDev, ModeServe, ModeWait, ModeReset, ModeSnapshot, ModeCI, ModeChaos:
 		return Mode(head), args[1:]
 	default:
 		if strings.HasPrefix(head, "-") {

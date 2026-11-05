@@ -45,6 +45,13 @@ func NewHandler(svc *Service) *Handler {
 	return h
 }
 
+// HandleFunc registers an extra route on the control API, so other bounded
+// contexts (such as chaos) can expose endpoints under the same prefix and
+// share its error format. Patterns use net/http ServeMux syntax.
+func (h *Handler) HandleFunc(pattern string, fn http.HandlerFunc) {
+	h.mux.HandleFunc(pattern, fn)
+}
+
 // Matches reports whether a request path belongs to the control API.
 func Matches(path string) bool {
 	return path == PathPrefix || strings.HasPrefix(path, PathPrefix+"/")
@@ -52,11 +59,11 @@ func Matches(path string) bool {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if _, pattern := h.mux.Handler(r); pattern == "" {
-		writeError(w, &Error{
+		WriteError(w, &Error{
 			Kind:    KindNotFound,
 			Code:    "UnknownControlEndpoint",
 			Message: r.Method + " " + r.URL.Path + " is not a control API endpoint",
-			Hint:    "see GET " + PathPrefix + "/health; endpoints: health, ready, reset, snapshots",
+			Hint:    "see GET " + PathPrefix + "/health; endpoints: health, ready, reset, snapshots, chaos",
 		})
 		return
 	}
@@ -64,7 +71,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.svc.Health(r.Context()))
+	WriteJSON(w, http.StatusOK, h.svc.Health(r.Context()))
 }
 
 func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +80,7 @@ func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
 	if !health.Ready {
 		status = http.StatusServiceUnavailable
 	}
-	writeJSON(w, status, map[string]any{"ready": health.Ready, "status": health.Status, "checks": health.Checks})
+	WriteJSON(w, status, map[string]any{"ready": health.Ready, "status": health.Status, "checks": health.Checks})
 }
 
 type resetRequest struct {
@@ -82,25 +89,25 @@ type resetRequest struct {
 
 func (h *Handler) reset(w http.ResponseWriter, r *http.Request) {
 	var req resetRequest
-	if err := decodeOptionalJSON(r, &req); err != nil {
-		writeError(w, err)
+	if err := DecodeOptionalJSON(r, &req); err != nil {
+		WriteError(w, err)
 		return
 	}
 	result, err := h.svc.Reset(r.Context(), req.Services)
 	if err != nil {
-		writeError(w, err)
+		WriteError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	WriteJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) listSnapshots(w http.ResponseWriter, _ *http.Request) {
 	snaps, err := h.svc.ListSnapshots()
 	if err != nil {
-		writeError(w, err)
+		WriteError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": snaps})
+	WriteJSON(w, http.StatusOK, map[string]any{"items": snaps})
 }
 
 type createSnapshotRequest struct {
@@ -109,30 +116,30 @@ type createSnapshotRequest struct {
 
 func (h *Handler) createSnapshot(w http.ResponseWriter, r *http.Request) {
 	var req createSnapshotRequest
-	if err := decodeOptionalJSON(r, &req); err != nil {
-		writeError(w, err)
+	if err := DecodeOptionalJSON(r, &req); err != nil {
+		WriteError(w, err)
 		return
 	}
 	snap, err := h.svc.CreateSnapshot(r.Context(), req.Name)
 	if err != nil {
-		writeError(w, err)
+		WriteError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, snap)
+	WriteJSON(w, http.StatusCreated, snap)
 }
 
 func (h *Handler) getSnapshot(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.svc.GetSnapshot(r.PathValue("id"))
 	if err != nil {
-		writeError(w, err)
+		WriteError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, snap)
+	WriteJSON(w, http.StatusOK, snap)
 }
 
 func (h *Handler) deleteSnapshot(w http.ResponseWriter, r *http.Request) {
 	if err := h.svc.DeleteSnapshot(r.PathValue("id")); err != nil {
-		writeError(w, err)
+		WriteError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -141,14 +148,14 @@ func (h *Handler) deleteSnapshot(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) restoreSnapshot(w http.ResponseWriter, r *http.Request) {
 	snap, err := h.svc.RestoreSnapshot(r.Context(), r.PathValue("id"))
 	if err != nil {
-		writeError(w, err)
+		WriteError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"restored": snap})
+	WriteJSON(w, http.StatusOK, map[string]any{"restored": snap})
 }
 
-// decodeOptionalJSON accepts an empty body as the zero value.
-func decodeOptionalJSON(r *http.Request, dst any) error {
+// DecodeOptionalJSON decodes a JSON request body, rejecting unknown fields. It accepts an empty body as the zero value.
+func DecodeOptionalJSON(r *http.Request, dst any) error {
 	if r.Body == nil {
 		return nil
 	}
@@ -171,13 +178,14 @@ type errorBody struct {
 	Hint    string `json:"hint,omitempty"`
 }
 
-func writeError(w http.ResponseWriter, err error) {
+// WriteError writes err in the control API error format.
+func WriteError(w http.ResponseWriter, err error) {
 	ce := AsError(err)
 	body := errorBody{Code: ce.Code, Message: ce.Message, Hint: ce.Hint}
 	if ce.Kind == KindInternal && ce.Err != nil {
 		body.Message = ce.Message + ": " + ce.Err.Error()
 	}
-	writeJSON(w, statusFor(ce.Kind), map[string]errorBody{"error": body})
+	WriteJSON(w, statusFor(ce.Kind), map[string]errorBody{"error": body})
 }
 
 func statusFor(kind Kind) int {
@@ -195,7 +203,8 @@ func statusFor(kind Kind) int {
 	}
 }
 
-func writeJSON(w http.ResponseWriter, status int, payload any) {
+// WriteJSON writes payload as indented JSON.
+func WriteJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	enc := json.NewEncoder(w)

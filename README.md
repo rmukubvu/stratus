@@ -366,6 +366,21 @@ In GitHub Actions:
 See [docs/ci.md](docs/ci.md) for seeding parallel jobs from one snapshot,
 orphan container cleanup and all action inputs.
 
+## Chaos Testing
+
+Inject seeded, reproducible faults into AWS calls without a service mesh:
+throttling, errors, latency, dropped connections and Lambda cold starts.
+
+```sh
+echo '{"seed": 42, "rules": [{"service": "dynamodb", "action": "throttle", "probability": 0.2}]}' \
+  | stratus chaos start -
+go test ./...
+stratus chaos stop      # per-rule counts and every faulted request ID
+```
+
+Faults use each service's real error shape, so SDK retries behave as they
+do against AWS. See [docs/chaos.md](docs/chaos.md).
+
 ## Logging and Terminal Output
 
 `stratus` supports:

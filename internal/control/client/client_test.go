@@ -71,6 +71,9 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 	_, _ = c.ListSnapshots(ctx)
 	_, _ = c.RestoreSnapshot(ctx, "base")
 	_ = c.DeleteSnapshot(ctx, "base")
+	_, _ = c.StartChaos(ctx, json.RawMessage(`{"rules":[]}`))
+	_, _ = c.ChaosReport(ctx)
+	_, _ = c.StopChaos(ctx)
 
 	want := []string{
 		"POST /_stratus/control/v1/reset",
@@ -78,6 +81,9 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 		"GET /_stratus/control/v1/snapshots",
 		"POST /_stratus/control/v1/snapshots/base/restore",
 		"DELETE /_stratus/control/v1/snapshots/base",
+		"PUT /_stratus/control/v1/chaos",
+		"GET /_stratus/control/v1/chaos",
+		"DELETE /_stratus/control/v1/chaos",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)
