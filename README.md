@@ -381,6 +381,18 @@ stratus chaos stop      # per-rule counts and every faulted request ID
 Faults use each service's real error shape, so SDK retries behave as they
 do against AWS. See [docs/chaos.md](docs/chaos.md).
 
+## AI Coding Agents
+
+`stratus mcp` is an MCP server, so agents get health, reset, snapshots, chaos
+and plain-language diagnostics as tools:
+
+```sh
+claude mcp add stratus -- stratus mcp --start
+stratus diagnose --since 5m   # grouped failures, likely cause, next step
+```
+
+See [docs/agents.md](docs/agents.md).
+
 ## Logging and Terminal Output
 
 `stratus` supports:

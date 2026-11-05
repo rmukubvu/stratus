@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -49,6 +50,9 @@ func (f *fakeControl) ChaosReport(context.Context) (json.RawMessage, error) {
 func (f *fakeControl) StopChaos(context.Context) (json.RawMessage, error) {
 	return f.record("chaos-stop")
 }
+func (f *fakeControl) Diagnose(_ context.Context, q url.Values) (json.RawMessage, error) {
+	return f.record("diagnose " + q.Encode())
+}
 func (f *fakeControl) WaitReady(context.Context, time.Duration) error {
 	_, err := f.record("wait")
 	return err
@@ -66,7 +70,7 @@ func run(t *testing.T, fake *fakeControl, args ...string) (int, string, string) 
 }
 
 func TestParseModeRecognisesControlCommands(t *testing.T) {
-	for _, m := range []Mode{ModeWait, ModeReset, ModeSnapshot, ModeChaos} {
+	for _, m := range []Mode{ModeWait, ModeReset, ModeSnapshot, ModeChaos, ModeDiagnose} {
 		got, rest := ParseMode([]string{string(m), "x"})
 		if got != m || !got.IsControl() || !reflect.DeepEqual(rest, []string{"x"}) {
 			t.Errorf("ParseMode(%s) = %s %v", m, got, rest)
@@ -90,6 +94,8 @@ func TestControlCommandsMapToClientCalls(t *testing.T) {
 		{[]string{"snapshot", "restore", "baseline"}, "restore baseline"},
 		{[]string{"snapshot", "list"}, "list"},
 		{[]string{"snapshot", "delete", "baseline"}, "delete baseline"},
+		{[]string{"diagnose"}, "diagnose "},
+		{[]string{"diagnose", "--since", "5m", "--service", "sqs", "--exclude-injected"}, "diagnose exclude_injected=true&service=sqs&since=5m"},
 	}
 	for _, tc := range cases {
 		fake := &fakeControl{}

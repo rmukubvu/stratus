@@ -79,7 +79,7 @@ func (s *Store) Record(record RequestRecord) {
 	if len(s.activity) > s.activityLimit {
 		s.activity = s.activity[:s.activityLimit]
 	}
-	if record.Status >= 400 {
+	if record.Status >= 400 || record.ErrorCode != "" {
 		s.errors = append([]RequestRecord{record}, s.errors...)
 		if len(s.errors) > s.errorLimit {
 			s.errors = s.errors[:s.errorLimit]

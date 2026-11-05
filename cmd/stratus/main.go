@@ -18,6 +18,9 @@ import (
 	"github.com/stratus/internal/config"
 )
 
+// version is set at build time by GoReleaser (-X main.version=...).
+var version = "dev"
+
 func main() {
 	if wantsHelp(os.Args[1:]) {
 		printUsage()
@@ -28,6 +31,14 @@ func main() {
 	if mode == cli.ModeCI {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		code := cli.RunCI(ctx, args, ci.DefaultRunner(), os.Stderr)
+		stop()
+		os.Exit(code)
+	}
+	if mode == cli.ModeMCP {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		code := cli.RunMCP(ctx, args, cli.MCPDeps{
+			Start: ci.StartInProcess, Ready: ci.WaitReady, TempDir: ci.TempDataDir, Remove: os.RemoveAll, Version: version,
+		}, os.Stdin, os.Stdout, os.Stderr)
 		stop()
 		os.Exit(code)
 	}
@@ -124,6 +135,10 @@ Run tests against a private, throwaway Stratus (isolated and self-cleaning):
                                 everything removed afterwards. Exit code is the
                                 command's, or 125 if Stratus failed.
 
+Let coding agents drive Stratus (Model Context Protocol over stdio):
+  stratus mcp [--start] [--endpoint URL]
+                                e.g. claude mcp add stratus -- stratus mcp --start
+
 Control a running Stratus (for CI and agents; output is JSON):
   stratus wait [--timeout 60s]          Block until Stratus is ready
   stratus reset [service...]            Reset all state, or only the named services
@@ -134,6 +149,7 @@ Control a running Stratus (for CI and agents; output is JSON):
   stratus chaos start <file|->          Start a seeded chaos experiment (JSON)
   stratus chaos status                  Show injected faults so far
   stratus chaos stop                    Stop and print the final report
+  stratus diagnose [--since 5m]         Explain recent failures (cause, next step)
   Control flags go before arguments: --endpoint <url> (env STRATUS_ENDPOINT)
 
 Common flags:
@@ -150,7 +166,7 @@ Key endpoints:
   /_stratus/                    Built-in operator portal
   /_stratus/health              Health check
   /_stratus/operator/bootstrap  Service inventory and quick-start data
-  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, chaos
+  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, chaos, diagnostics
 `)
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -74,6 +75,7 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 	_, _ = c.StartChaos(ctx, json.RawMessage(`{"rules":[]}`))
 	_, _ = c.ChaosReport(ctx)
 	_, _ = c.StopChaos(ctx)
+	_, _ = c.Diagnose(ctx, url.Values{"since": {"5m"}})
 
 	want := []string{
 		"POST /_stratus/control/v1/reset",
@@ -84,6 +86,7 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 		"PUT /_stratus/control/v1/chaos",
 		"GET /_stratus/control/v1/chaos",
 		"DELETE /_stratus/control/v1/chaos",
+		"GET /_stratus/control/v1/diagnostics",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)

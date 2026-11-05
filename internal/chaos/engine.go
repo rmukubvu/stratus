@@ -111,6 +111,9 @@ type Engine struct {
 	exp   *experiment
 	known map[string]bool
 	clock Clock
+	// lastHits keeps the hits of the most recently stopped experiment, so
+	// failures can still be attributed to chaos after it ends.
+	lastHits []Hit
 }
 
 // NewEngine builds an engine. knownServices validates rule targets; nil
@@ -162,6 +165,7 @@ func (e *Engine) Stop() (Report, error) {
 	}
 	e.exp.stopped = true
 	report := e.reportLocked()
+	e.lastHits = e.exp.hits
 	e.exp = nil
 	return report, nil
 }
@@ -174,6 +178,17 @@ func (e *Engine) Report() (Report, error) {
 		return Report{}, noExperiment()
 	}
 	return e.reportLocked(), nil
+}
+
+// Hits returns the recorded hits of the running experiment, or of the last
+// stopped one when none is running.
+func (e *Engine) Hits() []Hit {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.exp != nil {
+		return append([]Hit{}, e.exp.hits...)
+	}
+	return append([]Hit{}, e.lastHits...)
 }
 
 // Decide returns the faults to inject into req and records them.
