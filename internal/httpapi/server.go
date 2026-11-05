@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -73,6 +74,11 @@ type Options struct {
 	ElastiCache     *elasticache.Service
 	DynamoDBStreams *dynamodbstreams.Service
 	Operator        *operator.Service
+	// Faults, when set, injects chaos faults into AWS API requests.
+	Faults FaultDecider
+	// ColdStart discards a Lambda function's warm container. Used by the
+	// chaos cold_start action.
+	ColdStart func(ctx context.Context, functionName string) error
 	// Control serves /_stratus/control/v1. Optional.
 	Control http.Handler
 	// Gate, when set, admits each AWS API request so control operations
@@ -111,6 +117,8 @@ type Server struct {
 	operator        *operator.Service
 	control         http.Handler
 	gate            *control.Gate
+	faults          FaultDecider
+	coldStart       func(ctx context.Context, functionName string) error
 }
 
 func NewServer(opts Options) *Server {
@@ -150,6 +158,8 @@ func NewServer(opts Options) *Server {
 		operator:        opts.Operator,
 		control:         opts.Control,
 		gate:            opts.Gate,
+		faults:          opts.Faults,
+		coldStart:       opts.ColdStart,
 	}
 }
 
@@ -204,6 +214,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
+	if err == nil {
+		var drop bool
+		drop, err = s.injectFaults(recorder, r, metadata)
+		if drop {
+			s.recordDropped(start, r, metadata)
+			// Abort without a response: the client sees a reset connection.
+			panic(http.ErrAbortHandler)
+		}
+	}
 	if err == nil {
 		err = s.dispatch(recorder, r, metadata)
 	}

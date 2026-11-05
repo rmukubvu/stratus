@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -38,6 +40,15 @@ func (f *fakeControl) DeleteSnapshot(_ context.Context, name string) error {
 	_, err := f.record("delete " + name)
 	return err
 }
+func (f *fakeControl) StartChaos(_ context.Context, spec json.RawMessage) (json.RawMessage, error) {
+	return f.record("chaos-start " + string(spec))
+}
+func (f *fakeControl) ChaosReport(context.Context) (json.RawMessage, error) {
+	return f.record("chaos-status")
+}
+func (f *fakeControl) StopChaos(context.Context) (json.RawMessage, error) {
+	return f.record("chaos-stop")
+}
 func (f *fakeControl) WaitReady(context.Context, time.Duration) error {
 	_, err := f.record("wait")
 	return err
@@ -55,7 +66,7 @@ func run(t *testing.T, fake *fakeControl, args ...string) (int, string, string) 
 }
 
 func TestParseModeRecognisesControlCommands(t *testing.T) {
-	for _, m := range []Mode{ModeWait, ModeReset, ModeSnapshot} {
+	for _, m := range []Mode{ModeWait, ModeReset, ModeSnapshot, ModeChaos} {
 		got, rest := ParseMode([]string{string(m), "x"})
 		if got != m || !got.IsControl() || !reflect.DeepEqual(rest, []string{"x"}) {
 			t.Errorf("ParseMode(%s) = %s %v", m, got, rest)
@@ -129,6 +140,48 @@ func TestSnapshotUsageErrors(t *testing.T) {
 		code, _, stderr := run(t, fake, args...)
 		if code != 2 || len(fake.calls) != 0 || !strings.Contains(stderr, "usage") {
 			t.Errorf("%v: code=%d calls=%v stderr=%q", args, code, fake.calls, stderr)
+		}
+	}
+}
+
+func TestChaosCommands(t *testing.T) {
+	spec := filepath.Join(t.TempDir(), "exp.json")
+	if err := os.WriteFile(spec, []byte(`{"rules":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		args []string
+		call string
+	}{
+		{[]string{"chaos", "start", spec}, `chaos-start {"rules":[]}`},
+		{[]string{"chaos", "status"}, "chaos-status"},
+		{[]string{"chaos", "stop"}, "chaos-stop"},
+	}
+	for _, tc := range cases {
+		fake := &fakeControl{}
+		code, _, stderr := run(t, fake, tc.args...)
+		if code != 0 || len(fake.calls) != 1 || fake.calls[0] != tc.call {
+			t.Errorf("%v: code=%d calls=%v stderr=%s", tc.args, code, fake.calls, stderr)
+		}
+	}
+}
+
+func TestChaosStartRejectsMissingOrInvalidFile(t *testing.T) {
+	bad := filepath.Join(t.TempDir(), "bad.json")
+	_ = os.WriteFile(bad, []byte("{not json"), 0o600)
+	for _, args := range [][]string{
+		{"chaos", "start", filepath.Join(t.TempDir(), "missing.json")},
+		{"chaos", "start", bad},
+	} {
+		fake := &fakeControl{}
+		code, _, _ := run(t, fake, args...)
+		if code != 1 || len(fake.calls) != 0 {
+			t.Errorf("%v: code=%d calls=%v", args, code, fake.calls)
+		}
+	}
+	for _, args := range [][]string{{"chaos"}, {"chaos", "start"}, {"chaos", "explode"}} {
+		if code, _, _ := run(t, &fakeControl{}, args...); code != 2 {
+			t.Errorf("%v: code=%d, want usage error", args, code)
 		}
 	}
 }

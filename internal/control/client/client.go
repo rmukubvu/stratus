@@ -128,6 +128,21 @@ func (c *Client) DeleteSnapshot(ctx context.Context, name string) error {
 	return err
 }
 
+// StartChaos starts a chaos experiment. spec is the experiment JSON.
+func (c *Client) StartChaos(ctx context.Context, spec json.RawMessage) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPut, "/chaos", spec)
+}
+
+// ChaosReport describes the running chaos experiment.
+func (c *Client) ChaosReport(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/chaos", nil)
+}
+
+// StopChaos stops the chaos experiment and returns its final report.
+func (c *Client) StopChaos(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodDelete, "/chaos", nil)
+}
+
 // WaitReady polls until the emulator reports ready or ctx ends. Connection
 // errors are expected while the server starts and are retried.
 func (c *Client) WaitReady(ctx context.Context, interval time.Duration) error {
