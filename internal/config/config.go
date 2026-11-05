@@ -18,6 +18,9 @@ type Config struct {
 	DataDir   string
 	LogLevel  string
 	LogFormat string
+	// Seed is an optional snapshot directory used to initialise an empty
+	// data directory at startup.
+	Seed string
 }
 
 func RegisterFlags(fs *flag.FlagSet) *Config {
@@ -26,6 +29,7 @@ func RegisterFlags(fs *flag.FlagSet) *Config {
 	fs.StringVar(&cfg.DataDir, "data-dir", defaultDataDir, "Root directory for persistent data")
 	fs.StringVar(&cfg.LogLevel, "log-level", defaultLogLevel, "Log level: debug, info, warn, error")
 	fs.StringVar(&cfg.LogFormat, "log-format", defaultLogFormat, "Log format: auto, json, pretty")
+	fs.StringVar(&cfg.Seed, "seed", "", "Snapshot directory to initialise an empty data dir from")
 	return cfg
 }
 

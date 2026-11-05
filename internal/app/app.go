@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -59,6 +60,14 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	blobRoot := filepath.Join(cfg.DataDir, "blobs")
 	if err := os.MkdirAll(blobRoot, 0o755); err != nil {
 		return nil, fmt.Errorf("create blob dir: %w", err)
+	}
+
+	if cfg.Seed != "" {
+		snap, err := control.SeedDataDir(cfg.Seed, cfg.DataDir)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("seeded data dir from snapshot", "snapshot", snap.ID, "seed", cfg.Seed)
 	}
 
 	metaStore, err := bbolt.Open(filepath.Join(cfg.DataDir, "meta.db"))
@@ -214,7 +223,19 @@ func NewLogger(level, format string) *slog.Logger {
 	}
 }
 
+// Run listens on the configured address and serves until ctx is cancelled.
 func (a *App) Run(ctx context.Context) error {
+	ln, err := net.Listen("tcp", a.server.Addr)
+	if err != nil {
+		_ = a.closeResources()
+		return fmt.Errorf("listen on %s: %w", a.server.Addr, err)
+	}
+	return a.Serve(ctx, ln)
+}
+
+// Serve serves on an existing listener until ctx is cancelled, then shuts
+// down and releases all resources, including warm Lambda containers.
+func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 	errCh := make(chan error, 1)
 
 	a.logger.Info("starting stratus",
@@ -225,7 +246,7 @@ func (a *App) Run(ctx context.Context) error {
 	)
 
 	go func() {
-		err := a.server.ListenAndServe()
+		err := a.server.Serve(ln)
 		if err != nil && err != http.ErrServerClosed {
 			errCh <- err
 			return

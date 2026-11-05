@@ -35,6 +35,63 @@ jobs:
       - name: Run test suite
         run: go test ./...
 
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: go build ./...
+
+      # Contract tests need the AWS CLI and Linux Docker images, so Windows
+      # runs the unit and in-process integration tests.
+      - name: Run unit tests
+        run: go test ./internal/... ./cmd/...
+
+  action:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run a command against a throwaway Stratus
+        uses: ./
+        with:
+          version: source
+          run: |
+            curl -fsS -X PUT "$AWS_ENDPOINT_URL/action-demo" -o /dev/null
+            echo hello | curl -fsS -X PUT --data-binary @- "$AWS_ENDPOINT_URL/action-demo/hello.txt" -o /dev/null
+            test "$(curl -fsS "$AWS_ENDPOINT_URL/action-demo/hello.txt")" = "hello"
+
+      - name: Start a background Stratus
+        id: stratus
+        uses: ./
+        with:
+          version: source
+          port: "4577"
+
+      - name: Use the background Stratus from a later step
+        shell: bash
+        run: |
+          test "$AWS_ENDPOINT_URL" = "${{ steps.stratus.outputs.endpoint }}"
+          curl -fsS "$STRATUS_ENDPOINT/_stratus/control/v1/ready"
+          stratus snapshot save from-action
+
   release-gate:
     runs-on: ubuntu-latest
     needs: test

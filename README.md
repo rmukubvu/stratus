@@ -345,6 +345,27 @@ Snapshots hard-link blobs, so they are fast and cheap even with large S3
 objects. See [docs/control-api.md](docs/control-api.md) for endpoints,
 error codes and consistency guarantees.
 
+## Running in CI
+
+`stratus ci` runs your tests against a private Stratus on a free port with
+a fresh data directory, then removes everything, Lambda containers included:
+
+```sh
+stratus ci -- go test ./...
+stratus ci --seed ./fixtures/snapshots/seeded -- npm test   # start from a snapshot
+```
+
+In GitHub Actions:
+
+```yaml
+- uses: rmukubvu/stratus@main
+  with:
+    run: go test ./...
+```
+
+See [docs/ci.md](docs/ci.md) for seeding parallel jobs from one snapshot,
+orphan container cleanup and all action inputs.
+
 ## Logging and Terminal Output
 
 `stratus` supports:
