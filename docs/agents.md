@@ -54,6 +54,15 @@ A typical agent loop: `stratus_snapshot_save` before an experiment, run the
 code, `stratus_diagnose` if anything failed, `stratus_snapshot_restore` to get
 back to a known state.
 
+## SDKs
+
+For test code, the [TypeScript](../sdk/typescript/README.md) and
+[Python](../sdk/python/README.md) SDKs wrap the same API with typed errors and
+helpers that always clean up: `withSnapshot` / `snapshot_scope` roll state
+back after a block, and `withChaos` / `chaos_experiment` always stop the
+experiment. The Python package also registers `stratus` and
+`stratus_isolated` pytest fixtures. Neither has runtime dependencies.
+
 ## Diagnostics
 
 ```

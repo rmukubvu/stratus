@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stratus-sdk"
+version = "0.1.0"
+description = "Control a local Stratus AWS emulator from tests and agents: reset, snapshots, chaos and diagnostics."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = []
+classifiers = [
+    "Framework :: Pytest",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+
+[project.entry-points.pytest11]
+stratus = "stratus_sdk.pytest_plugin"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+stratus_sdk = ["py.typed"]
