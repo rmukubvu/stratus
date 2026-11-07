@@ -142,3 +142,17 @@ func emptyZip(t *testing.T) []byte {
 	}
 	return buf.Bytes()
 }
+
+func TestEventSourceServiceNamesTheMappingSource(t *testing.T) {
+	cases := map[string]string{
+		"arn:aws:sqs:us-east-1:000000000000:orders":                            "sqs",
+		"arn:aws:kinesis:us-east-1:000000000000:stream/clicks":                 "kinesis",
+		"arn:aws:dynamodb:us-east-1:000000000000:table/t/stream/2026-01-01T00": "dynamodb",
+		"not-an-arn": "",
+	}
+	for arn, want := range cases {
+		if got := eventSourceService(arn); got != want {
+			t.Errorf("eventSourceService(%q) = %q, want %q", arn, got, want)
+		}
+	}
+}

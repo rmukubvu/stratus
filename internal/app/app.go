@@ -30,6 +30,7 @@ import (
 	"github.com/stratus/internal/services/elasticache"
 	"github.com/stratus/internal/services/elbv2"
 	eventssvc "github.com/stratus/internal/services/events"
+	"github.com/stratus/internal/services/fis"
 	"github.com/stratus/internal/services/iam"
 	"github.com/stratus/internal/services/kinesis"
 	"github.com/stratus/internal/services/kms"
@@ -126,6 +127,13 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	rdsService := rds.NewService(metaStore)
 	elastiCacheService := elasticache.NewService(metaStore)
 	logsService := logs.NewService(metaStore)
+	chaosEngine := chaos.NewEngine(control.DefaultCatalog().Names(), nil)
+	deliveryFaults := chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger)
+	lambdaService.SetFaults(deliveryFaults)
+	snsService.SetFaults(deliveryFaults)
+	eventsService.SetFaults(deliveryFaults)
+	stepFunctionsService.SetFaults(deliveryFaults)
+
 	operatorStore := operator.NewStore("http://127.0.0.1"+cfg.Address(), cfg.DataDir, cfg.LogLevel, cfg.LogFormat)
 	operatorService := operator.NewService(operatorStore, logsService)
 
@@ -133,7 +141,6 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	chaosEngine := chaos.NewEngine(control.DefaultCatalog().Names(), nil)
 	controlService := control.NewService(control.Options{
 		Catalog:   control.DefaultCatalog(),
 		State:     metaStore,
@@ -192,6 +199,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		RDS:             rdsService,
 		ElastiCache:     elastiCacheService,
 		DynamoDBStreams: streamsService,
+		FIS:             fis.NewService(metaStore, chaosEngine),
 		Operator:        operatorService,
 		Control:         controlHandler,
 		Gate:            controlService.Gate(),
@@ -322,8 +330,9 @@ func injectionsFrom(engine *chaos.Engine) diagnose.InjectionSource {
 		out := make(map[string]diagnose.Injection, len(hits))
 		for _, h := range hits {
 			// Latency and cold starts don't fail a request by themselves, so
-			// a failure after one of them is not attributed to chaos.
-			if h.Action == chaos.ActionLatency || h.Action == chaos.ActionColdStart {
+			// a failure after one of them is not attributed to chaos. Event
+			// deliveries have no API request to attribute a failure to.
+			if h.Scope != chaos.ScopeAPI || h.Action == chaos.ActionLatency || h.Action == chaos.ActionColdStart {
 				continue
 			}
 			out[h.RequestID] = diagnose.Injection{RuleID: h.RuleID, Action: string(h.Action)}

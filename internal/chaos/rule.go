@@ -1,11 +1,14 @@
-// Package chaos injects deterministic faults into AWS API traffic.
+// Package chaos injects deterministic faults into AWS API traffic and into
+// the event deliveries Stratus makes internally (SQS and stream event source
+// mappings, SNS fan-out, EventBridge targets, Step Functions tasks and Lambda
+// destinations).
 //
-// An Experiment is a set of Rules plus a seed. Each rule targets requests by
-// service, operation and resource, and fires with a probability. Whether the
-// nth request matching a rule is faulted depends only on (seed, rule, n), so
-// replaying the same sequence of requests with the same seed injects exactly
-// the same faults. That makes a failing chaos run reproducible in CI and
-// debuggable by a coding agent.
+// An Experiment is a set of Rules plus a seed. Each rule targets traffic by
+// scope, service, operation and resource, and fires with a probability.
+// Whether the nth item of traffic matching a rule is faulted depends only on
+// (seed, rule, n), so replaying the same sequence with the same seed injects
+// exactly the same faults. That makes a failing chaos run reproducible in CI
+// and debuggable by a coding agent.
 package chaos
 
 import (
@@ -36,6 +39,25 @@ const (
 	// ActionColdStart discards the target function's warm container, so
 	// the Lambda invocation pays a cold start.
 	ActionColdStart Action = "cold_start"
+	// ActionFunctionError makes a Lambda invocation fail the way a function
+	// that throws does: Invoke returns 200 with X-Amz-Function-Error.
+	ActionFunctionError Action = "function_error"
+	// ActionDuplicate delivers an event twice, as at-least-once delivery
+	// can. It only applies to event deliveries.
+	ActionDuplicate Action = "duplicate"
+)
+
+// Scope says which kind of traffic a rule sees.
+type Scope string
+
+const (
+	// ScopeAPI matches AWS API requests made to Stratus. It is the default.
+	ScopeAPI Scope = "api"
+	// ScopeEvent matches deliveries Stratus makes internally, from a source
+	// service to a target, without an API request.
+	ScopeEvent Scope = "event"
+	// ScopeAll matches both.
+	ScopeAll Scope = "all"
 )
 
 // AnyService matches every service.
@@ -57,13 +79,29 @@ type LatencySpec struct {
 // Rule targets a slice of traffic and says what to do with it.
 type Rule struct {
 	ID string `json:"id"`
+	// Scope is "api" (default), "event" or "all". It defaults to "event"
+	// when Source is set.
+	Scope Scope `json:"scope,omitempty"`
 	// Service is the AWS service name, e.g. "s3", "sqs", "lambda", or "*".
+	// For an event delivery it is the service receiving the delivery.
 	Service string `json:"service"`
+	// Source is the service making an event delivery, e.g. "sns" or
+	// "events"; empty matches all. Only event deliveries have a source.
+	Source string `json:"source,omitempty"`
 	// Operation is the API operation, e.g. "PutItem"; empty matches all.
+	// Event deliveries use the target's operation: Invoke, SendMessage,
+	// Publish or StartExecution.
 	Operation string `json:"operation,omitempty"`
 	// Resource is matched as a substring of the request path, S3 bucket
-	// and Lambda function name; empty matches all.
+	// and Lambda function name, or of an event delivery's source and target
+	// ARNs; empty matches all.
 	Resource string `json:"resource,omitempty"`
+	// StartAfterSeconds delays when the rule becomes active, counted from
+	// the start of the experiment.
+	StartAfterSeconds int `json:"start_after_seconds,omitempty"`
+	// DurationSeconds limits how long the rule stays active once it has
+	// started; zero means until the experiment ends.
+	DurationSeconds int `json:"duration_seconds,omitempty"`
 	// Probability in (0, 1]; zero means 1 (always).
 	Probability float64 `json:"probability,omitempty"`
 	// MaxHits caps how many times the rule fires; zero is unlimited.
@@ -133,6 +171,16 @@ func (r Rule) normalise(index int, known map[string]bool) (Rule, error) {
 	if r.Service != AnyService && known != nil && !known[r.Service] {
 		return Rule{}, invalid("InvalidRule", "rule %q: unknown service %q", r.ID, r.Service)
 	}
+	r.Source = strings.ToLower(strings.TrimSpace(r.Source))
+	if r.Source != "" && known != nil && !known[r.Source] {
+		return Rule{}, invalid("InvalidRule", "rule %q: unknown source service %q", r.ID, r.Source)
+	}
+	if err := r.normaliseScope(); err != nil {
+		return Rule{}, err
+	}
+	if r.StartAfterSeconds < 0 || r.DurationSeconds < 0 {
+		return Rule{}, invalid("InvalidRule", "rule %q: start_after_seconds and duration_seconds must not be negative", r.ID)
+	}
 	if r.Probability == 0 {
 		r.Probability = 1
 	}
@@ -173,29 +221,69 @@ func (r Rule) normalise(index int, known map[string]bool) (Rule, error) {
 		if r.Service != "lambda" {
 			return Rule{}, invalid("InvalidRule", "rule %q: action \"cold_start\" only applies to service \"lambda\"", r.ID)
 		}
+	case ActionFunctionError:
+		if r.Service != "lambda" || (r.Operation != "" && !strings.EqualFold(r.Operation, "Invoke")) {
+			return Rule{}, invalid("InvalidRule", "rule %q: action \"function_error\" only applies to lambda Invoke", r.ID)
+		}
+		r.Operation = "Invoke"
+	case ActionDuplicate:
+		if r.Scope != ScopeEvent {
+			return Rule{}, invalid("InvalidRule", "rule %q: action \"duplicate\" only applies to scope \"event\"", r.ID)
+		}
 	default:
 		return Rule{}, invalid("InvalidRule", "rule %q: unknown action %q", r.ID, r.Action)
 	}
 	return r, nil
 }
 
+func (r *Rule) normaliseScope() error {
+	r.Scope = Scope(strings.ToLower(strings.TrimSpace(string(r.Scope))))
+	switch r.Scope {
+	case "":
+		r.Scope = ScopeAPI
+		if r.Source != "" {
+			r.Scope = ScopeEvent
+		}
+	case ScopeAPI, ScopeEvent, ScopeAll:
+	default:
+		return invalid("InvalidRule", "rule %q: scope must be \"api\", \"event\" or \"all\"", r.ID)
+	}
+	if r.Source != "" && r.Scope == ScopeAPI {
+		return invalid("InvalidRule", "rule %q: source only applies to event deliveries; set scope to \"event\"", r.ID)
+	}
+	return nil
+}
+
 const maxDelay = 5 * time.Minute
 
-// matches reports whether the rule targets the request.
-func (r Rule) matches(req Request) bool {
-	if r.Service != AnyService && r.Service != req.Service {
+// matches reports whether the rule targets the traffic.
+func (r Rule) matches(t traffic) bool {
+	if r.Scope != ScopeAll && r.Scope != t.scope {
 		return false
 	}
-	if r.Operation != "" && !strings.EqualFold(r.Operation, req.Operation) {
+	if r.Service != AnyService && r.Service != t.service {
 		return false
 	}
-	if r.Resource != "" &&
-		!strings.Contains(req.Path, r.Resource) &&
-		!strings.Contains(req.Bucket, r.Resource) &&
-		!strings.Contains(req.Function, r.Resource) {
+	if r.Source != "" && r.Source != t.source {
+		return false
+	}
+	if r.Operation != "" && !strings.EqualFold(r.Operation, t.operation) {
+		return false
+	}
+	if r.Resource != "" && !t.mentions(r.Resource) {
 		return false
 	}
 	return true
+}
+
+// activeAt reports whether the rule's time window, counted from the start
+// of the experiment, contains now.
+func (r Rule) activeAt(startedAt, now time.Time) bool {
+	from := startedAt.Add(time.Duration(r.StartAfterSeconds) * time.Second)
+	if now.Before(from) {
+		return false
+	}
+	return r.DurationSeconds == 0 || now.Before(from.Add(time.Duration(r.DurationSeconds)*time.Second))
 }
 
 // errorFor turns an error action into a concrete AWS error for service.

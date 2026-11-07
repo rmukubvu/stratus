@@ -403,3 +403,25 @@ func TestClassifyS3PathStyle(t *testing.T) {
 		t.Fatalf("unexpected classification: %+v", got)
 	}
 }
+
+func TestClassifyFISBySigningNameAndHost(t *testing.T) {
+	signed, _ := http.NewRequest(http.MethodPost, "http://localhost:4566/experimentTemplates", nil)
+	signed.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20261107/us-east-1/fis/aws4_request, SignedHeaders=host, Signature=x")
+	byHost, _ := http.NewRequest(http.MethodDelete, "http://fis.us-east-1.localhost.localstack.cloud:4566/experiments/EXP1", nil)
+
+	for req, op := range map[*http.Request]string{signed: "CreateExperimentTemplate", byHost: "StopExperiment"} {
+		got, err := Classify(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Service != "fis" || got.Protocol != ProtocolREST || got.Operation != op {
+			t.Fatalf("unexpected classification: %+v", got)
+		}
+	}
+
+	// Unsigned requests to the same paths are still path-style S3.
+	bucket, _ := http.NewRequest(http.MethodPut, "http://localhost:4566/experiments", nil)
+	if got, _ := Classify(bucket); got.Service != "s3" || got.Bucket != "experiments" {
+		t.Fatalf("unsigned /experiments should be S3: %+v", got)
+	}
+}

@@ -29,6 +29,7 @@ import (
 	"github.com/stratus/internal/services/elasticache"
 	"github.com/stratus/internal/services/elbv2"
 	eventssvc "github.com/stratus/internal/services/events"
+	"github.com/stratus/internal/services/fis"
 	"github.com/stratus/internal/services/iam"
 	"github.com/stratus/internal/services/kinesis"
 	"github.com/stratus/internal/services/kms"
@@ -73,6 +74,7 @@ type Options struct {
 	RDS             *rds.Service
 	ElastiCache     *elasticache.Service
 	DynamoDBStreams *dynamodbstreams.Service
+	FIS             *fis.Service
 	Operator        *operator.Service
 	// Faults, when set, injects chaos faults into AWS API requests.
 	Faults FaultDecider
@@ -114,6 +116,7 @@ type Server struct {
 	rds             *rds.Service
 	elastiCache     *elasticache.Service
 	dynamodbStreams *dynamodbstreams.Service
+	fis             *fis.Service
 	operator        *operator.Service
 	control         http.Handler
 	gate            *control.Gate
@@ -155,6 +158,7 @@ func NewServer(opts Options) *Server {
 		rds:             opts.RDS,
 		elastiCache:     opts.ElastiCache,
 		dynamodbStreams: opts.DynamoDBStreams,
+		fis:             opts.FIS,
 		operator:        opts.Operator,
 		control:         opts.Control,
 		gate:            opts.Gate,
@@ -214,16 +218,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
+	outcome := faultProceed
 	if err == nil {
-		var drop bool
-		drop, err = s.injectFaults(recorder, r, metadata)
-		if drop {
+		outcome, err = s.injectFaults(recorder, r, metadata)
+		if outcome == faultDrop {
 			s.recordDropped(start, r, metadata)
 			// Abort without a response: the client sees a reset connection.
 			panic(http.ErrAbortHandler)
 		}
 	}
-	if err == nil {
+	if err == nil && outcome == faultProceed {
 		err = s.dispatch(recorder, r, metadata)
 	}
 	var apiErr *apierror.Error
@@ -402,6 +406,11 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 		return s.handleElastiCache(w, r, metadata)
 	case "dynamodbstreams":
 		return s.handleDynamoDBStreams(w, r, metadata)
+	case "fis":
+		if s.fis == nil {
+			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"fis\" is not implemented"}
+		}
+		return s.fis.Handle(w, r)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,

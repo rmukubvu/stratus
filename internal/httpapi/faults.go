@@ -19,14 +19,26 @@ type FaultDecider interface {
 // failure can be traced back to the fault that caused it.
 const FaultHeader = "X-Stratus-Fault"
 
-// injectFaults applies the chaos decision for a request. It returns drop=true
-// when the connection should be closed without a response, or an error to
-// send instead of handling the request.
-func (s *Server) injectFaults(w http.ResponseWriter, r *http.Request, md RequestMetadata) (drop bool, err error) {
+// faultOutcome says how request handling continues after chaos.
+type faultOutcome int
+
+const (
+	// faultProceed: handle the request (unless an error is returned).
+	faultProceed faultOutcome = iota
+	// faultDrop: close the connection without a response.
+	faultDrop
+	// faultResponded: chaos wrote the response; don't handle the request.
+	faultResponded
+)
+
+// injectFaults applies the chaos decision for a request. It says whether to
+// proceed, drop the connection or stop because the response is written, or
+// returns an error to send instead of handling the request.
+func (s *Server) injectFaults(w http.ResponseWriter, r *http.Request, md RequestMetadata) (faultOutcome, error) {
 	// Stratus's own endpoints (health, ping) are never faulted, so a "*"
 	// rule cannot break readiness probes.
 	if s.faults == nil || md.Classification.Protocol == ProtocolInternal {
-		return false, nil
+		return faultProceed, nil
 	}
 	decision := s.faults.Decide(chaos.Request{
 		RequestID: md.RequestID,
@@ -37,7 +49,7 @@ func (s *Server) injectFaults(w http.ResponseWriter, r *http.Request, md Request
 		Function:  lambdaFunctionName(md.Classification.Service, r.URL.Path),
 	})
 	if !decision.Faulted() {
-		return false, nil
+		return faultProceed, nil
 	}
 	w.Header().Set(FaultHeader, strings.Join(decision.RuleIDs, ","))
 
@@ -47,7 +59,7 @@ func (s *Server) injectFaults(w http.ResponseWriter, r *http.Request, md Request
 		case <-timer.C:
 		case <-r.Context().Done():
 			timer.Stop()
-			return false, r.Context().Err()
+			return faultProceed, r.Context().Err()
 		}
 	}
 	if decision.ColdStart != "" && s.coldStart != nil {
@@ -56,12 +68,26 @@ func (s *Server) injectFaults(w http.ResponseWriter, r *http.Request, md Request
 		}
 	}
 	if decision.Drop {
-		return true, nil
+		return faultDrop, nil
 	}
 	if e := decision.Error; e != nil {
-		return false, &apierror.Error{StatusCode: e.StatusCode, Code: e.Code, Message: e.Message}
+		return faultProceed, &apierror.Error{StatusCode: e.StatusCode, Code: e.Code, Message: e.Message}
 	}
-	return false, nil
+	if decision.FunctionError != "" {
+		writeFunctionError(w, decision.FunctionError)
+		return faultResponded, nil
+	}
+	return faultProceed, nil
+}
+
+// writeFunctionError answers an Invoke the way Lambda does when the
+// function throws: 200, X-Amz-Function-Error and the error as the payload.
+func writeFunctionError(w http.ResponseWriter, message string) {
+	w.Header().Set("X-Amz-Function-Error", "Unhandled")
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"errorType":    chaos.FunctionErrorType,
+		"errorMessage": message,
+	})
 }
 
 func (s *Server) recordDropped(start time.Time, r *http.Request, md RequestMetadata) {

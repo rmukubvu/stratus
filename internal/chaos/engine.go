@@ -3,21 +3,12 @@ package chaos
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"sync"
 	"time"
 
 	"github.com/stratus/internal/control"
 )
-
-// Request describes an incoming AWS API request.
-type Request struct {
-	RequestID string
-	Service   string
-	Operation string
-	Path      string
-	Bucket    string
-	Function  string
-}
 
 // Decision is what to do to a request. A zero Decision means "no fault".
 type Decision struct {
@@ -27,8 +18,13 @@ type Decision struct {
 	ColdStart string
 	// Error, when set, is returned instead of handling the request.
 	Error *ErrorSpec
-	// Drop closes the connection without a response.
+	// Drop closes the connection without a response, or loses an event.
 	Drop bool
+	// FunctionError, when set, is the message of a Lambda function error
+	// to return instead of invoking the function.
+	FunctionError string
+	// Duplicate delivers an event twice.
+	Duplicate bool
 	// RuleIDs lists the rules that fired, in order.
 	RuleIDs []string
 }
@@ -38,13 +34,20 @@ func (d Decision) Faulted() bool { return len(d.RuleIDs) > 0 }
 
 // Hit records one injected fault, for diagnosis.
 type Hit struct {
-	Time      time.Time `json:"time"`
-	RuleID    string    `json:"rule_id"`
-	Action    Action    `json:"action"`
-	RequestID string    `json:"request_id"`
-	Service   string    `json:"service"`
-	Operation string    `json:"operation,omitempty"`
-	Path      string    `json:"path"`
+	Time   time.Time `json:"time"`
+	RuleID string    `json:"rule_id"`
+	Action Action    `json:"action"`
+	// Scope is "api" for an API request or "event" for a delivery.
+	Scope Scope `json:"scope"`
+	// RequestID is the API request ID, or the delivery's event ID.
+	RequestID string `json:"request_id"`
+	Service   string `json:"service"`
+	Operation string `json:"operation,omitempty"`
+	// Path is the request path, or the delivery's target ARN.
+	Path string `json:"path"`
+	// Source and SourceARN say where a delivery came from.
+	Source    string `json:"source,omitempty"`
+	SourceARN string `json:"source_arn,omitempty"`
 	// Match is the rule's 1-based count of matching requests at this hit.
 	// Replaying with the same seed faults the same match numbers.
 	Match int `json:"match"`
@@ -68,6 +71,8 @@ const (
 
 // Report describes an experiment and its effect so far.
 type Report struct {
+	// ID identifies this run of the experiment.
+	ID              string      `json:"id"`
 	Status          Status      `json:"status"`
 	Seed            int64       `json:"seed"`
 	StartedAt       time.Time   `json:"started_at"`
@@ -95,6 +100,7 @@ type ruleState struct {
 }
 
 type experiment struct {
+	id        string
 	seed      int64
 	startedAt time.Time
 	endsAt    time.Time // zero when open-ended
@@ -132,6 +138,12 @@ func NewEngine(knownServices []string, clock Clock) *Engine {
 	return &Engine{known: known, clock: clock}
 }
 
+// Validate checks a spec the way Start would, without starting it.
+func (e *Engine) Validate(spec Spec) error {
+	_, err := spec.normalise(e.known)
+	return err
+}
+
 // Start begins an experiment, replacing any current one.
 func (e *Engine) Start(spec Spec) (Report, error) {
 	spec, err := spec.normalise(e.known)
@@ -142,7 +154,7 @@ func (e *Engine) Start(spec Spec) (Report, error) {
 		spec.Seed = randomSeed()
 	}
 	now := e.clock.Now()
-	exp := &experiment{seed: spec.Seed, startedAt: now, duration: spec.DurationSeconds}
+	exp := &experiment{id: newExperimentID(), seed: spec.Seed, startedAt: now, duration: spec.DurationSeconds}
 	if spec.DurationSeconds > 0 {
 		exp.endsAt = now.Add(time.Duration(spec.DurationSeconds) * time.Second)
 	}
@@ -163,11 +175,26 @@ func (e *Engine) Stop() (Report, error) {
 	if e.exp == nil {
 		return Report{}, noExperiment()
 	}
+	return e.stopLocked(), nil
+}
+
+// StopID ends the current experiment only if it is the one with the given
+// ID, so a caller cannot stop an experiment that replaced its own.
+func (e *Engine) StopID(id string) (Report, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.exp == nil || e.exp.id != id {
+		return Report{}, noExperiment()
+	}
+	return e.stopLocked(), nil
+}
+
+func (e *Engine) stopLocked() Report {
 	e.exp.stopped = true
 	report := e.reportLocked()
 	e.lastHits = e.exp.hits
 	e.exp = nil
-	return report, nil
+	return report
 }
 
 // Report describes the current experiment.
@@ -191,12 +218,22 @@ func (e *Engine) Hits() []Hit {
 	return append([]Hit{}, e.lastHits...)
 }
 
-// Decide returns the faults to inject into req and records them.
+// Decide returns the faults to inject into an API request and records them.
 //
 // Rules are evaluated in order. Latency and cold starts accumulate; the
 // first error or drop wins and later rules are not evaluated, so they do
 // not count the request as a match.
 func (e *Engine) Decide(req Request) Decision {
+	return e.decide(req.traffic())
+}
+
+// DecideDelivery returns the faults to inject into an event delivery and
+// records them. Rules are evaluated as for Decide; duplicates accumulate.
+func (e *Engine) DecideDelivery(d Delivery) Decision {
+	return e.decide(d.traffic())
+}
+
+func (e *Engine) decide(t traffic) Decision {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -212,7 +249,7 @@ func (e *Engine) Decide(req Request) Decision {
 	var d Decision
 	for i, st := range exp.rules {
 		r := st.rule
-		if !r.matches(req) {
+		if !r.matches(t) || !r.activeAt(exp.startedAt, now) {
 			continue
 		}
 		st.matched++
@@ -225,20 +262,26 @@ func (e *Engine) Decide(req Request) Decision {
 		st.injected++
 		d.RuleIDs = append(d.RuleIDs, r.ID)
 		exp.recordLocked(Hit{
-			Time: now.UTC(), RuleID: r.ID, Action: r.Action, RequestID: req.RequestID,
-			Service: req.Service, Operation: req.Operation, Path: req.Path, Match: st.matched,
+			Time: now.UTC(), RuleID: r.ID, Action: r.Action, Scope: t.scope, RequestID: t.id,
+			Service: t.service, Operation: t.operation, Path: t.path,
+			Source: t.source, SourceARN: t.sourceARN, Match: st.matched,
 		})
 
 		switch r.Action {
 		case ActionLatency:
 			d.Delay += latencyFor(exp.seed, i, st.matched, *r.Latency)
 		case ActionColdStart:
-			d.ColdStart = req.Function
+			d.ColdStart = t.function
+		case ActionDuplicate:
+			d.Duplicate = true
+		case ActionFunctionError:
+			d.FunctionError = "Injected function error (chaos rule " + r.ID + ")"
+			return d
 		case ActionDrop:
 			d.Drop = true
 			return d
 		default:
-			d.Error = r.errorFor(req.Service)
+			d.Error = r.errorFor(t.service)
 			return d
 		}
 	}
@@ -263,6 +306,7 @@ func (e *Engine) reportLocked() Report {
 		status = StatusExpired
 	}
 	r := Report{
+		ID:              x.id,
 		Status:          status,
 		Seed:            x.seed,
 		StartedAt:       x.startedAt.UTC(),
@@ -287,6 +331,12 @@ func noExperiment() *control.Error {
 		Message: "no chaos experiment is running",
 		Hint:    "start one with PUT /_stratus/control/v1/chaos",
 	}
+}
+
+func newExperimentID() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return "chaos-" + hex.EncodeToString(b[:])
 }
 
 func randomSeed() int64 {

@@ -370,6 +370,9 @@ orphan container cleanup and all action inputs.
 
 Inject seeded, reproducible faults into AWS calls without a service mesh:
 throttling, errors, latency, dropped connections and Lambda cold starts.
+Rules can also reach inside event flows that no real fault injector can:
+lose, delay, duplicate or fail SQS-to-Lambda, SNS fan-out, EventBridge and
+Step Functions deliveries.
 
 ```sh
 echo '{"seed": 42, "rules": [{"service": "dynamodb", "action": "throttle", "probability": 0.2}]}' \
@@ -380,6 +383,9 @@ stratus chaos stop      # per-rule counts and every faulted request ID
 
 Faults use each service's real error shape, so SDK retries behave as they
 do against AWS. See [docs/chaos.md](docs/chaos.md).
+
+Already have AWS Fault Injection Service templates? Point the FIS SDK or
+`aws fis` at Stratus and run them unchanged; see [docs/fis.md](docs/fis.md).
 
 ## AI Coding Agents
 
