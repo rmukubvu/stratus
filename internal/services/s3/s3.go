@@ -140,7 +140,7 @@ func (s *Service) ReadObjectBytes(bucket, key string) ([]byte, error) {
 	file, err := s.blobs.Open(documentNamespace+"/"+bucket, key)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, apiError(http.StatusNotFound, "NoSuchKey", "The specified key does not exist.", "/"+bucket+"/"+key)
+			return nil, errNoSuchKey(bucket, key)
 		}
 		return nil, internalError(err, "/"+bucket+"/"+key)
 	}
@@ -278,12 +278,8 @@ func (s *Service) createBucket(w http.ResponseWriter, r *http.Request, bucket st
 }
 
 func (s *Service) headBucket(w http.ResponseWriter, bucket string) error {
-	exists, err := s.bucketExists(bucket)
-	if err != nil {
-		return internalError(err, "/"+bucket)
-	}
-	if !exists {
-		return apiError(http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.", "/"+bucket)
+	if err := s.requireBucket(bucket, "/"+bucket); err != nil {
+		return err
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -291,16 +287,12 @@ func (s *Service) headBucket(w http.ResponseWriter, bucket string) error {
 }
 
 func (s *Service) deleteBucket(w http.ResponseWriter, bucket string) error {
-	exists, err := s.bucketExists(bucket)
-	if err != nil {
-		return internalError(err, "/"+bucket)
-	}
-	if !exists {
-		return apiError(http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.", "/"+bucket)
+	if err := s.requireBucket(bucket, "/"+bucket); err != nil {
+		return err
 	}
 
 	hasObjects := false
-	err = s.metadata.Scan(objectMetadataBucket, bucket+"/", func(_, _ []byte) error {
+	err := s.metadata.Scan(objectMetadataBucket, bucket+"/", func(_, _ []byte) error {
 		hasObjects = true
 		return errStopScan
 	})
@@ -323,12 +315,8 @@ func (s *Service) deleteBucket(w http.ResponseWriter, bucket string) error {
 }
 
 func (s *Service) putObject(w http.ResponseWriter, r *http.Request, bucket, key string) error {
-	exists, err := s.bucketExists(bucket)
-	if err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
-	}
-	if !exists {
-		return apiError(http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.", "/"+bucket)
+	if err := s.requireBucket(bucket, "/"+bucket+"/"+key); err != nil {
+		return err
 	}
 
 	bodyReader := io.Reader(r.Body)
@@ -375,7 +363,7 @@ func (s *Service) getObject(w http.ResponseWriter, bucket, key string) error {
 	file, err := s.blobs.Open(documentNamespace+"/"+bucket, key)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return apiError(http.StatusNotFound, "NoSuchKey", "The specified key does not exist.", "/"+bucket+"/"+key)
+			return errNoSuchKey(bucket, key)
 		}
 		return internalError(err, "/"+bucket+"/"+key)
 	}
@@ -402,6 +390,9 @@ func (s *Service) headObject(w http.ResponseWriter, bucket, key string) error {
 }
 
 func (s *Service) deleteObject(w http.ResponseWriter, bucket, key string) error {
+	if err := s.requireBucket(bucket, "/"+bucket+"/"+key); err != nil {
+		return err
+	}
 	if err := s.metadata.Delete(objectMetadataBucket, objectKey(bucket, key)); err != nil {
 		return internalError(err, "/"+bucket+"/"+key)
 	}
@@ -413,12 +404,8 @@ func (s *Service) deleteObject(w http.ResponseWriter, bucket, key string) error 
 }
 
 func (s *Service) createMultipartUpload(w http.ResponseWriter, r *http.Request, bucket, key string) error {
-	exists, err := s.bucketExists(bucket)
-	if err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
-	}
-	if !exists {
-		return apiError(http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.", "/"+bucket)
+	if err := s.requireBucket(bucket, "/"+bucket+"/"+key); err != nil {
+		return err
 	}
 
 	contentType := r.Header.Get("Content-Type")
@@ -543,6 +530,9 @@ func (s *Service) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Service) abortMultipartUpload(w http.ResponseWriter, bucket, uploadID string) error {
+	if err := s.requireBucket(bucket, "/"+bucket); err != nil {
+		return err
+	}
 	if err := s.deleteMultipartUpload(bucket, uploadID); err != nil {
 		return internalError(err, "/"+bucket)
 	}
@@ -551,15 +541,10 @@ func (s *Service) abortMultipartUpload(w http.ResponseWriter, bucket, uploadID s
 }
 
 func (s *Service) copyObject(w http.ResponseWriter, r *http.Request, bucket, key string) error {
-	exists, err := s.bucketExists(bucket)
-	if err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
+	if err := s.requireBucket(bucket, "/"+bucket+"/"+key); err != nil {
+		return err
 	}
-	if !exists {
-		return apiError(http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.", "/"+bucket)
-	}
-	source := strings.TrimPrefix(r.Header.Get("X-Amz-Copy-Source"), "/")
-	source, err = url.PathUnescape(source)
+	source, err := url.PathUnescape(strings.TrimPrefix(r.Header.Get("X-Amz-Copy-Source"), "/"))
 	if err != nil || source == "" {
 		return apiError(http.StatusBadRequest, "InvalidArgument", "x-amz-copy-source must identify an existing object.", "/"+bucket+"/"+key)
 	}
@@ -574,7 +559,7 @@ func (s *Service) copyObject(w http.ResponseWriter, r *http.Request, bucket, key
 	file, err := s.blobs.Open(documentNamespace+"/"+parts[0], parts[1])
 	if err != nil {
 		if os.IsNotExist(err) {
-			return apiError(http.StatusNotFound, "NoSuchKey", "The specified key does not exist.", "/"+parts[0]+"/"+parts[1])
+			return errNoSuchKey(parts[0], parts[1])
 		}
 		return internalError(err, "/"+bucket+"/"+key)
 	}
@@ -610,12 +595,8 @@ func (s *Service) copyObject(w http.ResponseWriter, r *http.Request, bucket, key
 }
 
 func (s *Service) listObjectsV2(w http.ResponseWriter, r *http.Request, bucket string) error {
-	exists, err := s.bucketExists(bucket)
-	if err != nil {
-		return internalError(err, "/"+bucket)
-	}
-	if !exists {
-		return apiError(http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.", "/"+bucket)
+	if err := s.requireBucket(bucket, "/"+bucket); err != nil {
+		return err
 	}
 
 	prefix := r.URL.Query().Get("prefix")
@@ -632,7 +613,7 @@ func (s *Service) listObjectsV2(w http.ResponseWriter, r *http.Request, bucket s
 		scanPrefix += prefix
 	}
 
-	err = s.metadata.Scan(objectMetadataBucket, scanPrefix, func(k, v []byte) error {
+	err := s.metadata.Scan(objectMetadataBucket, scanPrefix, func(k, v []byte) error {
 		if len(contents) >= maxKeys {
 			return errStopScan
 		}
@@ -682,13 +663,31 @@ func (s *Service) bucketExists(bucket string) (bool, error) {
 	return raw != nil, nil
 }
 
+// requireBucket returns NoSuchBucket when the bucket is absent, and an
+// InternalError attributed to resource when the lookup itself fails.
+func (s *Service) requireBucket(bucket, resource string) error {
+	exists, err := s.bucketExists(bucket)
+	if err != nil {
+		return internalError(err, resource)
+	}
+	if !exists {
+		return errNoSuchBucket(bucket)
+	}
+	return nil
+}
+
 func (s *Service) loadObject(bucket, key string) (objectMetadata, error) {
 	raw, err := s.metadata.Get(objectMetadataBucket, objectKey(bucket, key))
 	if err != nil {
 		return objectMetadata{}, internalError(err, "/"+bucket+"/"+key)
 	}
 	if raw == nil {
-		return objectMetadata{}, apiError(http.StatusNotFound, "NoSuchKey", "The specified key does not exist.", "/"+bucket+"/"+key)
+		// S3 reports a missing bucket before a missing key. The bucket lookup
+		// only runs on a miss so the hot read path stays a single Get.
+		if err := s.requireBucket(bucket, "/"+bucket+"/"+key); err != nil {
+			return objectMetadata{}, err
+		}
+		return objectMetadata{}, errNoSuchKey(bucket, key)
 	}
 
 	var meta objectMetadata
@@ -712,6 +711,9 @@ func (s *Service) loadMultipartUpload(bucket, uploadID string) (multipartUpload,
 		return multipartUpload{}, internalError(err, "/"+bucket)
 	}
 	if raw == nil {
+		if err := s.requireBucket(bucket, "/"+bucket); err != nil {
+			return multipartUpload{}, err
+		}
 		return multipartUpload{}, apiError(http.StatusNotFound, "NoSuchUpload", "The specified multipart upload does not exist.", "/"+bucket)
 	}
 	var upload multipartUpload
@@ -830,6 +832,14 @@ func locationConstraint(body io.ReadCloser) (string, error) {
 		return "", fmt.Errorf("invalid CreateBucketConfiguration body")
 	}
 	return cfg.LocationConstraint, nil
+}
+
+func errNoSuchBucket(bucket string) error {
+	return apiError(http.StatusNotFound, "NoSuchBucket", "The specified bucket does not exist.", "/"+bucket)
+}
+
+func errNoSuchKey(bucket, key string) error {
+	return apiError(http.StatusNotFound, "NoSuchKey", "The specified key does not exist.", "/"+bucket+"/"+key)
 }
 
 func methodNotAllowed(resource string) error {
