@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, List, Optional, Tuple
 from unittest import mock
 
-from stratus_sdk import StratusClient, StratusError, UrllibTransport
+from stratus_emulator import StratusClient, StratusError, UrllibTransport
 
 SNAP = {"id": "tmp", "created_at": "t", "services": [], "size_bytes": 1}
 REPORT = {"status": "stopped", "seed": 1, "started_at": "t", "rules": [], "total_injected": 0, "recent_hits": []}

@@ -1,8 +1,26 @@
 {
-  "name": "@stratus/sdk",
+  "name": "stratus-emulator",
   "version": "0.1.0",
   "description": "Control a local Stratus AWS emulator from tests and agents: reset, snapshots, chaos and diagnostics.",
-  "license": "MIT",
+  "keywords": [
+    "aws",
+    "emulator",
+    "testing",
+    "ci",
+    "chaos-engineering",
+    "snapshots",
+    "mcp"
+  ],
+  "homepage": "https://github.com/rmukubvu/stratus/tree/main/sdk/typescript",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rmukubvu/stratus.git",
+    "directory": "sdk/typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/rmukubvu/stratus/issues"
+  },
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -12,16 +30,22 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "tsc -p tsconfig.test.json && node --test build/test/client.test.js build/test/integration.test.js"
+    "test": "tsc -p tsconfig.test.json && node --test build/test/client.test.js build/test/integration.test.js",
+    "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "typescript": "^5.9.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

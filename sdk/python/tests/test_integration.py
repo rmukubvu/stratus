@@ -5,7 +5,7 @@ import unittest
 import urllib.error
 import urllib.request
 
-from stratus_sdk import StratusClient, StratusError
+from stratus_emulator import StratusClient, StratusError
 
 ENDPOINT = os.environ.get("STRATUS_ENDPOINT")
 

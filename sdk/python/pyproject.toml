@@ -1,15 +1,16 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "stratus-sdk"
+name = "stratus-emulator"
 version = "0.1.0"
 description = "Control a local Stratus AWS emulator from tests and agents: reset, snapshots, chaos and diagnostics."
 readme = "README.md"
-license = { text = "MIT" }
+license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = []
+keywords = ["aws", "emulator", "testing", "pytest", "ci", "chaos-engineering", "mcp"]
 classifiers = [
     "Framework :: Pytest",
     "Programming Language :: Python :: 3",
@@ -17,11 +18,16 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+[project.urls]
+Homepage = "https://github.com/rmukubvu/stratus"
+Documentation = "https://github.com/rmukubvu/stratus/tree/main/sdk/python"
+Issues = "https://github.com/rmukubvu/stratus/issues"
+
 [project.entry-points.pytest11]
-stratus = "stratus_sdk.pytest_plugin"
+stratus = "stratus_emulator.pytest_plugin"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-stratus_sdk = ["py.typed"]
+stratus_emulator = ["py.typed"]
