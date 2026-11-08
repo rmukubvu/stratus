@@ -63,6 +63,11 @@ back after a block, and `withChaos` / `chaos_experiment` always stop the
 experiment. The Python package also registers `stratus` and
 `stratus_isolated` pytest fixtures. Neither has runtime dependencies.
 
+```sh
+npm install --save-dev stratus-emulator
+pip install stratus-emulator
+```
+
 ## Diagnostics
 
 ```

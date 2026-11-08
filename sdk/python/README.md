@@ -1,16 +1,16 @@
 # Stratus Python SDK
 
-Control a local [Stratus](../../README.md) from tests and agents: wait for it,
+Control a local [Stratus](https://github.com/rmukubvu/stratus) from tests and agents: wait for it,
 reset it, snapshot and roll back state, run seeded chaos, and ask why calls
 failed. Standard library only; Python 3.11+.
 
 ```sh
-pip install "git+https://github.com/rmukubvu/stratus#subdirectory=sdk/python"
+pip install stratus-emulator
 ```
 
 ```python
 import boto3
-from stratus_sdk import StratusClient, StratusError
+from stratus_emulator import StratusClient, StratusError
 
 stratus = StratusClient()  # $STRATUS_ENDPOINT or http://localhost:4566
 stratus.wait_until_ready()
@@ -43,7 +43,7 @@ print(stratus.diagnose(since="5m", exclude_injected=True)["summary"])
 Every failure is a `StratusError` with a stable `code` (such as
 `SnapshotNotFound`), a `hint` and the HTTP `status` (0 when Stratus could not
 be reached). Responses are plain dicts, typed with `TypedDict`s in
-`stratus_sdk.types`.
+`stratus_emulator.types`.
 
 ## pytest
 

@@ -1,4 +1,4 @@
-"""pytest fixtures, registered automatically when stratus-sdk is installed.
+"""pytest fixtures, registered automatically when stratus-emulator is installed.
 
 ``stratus``: a session-wide client, waited until ready.
 ``stratus_isolated``: the same client, with all state rolled back after the test.

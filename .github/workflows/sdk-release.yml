@@ -1,0 +1,133 @@
+name: SDK release
+
+# Publishes the TypeScript SDK to npm and the Python SDK to PyPI when a tag
+# like sdk-v0.1.0 is pushed. Running it by hand does everything except
+# publish, as a dry run. See docs/releasing-sdks.md.
+
+on:
+  push:
+    tags:
+      - "sdk-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check the tag matches both package versions
+        shell: python
+        run: |
+          import json, os, sys, tomllib
+          npm = json.load(open("sdk/typescript/package.json"))["version"]
+          py = tomllib.load(open("sdk/python/pyproject.toml", "rb"))["project"]["version"]
+          init = open("sdk/python/src/stratus_emulator/__init__.py").read()
+          errors = []
+          if npm != py:
+              errors.append(f"package.json is {npm} but pyproject.toml is {py}")
+          if f'__version__ = "{py}"' not in init:
+              errors.append(f"stratus_emulator.__version__ does not match {py}")
+          ref = os.environ["GITHUB_REF"]
+          if ref.startswith("refs/tags/sdk-v") and ref.removeprefix("refs/tags/sdk-v") != npm:
+              errors.append(f"tag {ref} does not match package version {npm}")
+          if errors:
+              sys.exit("\n".join(errors))
+          print(f"releasing SDK version {npm}")
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Start a background Stratus
+        uses: ./
+        with:
+          version: source
+
+      - name: Test and pack the TypeScript SDK
+        working-directory: sdk/typescript
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm pack --dry-run
+
+      - name: Test and build the Python SDK
+        working-directory: sdk/python
+        run: |
+          python -m pip install build pytest
+          python -m pip install -e .
+          python -m pytest -q tests
+          python -m build
+
+      - name: Keep the Python distributions for the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: sdk/python/dist/
+          if-no-files-found: error
+
+  npm:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # trusted publishing and provenance
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - name: Update npm
+        run: npm install -g npm@11
+
+      - name: Publish
+        working-directory: sdk/typescript
+        env:
+          # Only for the very first publish, before trusted publishing can be
+          # configured on npmjs.com. Delete the secret afterwards.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
+          fi
+          npm ci --no-audit --no-fund
+          npm publish --provenance --access public
+
+  pypi:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/sdk-v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # trusted publishing
+    steps:
+      - name: Download the Python distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1

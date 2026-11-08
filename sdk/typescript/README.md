@@ -1,11 +1,15 @@
 # Stratus TypeScript SDK
 
-Control a local [Stratus](../../README.md) from tests and agents: wait for it,
+Control a local [Stratus](https://github.com/rmukubvu/stratus) from tests and agents: wait for it,
 reset it, snapshot and roll back state, run seeded chaos, and ask why calls
 failed. No runtime dependencies; uses the global `fetch` (Node 18+, Deno, Bun).
 
+```sh
+npm install --save-dev stratus-emulator
+```
+
 ```ts
-import { StratusClient, StratusError } from "@stratus/sdk";
+import { StratusClient, StratusError } from "stratus-emulator";
 import { S3Client } from "@aws-sdk/client-s3";
 
 const stratus = new StratusClient(); // $STRATUS_ENDPOINT or http://localhost:4566
