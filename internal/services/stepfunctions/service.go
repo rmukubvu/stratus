@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/chaos"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 	"github.com/stratus/internal/store"
 )
@@ -26,6 +27,7 @@ const (
 type Service struct {
 	metadata store.Store
 	lambda   *lambdasvc.Service
+	faults   chaos.Gate
 	now      func() time.Time
 	mu       sync.Mutex
 }
@@ -97,7 +99,14 @@ type catcher struct {
 }
 
 func NewService(metadata store.Store, lambda *lambdasvc.Service) *Service {
-	return &Service{metadata: metadata, lambda: lambda, now: time.Now}
+	return &Service{metadata: metadata, lambda: lambda, faults: chaos.Passthrough{}, now: time.Now}
+}
+
+// SetFaults routes Task state invocations through a chaos gate. They are
+// synchronous, so an injected error fails the task and its Retry and Catch
+// rules apply.
+func (s *Service) SetFaults(gate chaos.Gate) {
+	s.faults = gate
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation string) error {
@@ -230,7 +239,7 @@ func (s *Service) StartExecutionByARN(ctx context.Context, arn, input string) er
 			return validation("input must be valid JSON")
 		}
 	}
-	output, execErr := s.executeDefinition(definition, payload)
+	output, execErr := s.executeDefinition(arn, definition, payload)
 	execution := executionRecord{
 		ExecutionArn:    executionARN(record.Name, name),
 		Input:           input,
@@ -400,7 +409,7 @@ func (s *Service) execute(record stateMachineRecord, input string) (string, stri
 			return "", "FAILED", err
 		}
 	}
-	output, err := s.executeDefinition(definition, payload)
+	output, err := s.executeDefinition(stateMachineARN(record.Name), definition, payload)
 	if err != nil {
 		return "", "FAILED", err
 	}
@@ -411,7 +420,7 @@ func (s *Service) execute(record stateMachineRecord, input string) (string, stri
 	return string(raw), "SUCCEEDED", nil
 }
 
-func (s *Service) executeDefinition(definition stateMachineDefinition, payload any) (any, error) {
+func (s *Service) executeDefinition(machineARN string, definition stateMachineDefinition, payload any) (any, error) {
 	current := definition.StartAt
 	for {
 		state, ok := definition.States[current]
@@ -428,11 +437,11 @@ func (s *Service) executeDefinition(definition stateMachineDefinition, payload a
 		case "Choice":
 			nextState, err = executeChoiceState(state, payload)
 		case "Task":
-			payload, err = s.executeTaskState(state, payload)
+			payload, err = s.executeTaskState(machineARN, state, payload)
 		case "Map":
-			payload, err = s.executeMapState(state, payload)
+			payload, err = s.executeMapState(machineARN, state, payload)
 		case "Parallel":
-			payload, err = s.executeParallelState(state, payload)
+			payload, err = s.executeParallelState(machineARN, state, payload)
 		case "Succeed":
 			return payload, nil
 		case "Fail":
@@ -478,7 +487,7 @@ func executeChoiceState(state definitionNode, payload any) (string, error) {
 	return "", fmt.Errorf("no Choice rule matched and no Default was provided")
 }
 
-func (s *Service) executeTaskState(state definitionNode, payload any) (any, error) {
+func (s *Service) executeTaskState(machineARN string, state definitionNode, payload any) (any, error) {
 	if s.lambda == nil {
 		return nil, fmt.Errorf("lambda runtime is not configured")
 	}
@@ -494,12 +503,29 @@ func (s *Service) executeTaskState(state definitionNode, payload any) (any, erro
 	if len(state.Retry) > 0 && state.Retry[0].MaxAttempts > 0 {
 		maxAttempts = state.Retry[0].MaxAttempts
 	}
+	function := lambdaName(state.Resource)
+	delivery := chaos.Delivery{
+		Source:    "stepfunctions",
+		SourceARN: machineARN,
+		Service:   "lambda",
+		Operation: "Invoke",
+		TargetARN: state.Resource,
+		Function:  function,
+	}
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		result, err := s.lambda.InvokeByName(context.Background(), lambdaName(state.Resource), inputBytes)
+		var result lambdasvc.InvokeResult
+		err := s.faults.Deliver(context.Background(), delivery, func(ctx context.Context) error {
+			var invokeErr error
+			result, invokeErr = s.lambda.InvokeByName(ctx, function, inputBytes)
+			return invokeErr
+		})
 		if err == nil && result.FunctionError == "" {
 			var out any
-			if err := json.Unmarshal(result.Payload, &out); err != nil {
-				return nil, err
+			// An empty payload (a chaos drop) reads as a null result.
+			if len(result.Payload) > 0 {
+				if err := json.Unmarshal(result.Payload, &out); err != nil {
+					return nil, err
+				}
 			}
 			return applyResultPath(payload, out, state.ResultPath)
 		}
@@ -512,7 +538,7 @@ func (s *Service) executeTaskState(state definitionNode, payload any) (any, erro
 	return nil, lastErr
 }
 
-func (s *Service) executeMapState(state definitionNode, payload any) (any, error) {
+func (s *Service) executeMapState(machineARN string, state definitionNode, payload any) (any, error) {
 	if state.Iterator == nil {
 		return nil, fmt.Errorf("Map state requires Iterator")
 	}
@@ -522,7 +548,7 @@ func (s *Service) executeMapState(state definitionNode, payload any) (any, error
 	}
 	results := make([]any, 0, len(items))
 	for _, item := range items {
-		out, err := s.executeDefinition(*state.Iterator, item)
+		out, err := s.executeDefinition(machineARN, *state.Iterator, item)
 		if err != nil {
 			return nil, err
 		}
@@ -531,10 +557,10 @@ func (s *Service) executeMapState(state definitionNode, payload any) (any, error
 	return applyResultPath(payload, results, state.ResultPath)
 }
 
-func (s *Service) executeParallelState(state definitionNode, payload any) (any, error) {
+func (s *Service) executeParallelState(machineARN string, state definitionNode, payload any) (any, error) {
 	results := make([]any, 0, len(state.Branches))
 	for _, branch := range state.Branches {
-		out, err := s.executeDefinition(branch, payload)
+		out, err := s.executeDefinition(machineARN, branch, payload)
 		if err != nil {
 			return nil, err
 		}

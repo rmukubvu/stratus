@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/services/fis"
 )
 
 type Protocol string
@@ -152,6 +153,14 @@ func Classify(r *http.Request) (Classification, error) {
 		}
 	}
 
+	if isFISRequest(r) {
+		return Classification{
+			Protocol:  ProtocolREST,
+			Service:   "fis",
+			Operation: fis.Operation(r.Method, r.URL.Path),
+		}, nil
+	}
+
 	if classification, ok := classifyQuery(r); ok {
 		return classification, nil
 	}
@@ -188,6 +197,16 @@ func Classify(r *http.Request) (Classification, error) {
 		Bucket:    bucket,
 		Key:       key,
 	}, nil
+}
+
+// isFISRequest recognises Fault Injection Service calls by their SigV4
+// signing name or their fis.* host. Its paths (/experiments, /actions...)
+// would otherwise be read as path-style S3 buckets.
+func isFISRequest(r *http.Request) bool {
+	if sigv4 := awscompat.ParseSigV4Authorization(r.Header.Get("Authorization")); sigv4 != nil {
+		return sigv4.Service == "fis"
+	}
+	return strings.HasPrefix(stripPort(r.Host), "fis.")
 }
 
 func isHealthPath(path string) bool {

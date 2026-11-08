@@ -138,6 +138,27 @@ func TestColdStartRecyclesInvokedFunction(t *testing.T) {
 	}
 }
 
+func TestFunctionErrorAnswersLikeAThrowingFunction(t *testing.T) {
+	srv, _ := newFaultServer(t, chaos.Decision{RuleIDs: []string{"fail-checkout"}, FunctionError: "boom"}, nil)
+	resp, err := http.Post(srv.URL+"/2015-03-31/functions/checkout/invocations", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 || resp.Header.Get("X-Amz-Function-Error") != "Unhandled" ||
+		resp.Header.Get(FaultHeader) != "fail-checkout" {
+		t.Fatalf("status=%d headers=%v", resp.StatusCode, resp.Header)
+	}
+	if body["errorType"] != chaos.FunctionErrorType || body["errorMessage"] != "boom" {
+		t.Fatalf("payload: %v", body)
+	}
+}
+
 func TestHealthEndpointsAreNeverFaulted(t *testing.T) {
 	srv, stub := newFaultServer(t, chaos.Decision{RuleIDs: []string{"all"}, Drop: true}, nil)
 	resp, err := http.Get(srv.URL + "/_stratus/health")

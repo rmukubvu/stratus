@@ -56,6 +56,7 @@ func DefaultCatalog() Catalog {
 		ServiceState{Name: "elasticache", BucketPrefixes: []string{"elasticache-"}},
 		ServiceState{Name: "elbv2", BucketPrefixes: []string{"elbv2-"}},
 		ServiceState{Name: "events", BucketPrefixes: []string{"events-"}},
+		ServiceState{Name: "fis", BucketPrefixes: []string{"fis-"}},
 		ServiceState{Name: "iam", BucketPrefixes: []string{"iam-"}},
 		ServiceState{Name: "kinesis", BucketPrefixes: []string{"kinesis-"}},
 		ServiceState{Name: "kms", BucketPrefixes: []string{"kms-"}},

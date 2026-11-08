@@ -39,16 +39,29 @@ export type ChaosAction =
   | "error"
   | "latency"
   | "drop"
-  | "cold_start";
+  | "cold_start"
+  | "function_error"
+  | "duplicate";
+
+/** "api" (default) for AWS API calls, "event" for internal deliveries, "all" for both. */
+export type ChaosScope = "api" | "event" | "all";
 
 export interface ChaosRule {
   /** Defaults to rule-N. Shown in reports and the X-Stratus-Fault header. */
   id?: string;
-  /** AWS service name such as "s3" or "dynamodb", or "*" for all. */
+  /** Defaults to "api", or "event" when source is set. */
+  scope?: ChaosScope;
+  /** AWS service name such as "s3" or "dynamodb", or "*" for all. For an event delivery, the receiving service. */
   service: string;
+  /** Service making an event delivery, such as "sns", "sqs", "events" or "stepfunctions". */
+  source?: string;
   operation?: string;
-  /** Substring of the request path, S3 bucket or Lambda function name. */
+  /** Substring of the request path, S3 bucket or Lambda function name, or of a delivery's source or target ARN. */
   resource?: string;
+  /** Seconds after the experiment starts before the rule becomes active. */
+  start_after_seconds?: number;
+  /** Seconds the rule stays active once started; 0 means until the experiment ends. */
+  duration_seconds?: number;
   /** In (0, 1]. Defaults to 1. */
   probability?: number;
   /** Stop firing after this many injections. */
@@ -82,10 +95,15 @@ export interface ChaosHit {
   time: string;
   rule_id: string;
   action: ChaosAction;
+  scope: ChaosScope;
+  /** The API request ID, or the delivery's event ID. */
   request_id: string;
   service: string;
   operation?: string;
+  /** The request path, or the delivery's target ARN. */
   path: string;
+  source?: string;
+  source_arn?: string;
   match: number;
 }
 
@@ -96,6 +114,8 @@ export interface ChaosRuleReport {
 }
 
 export interface ChaosReport {
+  /** Identifies this run of the experiment. */
+  id: string;
   status: "running" | "expired" | "stopped";
   seed: number;
   started_at: string;

@@ -17,6 +17,7 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/chaos"
 	"github.com/stratus/internal/store"
 )
 
@@ -34,6 +35,7 @@ type Service struct {
 	metadata     store.Store
 	queueTarget  QueuePublisher
 	lambdaTarget LambdaInvoker
+	faults       chaos.Gate
 	now          func() time.Time
 	mu           sync.Mutex
 }
@@ -137,7 +139,12 @@ type setTopicAttributesResponse struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{metadata: metadata, faults: chaos.Passthrough{}, now: time.Now}
+}
+
+// SetFaults routes fan-out deliveries to subscribers through a chaos gate.
+func (s *Service) SetFaults(gate chaos.Gate) {
+	s.faults = gate
 }
 
 func (s *Service) SetQueuePublisher(target QueuePublisher) {
@@ -659,17 +666,24 @@ func (s *Service) deliverTopicMessage(topicARN, message string, attrs map[string
 			}
 			payload = string(body)
 		}
+		delivery := chaos.Delivery{Source: "sns", SourceARN: topicARN, TargetARN: sub.Endpoint, Async: true}
 		switch sub.Protocol {
 		case "sqs":
 			if s.queueTarget != nil {
-				if err := s.queueTarget.SendMessageToARN(sub.Endpoint, payload); err != nil {
+				delivery.Service, delivery.Operation = "sqs", "SendMessage"
+				if err := s.faults.Deliver(context.Background(), delivery, func(context.Context) error {
+					return s.queueTarget.SendMessageToARN(sub.Endpoint, payload)
+				}); err != nil {
 					return err
 				}
 			}
 		case "lambda":
 			if s.lambdaTarget != nil {
 				name, _ := lambdaNameFromARN(sub.Endpoint)
-				if err := s.lambdaTarget.InvokeAsyncByName(context.Background(), name, []byte(message)); err != nil {
+				delivery.Service, delivery.Operation, delivery.Function = "lambda", "Invoke", name
+				if err := s.faults.Deliver(context.Background(), delivery, func(ctx context.Context) error {
+					return s.lambdaTarget.InvokeAsyncByName(ctx, name, []byte(message))
+				}); err != nil {
 					return err
 				}
 			}

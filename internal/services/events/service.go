@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/chaos"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 	"github.com/stratus/internal/services/sns"
 	"github.com/stratus/internal/services/sqs"
@@ -40,6 +41,7 @@ type Service struct {
 	sns      *sns.Service
 	sqs      *sqs.Service
 	stepFunctions *stepfunctions.Service
+	faults   chaos.Gate
 	now      func() time.Time
 	mu       sync.Mutex
 }
@@ -186,9 +188,14 @@ type putEventsEntry struct {
 }
 
 func NewService(metadata store.Store, lambda *lambdasvc.Service) *Service {
-	svc := &Service{metadata: metadata, lambda: lambda, now: time.Now}
+	svc := &Service{metadata: metadata, lambda: lambda, faults: chaos.Passthrough{}, now: time.Now}
 	go svc.runScheduler()
 	return svc
+}
+
+// SetFaults routes deliveries to rule targets through a chaos gate.
+func (s *Service) SetFaults(gate chaos.Gate) {
+	s.faults = gate
 }
 
 func (s *Service) SetSQS(target *sqs.Service) {
@@ -805,7 +812,7 @@ func (s *Service) processEntry(entry putEventsEntry) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			if err := s.deliverTarget(context.Background(), target, invokePayload); err != nil {
+			if err := s.deliverTarget(context.Background(), rule.Arn, target, invokePayload); err != nil {
 				return "", err
 			}
 		}
@@ -1000,7 +1007,26 @@ func isSupportedTargetARN(arn string) bool {
 	return strings.Contains(arn, ":function:") || strings.Contains(arn, ":sqs:") || strings.Contains(arn, ":sns:") || strings.Contains(arn, ":states:")
 }
 
-func (s *Service) deliverTarget(ctx context.Context, target targetRecord, payload []byte) error {
+// deliverTarget sends an event matched by ruleArn to one of its targets,
+// through the chaos gate.
+func (s *Service) deliverTarget(ctx context.Context, ruleArn string, target targetRecord, payload []byte) error {
+	delivery := chaos.Delivery{Source: "events", SourceARN: ruleArn, TargetARN: target.Arn, Async: true}
+	switch {
+	case strings.Contains(target.Arn, ":function:"):
+		delivery.Service, delivery.Operation, delivery.Function = "lambda", "Invoke", lambdaNameFromARN(target.Arn)
+	case strings.Contains(target.Arn, ":sqs:"):
+		delivery.Service, delivery.Operation = "sqs", "SendMessage"
+	case strings.Contains(target.Arn, ":sns:"):
+		delivery.Service, delivery.Operation = "sns", "Publish"
+	case strings.Contains(target.Arn, ":states:"):
+		delivery.Service, delivery.Operation = "stepfunctions", "StartExecution"
+	}
+	return s.faults.Deliver(ctx, delivery, func(ctx context.Context) error {
+		return s.sendToTarget(ctx, target, payload)
+	})
+}
+
+func (s *Service) sendToTarget(ctx context.Context, target targetRecord, payload []byte) error {
 	switch {
 	case strings.Contains(target.Arn, ":function:"):
 		if s.lambda == nil {
@@ -1114,7 +1140,7 @@ func (s *Service) processScheduledRules() error {
 			return err
 		}
 		for _, target := range targets {
-			if err := s.deliverTarget(context.Background(), target, body); err != nil {
+			if err := s.deliverTarget(context.Background(), rule.Arn, target, body); err != nil {
 				return err
 			}
 		}

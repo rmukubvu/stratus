@@ -201,9 +201,11 @@ func Tools(api ControlAPI) []Tool {
 		},
 		{
 			Name: "stratus_chaos_start",
-			Description: "Start a seeded chaos experiment that injects faults into AWS calls (replaces any running one). " +
+			Description: "Start a seeded chaos experiment that injects faults into AWS calls and internal event deliveries (replaces any running one). " +
 				"Each rule has service (or \"*\"), optional operation and resource substring, optional probability (0-1) and max_hits, and an action: " +
-				"throttle, internal_error, unavailable, error (with error.status_code and error.code), latency (with latency.delay_ms and optional jitter_ms), drop, or cold_start (lambda only). " +
+				"throttle, internal_error, unavailable, error (with error.status_code and error.code), latency (with latency.delay_ms and optional jitter_ms), drop, cold_start (lambda only), " +
+				"function_error (lambda Invoke fails like a throwing function) or duplicate (event scope only). " +
+				"scope \"event\" (or setting source, e.g. \"sns\", \"sqs\", \"events\", \"stepfunctions\") targets deliveries such as SQS-to-Lambda, SNS fan-out and EventBridge targets, where service is the receiving service; scope \"all\" targets both. " +
 				"The same seed replays the same faults.",
 			InputSchema: schema(map[string]any{
 				"seed":             map[string]any{"type": "integer", "description": "Reuse a seed to replay a run; omit to get a new one."},
@@ -214,13 +216,17 @@ func Tools(api ControlAPI) []Tool {
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
-							"id":          str("Rule name shown in reports."),
-							"service":     str("AWS service such as \"dynamodb\", or \"*\"."),
-							"operation":   str("API operation such as \"PutItem\"."),
-							"resource":    str("Substring of the path, bucket or function name."),
-							"probability": map[string]any{"type": "number", "minimum": 0, "maximum": 1},
-							"max_hits":    map[string]any{"type": "integer", "minimum": 0},
-							"action":      map[string]any{"type": "string", "enum": []string{"throttle", "internal_error", "unavailable", "error", "latency", "drop", "cold_start"}},
+							"id":                  str("Rule name shown in reports."),
+							"scope":               map[string]any{"type": "string", "enum": []string{"api", "event", "all"}, "description": "api (default) for AWS API calls, event for internal deliveries, all for both."},
+							"source":              str("Service making an event delivery, such as \"sns\" or \"sqs\"; implies scope event."),
+							"start_after_seconds": map[string]any{"type": "integer", "minimum": 0, "description": "Delay before the rule becomes active."},
+							"duration_seconds":    map[string]any{"type": "integer", "minimum": 0, "description": "How long the rule stays active."},
+							"service":             str("AWS service such as \"dynamodb\", or \"*\". For event deliveries, the receiving service."),
+							"operation":           str("API operation such as \"PutItem\"."),
+							"resource":            str("Substring of the path, bucket or function name, or of a delivery's source or target ARN."),
+							"probability":         map[string]any{"type": "number", "minimum": 0, "maximum": 1},
+							"max_hits":            map[string]any{"type": "integer", "minimum": 0},
+							"action":              map[string]any{"type": "string", "enum": []string{"throttle", "internal_error", "unavailable", "error", "latency", "drop", "cold_start", "function_error", "duplicate"}},
 							"error": map[string]any{"type": "object", "properties": map[string]any{
 								"status_code": map[string]any{"type": "integer"}, "code": str("AWS error code."), "message": str("Error message."),
 							}},

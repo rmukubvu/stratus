@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Dict, List, Literal, TypedDict
 
 HealthStatus = Literal["ok", "degraded", "down"]
-ChaosAction = Literal["throttle", "internal_error", "unavailable", "error", "latency", "drop", "cold_start"]
+ChaosAction = Literal[
+    "throttle", "internal_error", "unavailable", "error", "latency", "drop", "cold_start", "function_error", "duplicate"
+]
+#: "api" (default) for AWS API calls, "event" for internal deliveries, "all" for both.
+ChaosScope = Literal["api", "event", "all"]
 FailureCategory = Literal[
     "injected_fault",
     "unsupported_operation",
@@ -73,6 +77,11 @@ class _ChaosRuleBase(TypedDict):
 
 class ChaosRule(_ChaosRuleBase, total=False):
     id: str
+    scope: ChaosScope
+    #: Service making an event delivery, such as "sns", "sqs", "events" or "stepfunctions".
+    source: str
+    start_after_seconds: int
+    duration_seconds: int
     operation: str
     resource: str
     probability: float
@@ -94,10 +103,13 @@ class ChaosHit(TypedDict, total=False):
     time: str
     rule_id: str
     action: ChaosAction
+    scope: ChaosScope
     request_id: str
     service: str
     operation: str
     path: str
+    source: str
+    source_arn: str
     match: int
 
 
@@ -108,6 +120,7 @@ class ChaosRuleReport(TypedDict):
 
 
 class _ChaosReportBase(TypedDict):
+    id: str
     status: Literal["running", "expired", "stopped"]
     seed: int
     started_at: str

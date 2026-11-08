@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/chaos"
 	"github.com/stratus/internal/store"
 	"github.com/stratus/internal/store/fsblob"
 )
@@ -47,6 +48,7 @@ type Service struct {
 	invoker        Invoker
 	queuePublisher QueuePublisher
 	topicPublisher TopicPublisher
+	faults         chaos.Gate
 	now            func() time.Time
 }
 
@@ -253,8 +255,15 @@ func NewService(opts Options) *Service {
 		metadata: opts.Metadata,
 		blobs:    opts.Blobs,
 		invoker:  opts.Invoker,
+		faults:   chaos.Passthrough{},
 		now:      time.Now,
 	}
+}
+
+// SetFaults routes the deliveries this service makes (event source mapping
+// invocations and destination records) through a chaos gate.
+func (s *Service) SetFaults(gate chaos.Gate) {
+	s.faults = gate
 }
 
 func (s *Service) SetQueuePublisher(publisher QueuePublisher) {
@@ -1551,11 +1560,33 @@ func (s *Service) dispatchEventSource(ctx context.Context, eventSourceArn string
 			continue
 		}
 		go func(mapping eventSourceMappingRecord, body []byte) {
-			callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-			_, _, _ = s.invokeByName(callCtx, mapping.FunctionName, "", append([]byte(nil), body...))
-		}(mapping, body)
+			delivery := chaos.Delivery{
+				Source:    eventSourceService(eventSourceArn),
+				SourceARN: eventSourceArn,
+				Service:   "lambda",
+				Operation: "Invoke",
+				TargetARN: lambdaARN(mapping.FunctionName),
+				Function:  mapping.FunctionName,
+				Async:     true,
+			}
+			_ = s.faults.Deliver(ctx, delivery, func(ctx context.Context) error {
+				callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+				_, _, err := s.invokeByName(callCtx, mapping.FunctionName, "", body)
+				return err
+			})
+		}(mapping, append([]byte(nil), body...))
 	}
+}
+
+// eventSourceService names the service behind an event source mapping's
+// ARN, as chaos rules refer to it.
+func eventSourceService(arn string) string {
+	parts := strings.SplitN(arn, ":", 4)
+	if len(parts) < 3 {
+		return ""
+	}
+	return parts[2]
 }
 
 func (s *Service) deliverAsyncResult(record functionRecord, requestPayload []byte, result InvokeResult, invokeErr error) {
@@ -1589,11 +1620,23 @@ func (s *Service) deliverAsyncResult(record functionRecord, requestPayload []byt
 	if err != nil {
 		return
 	}
+	delivery := chaos.Delivery{
+		Source:    "lambda",
+		SourceARN: lambdaARN(record.FunctionName),
+		TargetARN: destination,
+		Async:     true,
+	}
 	switch {
 	case strings.Contains(destination, ":sqs:") && s.queuePublisher != nil:
-		_ = s.queuePublisher.SendMessageToARN(destination, string(message))
+		delivery.Service, delivery.Operation = "sqs", "SendMessage"
+		_ = s.faults.Deliver(context.Background(), delivery, func(context.Context) error {
+			return s.queuePublisher.SendMessageToARN(destination, string(message))
+		})
 	case strings.Contains(destination, ":sns:") && s.topicPublisher != nil:
-		_ = s.topicPublisher.PublishToTopic(destination, string(message))
+		delivery.Service, delivery.Operation = "sns", "Publish"
+		_ = s.faults.Deliver(context.Background(), delivery, func(context.Context) error {
+			return s.topicPublisher.PublishToTopic(destination, string(message))
+		})
 	}
 }
 
