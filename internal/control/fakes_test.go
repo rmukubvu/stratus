@@ -83,6 +83,33 @@ type fakeRuntime struct {
 func (f *fakeRuntime) Reset(context.Context) error { f.resets++; return nil }
 func (f *fakeRuntime) Ping(context.Context) error  { return f.pingErr }
 
+type fakeBackend struct {
+	name       string
+	resets     int
+	reconciles int
+	resetErr   error
+	// log records the order of calls across backends that share it.
+	log *[]string
+}
+
+func (f *fakeBackend) Service() string { return f.name }
+
+func (f *fakeBackend) Reset(context.Context) error {
+	f.resets++
+	if f.log != nil {
+		*f.log = append(*f.log, f.name+":reset")
+	}
+	return f.resetErr
+}
+
+func (f *fakeBackend) Reconcile(context.Context) error {
+	f.reconciles++
+	if f.log != nil {
+		*f.log = append(*f.log, f.name+":reconcile")
+	}
+	return nil
+}
+
 type fakeRepo struct {
 	mu        sync.Mutex
 	snaps     map[SnapshotID]Snapshot

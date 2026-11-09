@@ -82,6 +82,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	engines, err := container.NewBacking(cfg.DataDir, logger)
+	if err != nil {
+		return nil, err
+	}
 
 	blobStore := fsblob.New(blobRoot)
 	lambdaService := lambdasvc.NewService(lambdasvc.Options{
@@ -124,8 +128,20 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	ecsService := ecs.NewService(metaStore)
 	elbv2Service := elbv2.NewService(metaStore)
 	acmService := acm.NewService(metaStore)
-	rdsService := rds.NewService(metaStore)
-	elastiCacheService := elasticache.NewService(metaStore)
+	rdsService := rds.NewService(rds.Options{
+		Metadata: metaStore,
+		Engines:  engines,
+		Catalog:  rds.DefaultEngines(os.Getenv),
+	})
+	elastiCacheService := elasticache.NewService(elasticache.Options{
+		Metadata: metaStore,
+		Engines:  engines,
+		Catalog:  elasticache.DefaultEngines(os.Getenv),
+	})
+	backends := []control.Backend{rdsService, elastiCacheService}
+	// Records can outlive their containers: a restart reaps the old ones and
+	// a seed brings records with no containers at all. Start what is missing.
+	startEngines(backends, logger)
 	logsService := logs.NewService(metaStore)
 	chaosEngine := chaos.NewEngine(control.DefaultCatalog().Names(), nil)
 	deliveryFaults := chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger)
@@ -146,6 +162,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		State:     metaStore,
 		Blobs:     blobStore,
 		Runtime:   lambdaRuntime,
+		Backends:  backends,
 		Snapshots: snapshotRepo,
 	})
 
@@ -218,7 +235,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		cfg:     cfg,
 		logger:  logger,
 		server:  server,
-		closers: []io.Closer{metaStore, lambdaRuntime},
+		closers: []io.Closer{metaStore, lambdaRuntime, engines},
 	}, nil
 }
 
@@ -306,6 +323,16 @@ func (a *App) closeResources() error {
 		}
 	}
 	return firstErr
+}
+
+// startEngines reconciles every backend at startup. Docker may be down; that
+// is not fatal, the affected resources report a failed status instead.
+func startEngines(backends []control.Backend, logger *slog.Logger) {
+	for _, backend := range backends {
+		if err := backend.Reconcile(context.Background()); err != nil {
+			logger.Warn("engines could not be started", "service", backend.Service(), "error", err)
+		}
+	}
 }
 
 // failuresFrom adapts the operator's request log to the diagnosis port.

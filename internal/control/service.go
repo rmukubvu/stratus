@@ -44,14 +44,19 @@ type ResetResult struct {
 	BucketsCleared []string `json:"buckets_cleared"`
 	// RuntimeRecycled is true when warm Lambda containers were stopped.
 	RuntimeRecycled bool `json:"runtime_recycled"`
+	// EnginesStopped lists services whose engines (databases, caches) were
+	// stopped along with their state.
+	EnginesStopped []string `json:"engines_stopped,omitempty"`
 }
 
-// Options wires the Service to its adapters. Runtime and Clock are optional.
+// Options wires the Service to its adapters. Runtime, Backends and Clock are
+// optional.
 type Options struct {
 	Catalog   Catalog
 	State     StateStore
 	Blobs     BlobStore
 	Runtime   Runtime
+	Backends  []Backend
 	Snapshots SnapshotRepository
 	Gate      *Gate
 	Clock     Clock
@@ -64,6 +69,7 @@ type Service struct {
 	state     StateStore
 	blobs     BlobStore
 	runtime   Runtime
+	backends  map[string]Backend
 	snapshots SnapshotRepository
 	gate      *Gate
 	clock     Clock
@@ -88,11 +94,16 @@ func NewService(opts Options) *Service {
 	if startedAt.IsZero() {
 		startedAt = clock.Now()
 	}
+	backends := make(map[string]Backend, len(opts.Backends))
+	for _, b := range opts.Backends {
+		backends[b.Service()] = b
+	}
 	return &Service{
 		catalog:   opts.Catalog,
 		state:     opts.State,
 		blobs:     opts.Blobs,
 		runtime:   opts.Runtime,
+		backends:  backends,
 		snapshots: opts.Snapshots,
 		gate:      gate,
 		clock:     clock,
@@ -182,10 +193,52 @@ func (s *Service) Reset(ctx context.Context, services []string) (ResetResult, er
 		if resetAll {
 			targets = s.catalog.Names()
 		}
-		result = ResetResult{Services: targets, BucketsCleared: buckets, RuntimeRecycled: recycled}
+		stopped, err := s.stopEngines(ctx, targets)
+		if err != nil {
+			return err
+		}
+		result = ResetResult{Services: targets, BucketsCleared: buckets, RuntimeRecycled: recycled, EnginesStopped: stopped}
 		return nil
 	})
 	return result, err
+}
+
+// stopEngines resets the backend of every target that has one and returns
+// the services whose engines were stopped, in catalog order.
+func (s *Service) stopEngines(ctx context.Context, targets []string) ([]string, error) {
+	var stopped []string
+	for _, name := range targets {
+		backend, ok := s.backends[name]
+		if !ok {
+			continue
+		}
+		if err := backend.Reset(ctx); err != nil {
+			return nil, internalError("stop "+name+" engines", err)
+		}
+		stopped = append(stopped, name)
+	}
+	return stopped, nil
+}
+
+// restartEngines replaces every backend's engines with ones matching the
+// current state, after that state was swapped under them.
+func (s *Service) restartEngines(ctx context.Context) error {
+	names := make([]string, 0, len(s.backends))
+	for name := range s.backends {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if err := s.backends[name].Reset(ctx); err != nil {
+			return internalError("stop "+name+" engines", err)
+		}
+	}
+	for _, name := range names {
+		if err := s.backends[name].Reconcile(ctx); err != nil {
+			return internalError("start "+name+" engines", err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) bucketsToClear(targets []string, resetAll bool) ([]string, error) {
@@ -319,7 +372,7 @@ func (s *Service) RestoreSnapshot(ctx context.Context, rawID string) (Snapshot, 
 				return internalError("recycle Lambda containers", err)
 			}
 		}
-		return nil
+		return s.restartEngines(ctx)
 	})
 	if err != nil {
 		return Snapshot{}, err

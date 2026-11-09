@@ -32,6 +32,11 @@ jobs:
       - name: Pre-pull Node Lambda runtime image
         run: docker pull public.ecr.aws/lambda/nodejs:20
 
+      - name: Pre-pull RDS and ElastiCache engine images
+        run: |
+          docker pull postgres:16-alpine
+          docker pull valkey/valkey:8
+
       - name: Run test suite
         run: go test ./...
 
