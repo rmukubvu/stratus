@@ -55,7 +55,7 @@ func (e Engine) Spec(identifier string, creds Credentials, hostPort int) backing
 		Env:          e.env(creds),
 		Port:         e.Port,
 		HostPort:     hostPort,
-		Probe:        backing.TCP,
+		Probe:        e.probe(creds),
 		ReadyTimeout: readyTimeout,
 	}
 }
@@ -66,6 +66,19 @@ func (e Engine) DatabaseName(creds Credentials) string {
 		return creds.Database
 	}
 	return e.DefaultDBName
+}
+
+// probe speaks the engine's protocol, because a Docker-published port
+// accepts connections before the server behind it is up.
+func (e Engine) probe(creds Credentials) backing.Probe {
+	switch e.family {
+	case familyPostgres:
+		return backing.PostgresStartup(creds.Username, e.DatabaseName(creds))
+	case familyMySQL, familyMariaDB:
+		return backing.MySQLHandshake
+	default:
+		return backing.TCP
+	}
 }
 
 func (e Engine) env(creds Credentials) []string {
