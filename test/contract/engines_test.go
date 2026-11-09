@@ -24,7 +24,7 @@ func TestRDSAndElastiCacheRunRealEngines(t *testing.T) {
 	control := h.baseURL + "/_stratus/control/v1"
 
 	runAWS(t, h.baseURL, "rds", "create-db-instance",
-		"--db-instance-identifier", "orders-db", "--engine", "postgres",
+		"--db-instance-identifier", "orders-db", "--db-instance-class", "db.t3.micro", "--engine", "postgres",
 		"--master-username", "app", "--master-user-password", "secret123",
 		"--db-name", "orders", "--output", "json")
 	db := describeDBInstance(t, h.baseURL, "orders-db")
@@ -77,7 +77,7 @@ func TestRDSRejectsUnsupportedEngineBeforeStartingAnything(t *testing.T) {
 	defer h.Close()
 
 	out := runAWSExpectingFailure(t, h.baseURL, "rds", "create-db-instance",
-		"--db-instance-identifier", "legacy", "--engine", "oracle-ee",
+		"--db-instance-identifier", "legacy", "--db-instance-class", "db.t3.micro", "--engine", "oracle-ee",
 		"--master-username", "app", "--master-user-password", "secret123")
 	if !strings.Contains(out, "InvalidParameterValue") || !strings.Contains(out, "postgres") {
 		t.Fatalf("error should reject the engine and list supported ones: %s", out)
