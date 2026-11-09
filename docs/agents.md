@@ -46,6 +46,8 @@ Logs go to stderr; stdout carries only protocol messages.
 | `stratus_reset` | Wipe all state (or one service) |
 | `stratus_snapshot_save` / `_restore` / `_list` / `_delete` | Save and roll back state |
 | `stratus_chaos_start` / `_status` / `_stop` | Seeded fault injection (see [chaos.md](chaos.md)) |
+| `stratus_ses_inbox` | Emails the application sent through SES, with filters (see [ses.md](ses.md)) |
+| `stratus_scheduler_advance` / `_run` | Fast-forward the EventBridge Scheduler clock, or fire one schedule now (see [scheduler.md](scheduler.md)) |
 
 A failing tool returns `isError: true` with the control API's error code and a
 hint, so the agent can correct itself instead of guessing.

@@ -6,6 +6,8 @@ import (
 
 	"github.com/stratus/internal/awscompat"
 	"github.com/stratus/internal/services/fis"
+	"github.com/stratus/internal/services/scheduler"
+	"github.com/stratus/internal/services/ses"
 )
 
 type Protocol string
@@ -114,7 +116,25 @@ var signedQueryServices = map[string]struct{}{
 	"monitoring":     {},
 	"rds":            {},
 	"elasticache":    {},
+	"ses":            {},
 }
+
+func init() {
+	// SES v1 is a query API like SNS; route its unsigned actions by name.
+	for _, action := range ses.QueryOperations {
+		if _, taken := queryActionToService[action]; !taken {
+			queryActionToService[action] = "ses"
+		}
+	}
+}
+
+// signedRESTServices are REST APIs whose paths (/experiments, /schedules,
+// /v2/email/...) would otherwise read as path-style S3 buckets. They are
+// recognised by their SigV4 signing name, or by their host prefix when a
+// client sends unsigned requests.
+var signedRESTServices = map[string]string{"fis": "fis", "scheduler": "scheduler", "ses": "ses"}
+
+var restHostPrefixes = map[string]string{"fis.": "fis", "scheduler.": "scheduler", "email.": "ses"}
 
 var restPrefixToService = map[string]string{
 	"/2015-03-31/functions":             "lambda",
@@ -127,6 +147,7 @@ var restPrefixToService = map[string]string{
 	"/v2/apis":                          "apigatewayv2",
 	"/_aws/execute-api/":                "apigatewayv2",
 	"/stacks":                           "cloudformation",
+	ses.V2PathPrefix:                    "ses",
 }
 
 func Classify(r *http.Request) (Classification, error) {
@@ -153,11 +174,11 @@ func Classify(r *http.Request) (Classification, error) {
 		}
 	}
 
-	if isFISRequest(r) {
+	if service := signedRESTService(r); service != "" {
 		return Classification{
 			Protocol:  ProtocolREST,
-			Service:   "fis",
-			Operation: fis.Operation(r.Method, r.URL.Path),
+			Service:   service,
+			Operation: restOperation(service, r),
 		}, nil
 	}
 
@@ -178,8 +199,11 @@ func Classify(r *http.Request) (Classification, error) {
 	for prefix, service := range restPrefixToService {
 		if strings.HasPrefix(r.URL.Path, prefix) {
 			operation := ""
-			if service == "lambda" {
+			switch service {
+			case "lambda":
 				operation = classifyLambdaOperation(r)
+			case "ses":
+				operation = ses.OperationV2(r.Method, r.URL.Path)
 			}
 			return Classification{
 				Protocol:  ProtocolREST,
@@ -199,14 +223,36 @@ func Classify(r *http.Request) (Classification, error) {
 	}, nil
 }
 
-// isFISRequest recognises Fault Injection Service calls by their SigV4
-// signing name or their fis.* host. Its paths (/experiments, /actions...)
-// would otherwise be read as path-style S3 buckets.
-func isFISRequest(r *http.Request) bool {
+// signedRESTService names the REST service a request is signed for, or ""
+// when it is not one of signedRESTServices. SES v1 signs with the same name
+// but is a query API on "/", so it is left to classifyQuery.
+func signedRESTService(r *http.Request) string {
+	service := ""
 	if sigv4 := awscompat.ParseSigV4Authorization(r.Header.Get("Authorization")); sigv4 != nil {
-		return sigv4.Service == "fis"
+		service = signedRESTServices[sigv4.Service]
+	} else {
+		for prefix, s := range restHostPrefixes {
+			if strings.HasPrefix(stripPort(r.Host), prefix) {
+				service = s
+			}
+		}
 	}
-	return strings.HasPrefix(stripPort(r.Host), "fis.")
+	if service == "ses" && r.URL.Path == "/" {
+		return ""
+	}
+	return service
+}
+
+func restOperation(service string, r *http.Request) string {
+	switch service {
+	case "fis":
+		return fis.Operation(r.Method, r.URL.Path)
+	case "scheduler":
+		return scheduler.Operation(r.Method, r.URL.Path)
+	case "ses":
+		return ses.OperationV2(r.Method, r.URL.Path)
+	}
+	return ""
 }
 
 func isHealthPath(path string) bool {

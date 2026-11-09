@@ -23,6 +23,9 @@ type ControlAPI interface {
 	ChaosReport(ctx context.Context) (json.RawMessage, error)
 	StopChaos(ctx context.Context) (json.RawMessage, error)
 	Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error)
+	SESMessages(ctx context.Context, query url.Values) (json.RawMessage, error)
+	SchedulerAdvance(ctx context.Context, by, to string) (json.RawMessage, error)
+	SchedulerRun(ctx context.Context, group, name string) (json.RawMessage, error)
 }
 
 // Instructions are sent to the client at initialization.
@@ -31,7 +34,9 @@ environment from stratus_connection_info. Typical loop: stratus_status to check 
 ready, stratus_snapshot_save after seeding, run tests, stratus_diagnose when something
 fails (it says whether a failure is your bug, an injected chaos fault, or an emulator
 gap), stratus_snapshot_restore to get back to the seeded state. Use stratus_chaos_start
-to inject seeded, reproducible faults.`
+to inject seeded, reproducible faults. Emails sent through SES land in a captured inbox
+(stratus_ses_inbox); EventBridge Scheduler runs on a clock you can fast-forward with
+stratus_scheduler_advance, so tests never wait for real time.`
 
 func schema(props map[string]any, required ...string) map[string]any {
 	s := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
@@ -256,6 +261,78 @@ func Tools(api ControlAPI) []Tool {
 			InputSchema: schema(map[string]any{}),
 			Handler: func(ctx context.Context, _ json.RawMessage) (any, error) {
 				return api.StopChaos(ctx)
+			},
+		},
+		{
+			Name: "stratus_ses_inbox",
+			Description: "List emails the application sent through SES (v1 or v2). Nothing is delivered for real: every send lands here with its " +
+				"subject, text and HTML body, recipients and tags, oldest first. Filter by recipient, sender, subject substring or time.",
+			InputSchema: schema(map[string]any{
+				"to":      str("Only emails addressed to this recipient (To, Cc or Bcc)."),
+				"from":    str("Only emails from this sender address."),
+				"subject": str("Only emails whose subject contains this text (case-insensitive)."),
+				"since":   str("Only emails this recent: a duration like \"5m\" or an RFC 3339 time."),
+				"limit":   map[string]any{"type": "integer", "minimum": 1, "description": "Return only the newest N emails."},
+			}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					To      string `json:"to"`
+					From    string `json:"from"`
+					Subject string `json:"subject"`
+					Since   string `json:"since"`
+					Limit   int    `json:"limit"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				q := url.Values{}
+				for key, value := range map[string]string{"to": a.To, "from": a.From, "subject": a.Subject, "since": a.Since} {
+					if value != "" {
+						q.Set(key, value)
+					}
+				}
+				if a.Limit > 0 {
+					q.Set("limit", fmt.Sprint(a.Limit))
+				}
+				return api.SESMessages(ctx, q)
+			},
+		},
+		{
+			Name: "stratus_scheduler_advance",
+			Description: "Move the EventBridge Scheduler clock forward and fire every schedule that became due, once each, before returning. " +
+				"Use it instead of sleeping: advance by \"1h\" to see an hourly schedule deliver to its queue, topic, function or state machine. " +
+				"Returns the new scheduler time and what fired, including any delivery error.",
+			InputSchema: schema(map[string]any{
+				"by": str("How far to advance, as a duration such as \"30m\" or \"2h\"."),
+				"to": str("Advance to this RFC 3339 time instead; must be ahead of the scheduler clock."),
+			}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					By string `json:"by"`
+					To string `json:"to"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				return api.SchedulerAdvance(ctx, a.By, a.To)
+			},
+		},
+		{
+			Name:        "stratus_scheduler_run",
+			Description: "Fire one EventBridge schedule right now, whatever its expression or state says, and report the delivery outcome.",
+			InputSchema: schema(map[string]any{
+				"name":  str("The schedule name."),
+				"group": str("Its schedule group; defaults to \"default\"."),
+			}, "name"),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					Name  string `json:"name"`
+					Group string `json:"group"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				return api.SchedulerRun(ctx, a.Group, a.Name)
 			},
 		},
 	}

@@ -39,7 +39,9 @@ import (
 	"github.com/stratus/internal/services/monitoring"
 	"github.com/stratus/internal/services/rds"
 	"github.com/stratus/internal/services/s3"
+	"github.com/stratus/internal/services/scheduler"
 	"github.com/stratus/internal/services/secretsmanager"
+	"github.com/stratus/internal/services/ses"
 	"github.com/stratus/internal/services/sns"
 	"github.com/stratus/internal/services/sqs"
 	"github.com/stratus/internal/services/ssm"
@@ -124,6 +126,12 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	cognitoIDPService := cognitoidp.NewService(metaStore)
 	stepFunctionsService := stepfunctions.NewService(metaStore, lambdaService)
 	eventsService.SetStepFunctions(stepFunctionsService)
+	sesService := ses.NewService(ses.Options{Metadata: metaStore})
+	schedulerService := scheduler.NewService(scheduler.Options{Metadata: metaStore, Logger: logger})
+	schedulerService.SetLambda(lambdaService)
+	schedulerService.SetSQS(sqsService)
+	schedulerService.SetSNS(snsService)
+	schedulerService.SetStepFunctions(stepFunctionsService)
 	ecrService := ecr.NewService(metaStore)
 	ecsService := ecs.NewService(metaStore)
 	elbv2Service := elbv2.NewService(metaStore)
@@ -149,6 +157,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	snsService.SetFaults(deliveryFaults)
 	eventsService.SetFaults(deliveryFaults)
 	stepFunctionsService.SetFaults(deliveryFaults)
+	schedulerService.SetFaults(deliveryFaults)
+	schedulerService.Start()
 
 	operatorStore := operator.NewStore("http://127.0.0.1"+cfg.Address(), cfg.DataDir, cfg.LogLevel, cfg.LogFormat)
 	operatorService := operator.NewService(operatorStore, logsService)
@@ -168,6 +178,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 
 	controlHandler := control.NewHandler(controlService)
 	chaos.RegisterRoutes(controlHandler, chaosEngine)
+	ses.RegisterRoutes(controlHandler, sesService)
+	scheduler.RegisterRoutes(controlHandler, schedulerService)
 	diagnose.RegisterRoutes(controlHandler, diagnose.NewService(
 		failuresFrom(operatorStore),
 		injectionsFrom(chaosEngine),
@@ -217,6 +229,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		ElastiCache:     elastiCacheService,
 		DynamoDBStreams: streamsService,
 		FIS:             fis.NewService(metaStore, chaosEngine),
+		SES:             sesService,
+		Scheduler:       schedulerService,
 		Operator:        operatorService,
 		Control:         controlHandler,
 		Gate:            controlService.Gate(),
@@ -235,7 +249,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		cfg:     cfg,
 		logger:  logger,
 		server:  server,
-		closers: []io.Closer{metaStore, lambdaRuntime, engines},
+		closers: []io.Closer{schedulerService, metaStore, lambdaRuntime, engines},
 	}, nil
 }
 

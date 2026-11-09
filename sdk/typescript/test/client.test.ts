@@ -156,3 +156,52 @@ describe("StratusClient", () => {
     });
   });
 });
+
+describe("ses and scheduler", () => {
+  test("ses inbox calls map to the control API", async () => {
+    const msg = { id: "m1", timestamp: "t", source: "a@b.example", destination: { to: ["c@d.example"] }, subject: "Hi", body: { text: "x" }, api: "ses" };
+    const { fetch, calls } = fakeFetch({ body: { items: [msg], count: 1 } }, { body: msg }, { body: { items: null, count: 0 } }, { body: { cleared: 1 } });
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch });
+
+    assert.deepEqual(await c.ses.messages({ to: "c@d.example", subject: "Hi", since: new Date("2026-11-09T12:00:00Z"), limit: 5 }), [msg]);
+    assert.deepEqual(await c.ses.message("m 1"), msg);
+    assert.deepEqual(await c.ses.messages(), []);
+    assert.equal(await c.ses.clear(), 1);
+
+    assert.deepEqual(
+      calls.map((x) => `${x.method} ${x.url.slice(base.length)}`),
+      [
+        "GET /ses/messages?to=c%40d.example&subject=Hi&since=2026-11-09T12%3A00%3A00.000Z&limit=5",
+        "GET /ses/messages/m%201",
+        "GET /ses/messages",
+        "DELETE /ses/messages",
+      ],
+    );
+  });
+
+  test("scheduler clock calls map to the control API", async () => {
+    const fired = { name: "nightly", group: "default", schedule_arn: "arn", target: "arn:sqs", scheduled_time: "t", execution_id: "e", input: "{}" };
+    const { fetch, calls } = fakeFetch(
+      { body: { now: "t", offset: "1h0m0s", fired: [fired] } },
+      { body: { now: "t2", offset: "2h0m0s", fired: null } },
+      { body: fired },
+      { body: { now: "t", offset: "0s" } },
+    );
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch });
+
+    assert.deepEqual((await c.scheduler.advance("1h")).fired, [fired]);
+    assert.deepEqual((await c.scheduler.advance(new Date("2026-11-09T14:00:00Z"))).fired, []);
+    assert.deepEqual(await c.scheduler.run("nightly", "billing"), fired);
+    assert.equal((await c.scheduler.clock()).offset, "0s");
+
+    assert.deepEqual(
+      calls.map((x) => [x.method, x.url.slice(base.length), x.body]),
+      [
+        ["POST", "/scheduler/advance", { by: "1h" }],
+        ["POST", "/scheduler/advance", { to: "2026-11-09T14:00:00.000Z" }],
+        ["POST", "/scheduler/run", { name: "nightly", group: "billing" }],
+        ["GET", "/scheduler/clock", undefined],
+      ],
+    );
+  });
+});

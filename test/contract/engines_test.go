@@ -24,7 +24,7 @@ func TestRDSAndElastiCacheRunRealEngines(t *testing.T) {
 	control := h.baseURL + "/_stratus/control/v1"
 
 	runAWS(t, h.baseURL, "rds", "create-db-instance",
-		"--db-instance-identifier", "orders-db", "--engine", "postgres",
+		"--db-instance-identifier", "orders-db", "--db-instance-class", "db.t3.micro", "--engine", "postgres",
 		"--master-username", "app", "--master-user-password", "secret123",
 		"--db-name", "orders", "--output", "json")
 	db := describeDBInstance(t, h.baseURL, "orders-db")
@@ -47,8 +47,11 @@ func TestRDSAndElastiCacheRunRealEngines(t *testing.T) {
 	// Snapshot keeps the instances; reset takes them down with their state.
 	mustStatus(t, http.MethodPost, control+"/snapshots", `{"name":"with-engines"}`, http.StatusCreated)
 	reset := mustStatus(t, http.MethodPost, control+"/reset", `{"services":["rds"]}`, http.StatusOK)
-	if !strings.Contains(reset, `"engines_stopped":["rds"]`) {
-		t.Fatalf("reset should report stopped engines: %s", reset)
+	var resetBody struct {
+		EnginesStopped []string `json:"engines_stopped"`
+	}
+	if err := json.Unmarshal([]byte(reset), &resetBody); err != nil || len(resetBody.EnginesStopped) != 1 || resetBody.EnginesStopped[0] != "rds" {
+		t.Fatalf("reset should report stopped engines (%v): %s", err, reset)
 	}
 	assertRefused(t, db.Endpoint.Address, db.Endpoint.Port)
 	assertRedisSpeaks(t, cache.Nodes[0].Endpoint.Address, cache.Nodes[0].Endpoint.Port)
@@ -77,7 +80,7 @@ func TestRDSRejectsUnsupportedEngineBeforeStartingAnything(t *testing.T) {
 	defer h.Close()
 
 	out := runAWSExpectingFailure(t, h.baseURL, "rds", "create-db-instance",
-		"--db-instance-identifier", "legacy", "--engine", "oracle-ee",
+		"--db-instance-identifier", "legacy", "--db-instance-class", "db.t3.micro", "--engine", "oracle-ee",
 		"--master-username", "app", "--master-user-password", "secret123")
 	if !strings.Contains(out, "InvalidParameterValue") || !strings.Contains(out, "postgres") {
 		t.Fatalf("error should reject the engine and list supported ones: %s", out)

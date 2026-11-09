@@ -67,7 +67,7 @@ func DefaultEngines(getenv func(string) string) Engines {
 	return NewEngines(
 		Engine{Name: "redis", Image: redis, Port: 6379, DefaultVersion: "7.1", probe: backing.RedisPing},
 		Engine{Name: "valkey", Image: redis, Port: 6379, DefaultVersion: "8.0", probe: backing.RedisPing},
-		Engine{Name: "memcached", Image: memcached, Port: 11211, DefaultVersion: "1.6.22", probe: backing.TCP},
+		Engine{Name: "memcached", Image: memcached, Port: 11211, DefaultVersion: "1.6.22", probe: backing.MemcachedVersion},
 	)
 }
 

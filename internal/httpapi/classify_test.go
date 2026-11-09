@@ -425,3 +425,45 @@ func TestClassifyFISBySigningNameAndHost(t *testing.T) {
 		t.Fatalf("unsigned /experiments should be S3: %+v", got)
 	}
 }
+
+func TestClassifySESQueryAndRESTBySigningName(t *testing.T) {
+	signedV1, _ := http.NewRequest(http.MethodPost, "http://localhost:4566/", strings.NewReader("Action=SendEmail&Source=a%40b.example"))
+	signedV1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	signedV1.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20261109/us-east-1/ses/aws4_request, SignedHeaders=host, Signature=x")
+	got, err := Classify(signedV1)
+	if err != nil || got.Service != "ses" || got.Protocol != ProtocolQuery || got.Operation != "SendEmail" {
+		t.Fatalf("signed SES v1 should be a query request: %+v %v", got, err)
+	}
+
+	unsignedV1, _ := http.NewRequest(http.MethodPost, "http://localhost:4566/", strings.NewReader("Action=VerifyEmailIdentity&EmailAddress=a%40b.example"))
+	unsignedV1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if got, _ := Classify(unsignedV1); got.Service != "ses" || got.Operation != "VerifyEmailIdentity" {
+		t.Fatalf("unsigned SES actions route by name: %+v", got)
+	}
+
+	signedV2, _ := http.NewRequest(http.MethodPost, "http://localhost:4566/v2/email/outbound-emails", nil)
+	signedV2.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20261109/us-east-1/ses/aws4_request, SignedHeaders=host, Signature=x")
+	unsignedV2, _ := http.NewRequest(http.MethodGet, "http://localhost:4566/v2/email/templates/welcome", nil)
+	for req, op := range map[*http.Request]string{signedV2: "SendEmail", unsignedV2: "GetEmailTemplate"} {
+		got, err := Classify(req)
+		if err != nil || got.Service != "ses" || got.Protocol != ProtocolREST || got.Operation != op {
+			t.Fatalf("SES v2 should be REST: %+v %v", got, err)
+		}
+	}
+}
+
+func TestClassifySchedulerBySigningNameAndHost(t *testing.T) {
+	signed, _ := http.NewRequest(http.MethodPost, "http://localhost:4566/schedules/nightly", nil)
+	signed.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20261109/us-east-1/scheduler/aws4_request, SignedHeaders=host, Signature=x")
+	byHost, _ := http.NewRequest(http.MethodGet, "http://scheduler.us-east-1.localhost.localstack.cloud:4566/schedule-groups", nil)
+	for req, op := range map[*http.Request]string{signed: "CreateSchedule", byHost: "ListScheduleGroups"} {
+		got, err := Classify(req)
+		if err != nil || got.Service != "scheduler" || got.Protocol != ProtocolREST || got.Operation != op {
+			t.Fatalf("unexpected classification: %+v %v", got, err)
+		}
+	}
+	bucket, _ := http.NewRequest(http.MethodPut, "http://localhost:4566/schedules", nil)
+	if got, _ := Classify(bucket); got.Service != "s3" || got.Bucket != "schedules" {
+		t.Fatalf("unsigned /schedules is still an S3 bucket: %+v", got)
+	}
+}

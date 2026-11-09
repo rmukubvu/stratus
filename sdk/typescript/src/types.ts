@@ -175,3 +175,57 @@ export interface DiagnoseOptions {
   /** 1 to 100. Defaults to 20 on the server. */
   maxGroups?: number;
 }
+
+/** An email the application sent through SES. Nothing is delivered for real. */
+export interface SesMessage {
+  id: string;
+  timestamp: string;
+  source: string;
+  destination: { to?: string[]; cc?: string[]; bcc?: string[] };
+  reply_to?: string[];
+  subject: string;
+  body: { text?: string; html?: string };
+  template?: { name: string; data?: string };
+  raw?: string;
+  tags?: Record<string, string>;
+  configuration_set?: string;
+  /** Which API sent it: "ses" (v1) or "sesv2". */
+  api: "ses" | "sesv2";
+}
+
+export interface SesMessageFilter {
+  /** A recipient address, matched against To, Cc and Bcc. */
+  to?: string;
+  from?: string;
+  /** A case-insensitive substring of the subject. */
+  subject?: string;
+  /** A duration such as "5m", or a point in time. */
+  since?: string | Date;
+  /** Keep only the newest N. */
+  limit?: number;
+}
+
+/** One delivery of an EventBridge schedule to its target. */
+export interface SchedulerInvocation {
+  name: string;
+  group: string;
+  schedule_arn: string;
+  target: string;
+  scheduled_time: string;
+  execution_id: string;
+  input: string;
+  /** Set when the target refused the delivery or a chaos rule failed it. */
+  error?: string;
+}
+
+export interface SchedulerClock {
+  /** The scheduler's current time: real time plus the offset. */
+  now: string;
+  /** How far ahead of real time the scheduler runs, such as "1h0m0s". */
+  offset: string;
+}
+
+export interface SchedulerAdvance extends SchedulerClock {
+  /** What fired because of this advance, in scheduled-time order. */
+  fired: SchedulerInvocation[];
+}

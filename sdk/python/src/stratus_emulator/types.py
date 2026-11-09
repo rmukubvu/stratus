@@ -163,3 +163,69 @@ class _DiagnosisBase(TypedDict):
 
 class Diagnosis(_DiagnosisBase, total=False):
     since: str
+
+
+class SesDestination(TypedDict, total=False):
+    to: List[str]
+    cc: List[str]
+    bcc: List[str]
+
+
+class SesBody(TypedDict, total=False):
+    text: str
+    html: str
+
+
+class SesTemplateRef(TypedDict, total=False):
+    name: str
+    data: str
+
+
+class _SesMessageBase(TypedDict):
+    id: str
+    timestamp: str
+    source: str
+    destination: SesDestination
+    subject: str
+    body: SesBody
+    #: Which API sent it: "ses" (v1) or "sesv2".
+    api: str
+
+
+class SesMessage(_SesMessageBase, total=False):
+    """An email the application sent through SES. Nothing is delivered for real."""
+
+    reply_to: List[str]
+    template: SesTemplateRef
+    raw: str
+    tags: Dict[str, str]
+    configuration_set: str
+
+
+class _SchedulerInvocationBase(TypedDict):
+    name: str
+    group: str
+    schedule_arn: str
+    target: str
+    scheduled_time: str
+    execution_id: str
+    input: str
+
+
+class SchedulerInvocation(_SchedulerInvocationBase, total=False):
+    """One delivery of an EventBridge schedule to its target."""
+
+    #: Set when the target refused the delivery or a chaos rule failed it.
+    error: str
+
+
+class SchedulerClock(TypedDict):
+    #: The scheduler's current time: real time plus the offset.
+    now: str
+    #: How far ahead of real time the scheduler runs, such as "1h0m0s".
+    offset: str
+
+
+class SchedulerAdvance(SchedulerClock):
+    #: What fired because of this advance, in scheduled-time order.
+    fired: List[SchedulerInvocation]
