@@ -115,12 +115,13 @@ func TestPostgresStartupProbe(t *testing.T) {
 	}
 
 	// Docker's userland proxy accepts the connection and then drops it when
-	// nothing listens in the container yet.
+	// nothing listens in the container yet. The read error differs by OS
+	// (EOF on Linux, a reset on Windows), so only assert where it surfaced.
 	proxy := listen(t)
 	defer proxy.Close()
 	go acceptAndClose(proxy)
 	err = probe(context.Background(), proxy.Addr().String())
-	if err == nil || !strings.Contains(err.Error(), "EOF") {
+	if err == nil || !strings.Contains(err.Error(), "read postgres reply") {
 		t.Fatalf("a closed connection is not ready: %v", err)
 	}
 }
