@@ -14,6 +14,9 @@ type fixture struct {
 	state   *fakeState
 	blobs   *fakeBlobs
 	runtime *fakeRuntime
+	rds     *fakeBackend
+	cache   *fakeBackend
+	calls   []string
 	repo    *fakeRepo
 	svc     *Service
 }
@@ -27,11 +30,14 @@ func newFixture(buckets ...string) *fixture {
 		runtime: &fakeRuntime{},
 		repo:    newFakeRepo(),
 	}
+	f.rds = &fakeBackend{name: "rds", log: &f.calls}
+	f.cache = &fakeBackend{name: "elasticache", log: &f.calls}
 	f.svc = NewService(Options{
 		Catalog:   DefaultCatalog(),
 		State:     f.state,
 		Blobs:     f.blobs,
 		Runtime:   f.runtime,
+		Backends:  []Backend{f.rds, f.cache},
 		Snapshots: f.repo,
 		Clock:     fixedClock{t0.Add(90 * time.Second)},
 		StartedAt: t0,
@@ -95,6 +101,36 @@ func TestResetAllClearsEverythingAndRecyclesRuntime(t *testing.T) {
 	}
 	if !reflect.DeepEqual(res.Services, DefaultCatalog().Names()) {
 		t.Fatalf("services: %v", res.Services)
+	}
+	if f.rds.resets != 1 || f.cache.resets != 1 || !reflect.DeepEqual(res.EnginesStopped, []string{"elasticache", "rds"}) {
+		t.Fatalf("reset all should stop every backend's engines: %+v", res)
+	}
+}
+
+func TestResetOneServiceStopsOnlyItsEngines(t *testing.T) {
+	f := newFixture("rds-instances", "elasticache-clusters")
+	res, err := f.svc.Reset(context.Background(), []string{"rds"})
+	if err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	if f.rds.resets != 1 || f.cache.resets != 0 || !reflect.DeepEqual(res.EnginesStopped, []string{"rds"}) {
+		t.Fatalf("only rds engines should stop: rds=%d cache=%d %+v", f.rds.resets, f.cache.resets, res)
+	}
+	if !f.state.buckets["elasticache-clusters"] || f.state.buckets["rds-instances"] {
+		t.Fatalf("unexpected buckets after reset: %v", f.state.buckets)
+	}
+	if f.rds.reconciles != 0 {
+		t.Fatal("reset must not restart engines")
+	}
+}
+
+func TestResetReportsBackendFailure(t *testing.T) {
+	f := newFixture("rds-instances")
+	f.rds.resetErr = errBoom
+	_, err := f.svc.Reset(context.Background(), []string{"rds"})
+	requireCode(t, err, "InternalError")
+	if !strings.Contains(err.Error(), "rds") {
+		t.Fatalf("error should name the backend: %v", err)
 	}
 }
 
@@ -223,6 +259,12 @@ func TestRestoreSnapshotRestoresStateBlobsAndRecyclesRuntime(t *testing.T) {
 		f.runtime.resets != 1 {
 		t.Fatalf("restore did not touch all adapters: %+v %+v %+v", f.state, f.blobs, f.runtime)
 	}
+	// Every engine stops before any restarts, so a restarted engine never
+	// collides with a stale one on the same port.
+	want := []string{"elasticache:reset", "rds:reset", "elasticache:reconcile", "rds:reconcile"}
+	if !reflect.DeepEqual(f.calls, want) {
+		t.Fatalf("backend calls %v, want %v", f.calls, want)
+	}
 }
 
 func TestRestoreUnknownSnapshotReturnsNotFound(t *testing.T) {
@@ -236,7 +278,7 @@ func TestRestoreStopsWhenMetadataRestoreFails(t *testing.T) {
 	f.state.restoreFn = func(string) error { return errBoom }
 	_, err := f.svc.RestoreSnapshot(context.Background(), "baseline")
 	requireCode(t, err, "InternalError")
-	if len(f.blobs.replaced) != 0 || f.runtime.resets != 0 {
+	if len(f.blobs.replaced) != 0 || f.runtime.resets != 0 || len(f.calls) != 0 {
 		t.Fatal("later steps ran after a failed metadata restore")
 	}
 }

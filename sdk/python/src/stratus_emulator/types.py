@@ -50,6 +50,7 @@ class _ResetBase(TypedDict):
 class ResetResult(_ResetBase, total=False):
     buckets_cleared: List[str]
     runtime_recycled: bool
+    engines_stopped: List[str]
 
 
 class Snapshot(TypedDict):

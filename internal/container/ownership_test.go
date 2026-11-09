@@ -164,3 +164,14 @@ func TestProcessAliveForSelfAndImpossiblePID(t *testing.T) {
 		t.Fatal("absurd pid should not be alive")
 	}
 }
+
+func TestContainerNameForIsUniquePerInstanceKindAndResource(t *testing.T) {
+	owner := Owner{Instance: "abc123"}
+	got := owner.ContainerNameFor("rds", "App DB/1")
+	if got != "stratus-abc123-rds-app-db-1" {
+		t.Fatalf("unexpected container name %q", got)
+	}
+	if owner.ContainerNameFor("elasticache", "App DB/1") == got {
+		t.Fatal("different kinds must not share a container name")
+	}
+}

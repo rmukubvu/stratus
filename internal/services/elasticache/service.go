@@ -1,8 +1,14 @@
+// Package elasticache emulates Amazon ElastiCache. Every cache cluster is a
+// real cache engine running in a container, so clients connect to the node
+// endpoint the API returns and use the real protocol.
 package elasticache
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -11,35 +17,129 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/backing"
 	"github.com/stratus/internal/store"
 )
 
 const (
 	namespace      = "http://elasticache.amazonaws.com/doc/2015-02-02/"
 	clustersBucket = "elasticache-clusters"
+
+	// kind labels the engine containers this service owns.
+	kind = "elasticache"
+
+	accountID = "000000000000"
+	region    = "us-east-1"
 )
+
+// Cluster statuses, as ElastiCache reports them.
+const (
+	statusAvailable = "available"
+	statusDeleting  = "deleting"
+	statusFailed    = "failed"
+)
+
+// Options wires the service to its adapters.
+type Options struct {
+	Metadata store.Store
+	// Engines runs the cache engines. Nil means no container engine is
+	// available, so creating a cluster fails with a clear error.
+	Engines backing.Runner
+	// Catalog lists the supported engines. Zero means DefaultEngines without
+	// image overrides.
+	Catalog Engines
+	Now     func() time.Time
+}
 
 type Service struct {
 	metadata store.Store
+	engines  backing.Runner
+	catalog  Engines
 	now      func() time.Time
 	mu       sync.Mutex
 }
 
+// cacheClusterRecord is the persisted state of one cluster. Stratus runs a
+// single node per cluster, published at Address:Port.
 type cacheClusterRecord struct {
-	Created  time.Time `json:"created"`
-	Engine   string    `json:"engine"`
-	ID       string    `json:"id"`
-	NodeType string    `json:"node_type"`
-	Nodes    int       `json:"nodes"`
-	Status   string    `json:"status"`
+	Address       string    `json:"address"`
+	Created       time.Time `json:"created"`
+	Engine        string    `json:"engine"`
+	EngineVersion string    `json:"engine_version"`
+	ID            string    `json:"id"`
+	NodeType      string    `json:"node_type"`
+	Nodes         int       `json:"nodes"`
+	Port          int       `json:"port"`
+	Status        string    `json:"status"`
 }
 
 type responseMetadata struct {
 	RequestID string `xml:"RequestId"`
 }
 
-func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+// NewService builds an ElastiCache service.
+func NewService(opts Options) *Service {
+	engines := opts.Engines
+	if engines == nil {
+		engines = backing.Unavailable{}
+	}
+	catalog := opts.Catalog
+	if catalog.byName == nil {
+		catalog = DefaultEngines(nil)
+	}
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
+	return &Service{metadata: opts.Metadata, engines: engines, catalog: catalog, now: now}
+}
+
+// Service names this backend for the control plane.
+func (s *Service) Service() string { return kind }
+
+// Reset stops every engine. The control plane calls it after dropping the
+// service's metadata, so no cluster is left running without a record. Without a
+// container engine there is nothing reachable to stop, and resetting state
+// must still work, so that case is not an error.
+func (s *Service) Reset(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.engines.StopAll(ctx, kind); err != nil && !errors.Is(err, backing.ErrUnavailable) {
+		return err
+	}
+	return nil
+}
+
+// Reconcile starts an engine for every recorded cluster that has none,
+// keeping each cluster's endpoint. It runs after a snapshot restore and at
+// startup. A cluster whose engine cannot start is marked failed; the error
+// names them all.
+func (s *Service) Reconcile(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	records, err := s.listClusters()
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, record := range records {
+		running, err := s.engines.Running(ctx, kind, record.ID)
+		if err == nil && running {
+			continue
+		}
+		if err == nil {
+			err = s.startEngine(ctx, &record, record.Port)
+		}
+		if err != nil {
+			record.Status = statusFailed
+			errs = append(errs, fmt.Errorf("elasticache: start engine for %s: %w", record.ID, err))
+		}
+		if err := s.putRecord(record.ID, record); err != nil {
+			return err
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requestID string) error {
@@ -58,30 +158,25 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requ
 	}
 }
 
+// createCacheCluster starts a real engine and returns once it answers, so
+// the cluster is available as soon as the call returns.
 func (s *Service) createCacheCluster(w http.ResponseWriter, r *http.Request, requestID string) error {
 	form, err := parseForm(r)
 	if err != nil {
 		return err
 	}
-	id := form.Get("CacheClusterId")
-	if id == "" {
-		return validation("CacheClusterId is required")
+	record, err := s.clusterFromForm(form)
+	if err != nil {
+		return err
 	}
-	nodes := 1
-	if raw := form.Get("NumCacheNodes"); raw != "" {
-		if raw == "0" {
-			return validation("NumCacheNodes must be greater than 0")
-		}
+	if existing, _ := s.metadata.Get(clustersBucket, record.ID); existing != nil {
+		return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "CacheClusterAlreadyExists", Message: "cache cluster already exists: " + record.ID}
 	}
-	record := cacheClusterRecord{
-		Created:  s.now().UTC(),
-		Engine:   defaultString(form.Get("Engine"), "redis"),
-		ID:       id,
-		NodeType: defaultString(form.Get("CacheNodeType"), "cache.t3.micro"),
-		Nodes:    nodes,
-		Status:   "available",
+	if err := s.startEngine(r.Context(), &record, 0); err != nil {
+		return backing.APIError(err, "cache cluster "+record.ID)
 	}
-	if err := s.putRecord(id, record); err != nil {
+	if err := s.putRecord(record.ID, record); err != nil {
+		_ = s.engines.Stop(context.Background(), kind, record.ID)
 		return err
 	}
 	payload := struct {
@@ -97,13 +192,53 @@ func (s *Service) createCacheCluster(w http.ResponseWriter, r *http.Request, req
 	return nil
 }
 
+func (s *Service) clusterFromForm(form url.Values) (cacheClusterRecord, error) {
+	id := form.Get("CacheClusterId")
+	if id == "" {
+		return cacheClusterRecord{}, validation("CacheClusterId is required")
+	}
+	if form.Get("NumCacheNodes") == "0" {
+		return cacheClusterRecord{}, validation("NumCacheNodes must be greater than 0")
+	}
+	engineName := defaultString(form.Get("Engine"), "redis")
+	engine, ok := s.catalog.Lookup(engineName)
+	if !ok {
+		return cacheClusterRecord{}, validation(s.catalog.unsupported(engineName))
+	}
+	return cacheClusterRecord{
+		Created:       s.now().UTC(),
+		Engine:        engine.Name,
+		EngineVersion: defaultString(form.Get("EngineVersion"), engine.DefaultVersion),
+		ID:            id,
+		NodeType:      defaultString(form.Get("CacheNodeType"), "cache.t3.micro"),
+		Nodes:         1,
+	}, nil
+}
+
+// startEngine runs the cluster's engine on hostPort (zero picks one) and
+// records where it listens.
+func (s *Service) startEngine(ctx context.Context, record *cacheClusterRecord, hostPort int) error {
+	engine, ok := s.catalog.Lookup(record.Engine)
+	if !ok {
+		return errors.New(s.catalog.unsupported(record.Engine))
+	}
+	endpoint, err := s.engines.Start(ctx, engine.Spec(record.ID, hostPort))
+	if err != nil {
+		return err
+	}
+	record.Address = endpoint.Address
+	record.Port = endpoint.Port
+	record.Status = statusAvailable
+	return nil
+}
+
 func (s *Service) describeCacheClusters(w http.ResponseWriter, r *http.Request, requestID string) error {
 	form, err := parseForm(r)
 	if err != nil {
 		return err
 	}
 	id := form.Get("CacheClusterId")
-	items := make([]cacheClusterRecord, 0)
+	var items []cacheClusterRecord
 	if id != "" {
 		record, err := s.loadRecord(id)
 		if err != nil {
@@ -111,18 +246,11 @@ func (s *Service) describeCacheClusters(w http.ResponseWriter, r *http.Request, 
 		}
 		items = append(items, record)
 	} else {
-		if err := s.metadata.Scan(clustersBucket, "", func(_, v []byte) error {
-			var record cacheClusterRecord
-			if err := json.Unmarshal(v, &record); err != nil {
-				return nil
-			}
-			items = append(items, record)
-			return nil
-		}); err != nil {
-			return internal(err)
+		items, err = s.listClusters()
+		if err != nil {
+			return err
 		}
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
 	payload := struct {
 		XMLName xml.Name `xml:"DescribeCacheClustersResponse"`
 		XMLNS   string   `xml:"xmlns,attr"`
@@ -138,6 +266,9 @@ func (s *Service) describeCacheClusters(w http.ResponseWriter, r *http.Request, 
 	return nil
 }
 
+// deleteCacheCluster stops the engine and forgets the cluster. The record is
+// removed even when the container engine is unreachable, so a lost Docker
+// never leaves a cluster that cannot be deleted.
 func (s *Service) deleteCacheCluster(w http.ResponseWriter, r *http.Request, requestID string) error {
 	form, err := parseForm(r)
 	if err != nil {
@@ -147,9 +278,13 @@ func (s *Service) deleteCacheCluster(w http.ResponseWriter, r *http.Request, req
 	if err != nil {
 		return err
 	}
+	if err := s.engines.Stop(r.Context(), kind, record.ID); err != nil && !errors.Is(err, backing.ErrUnavailable) {
+		return backing.APIError(err, "cache cluster "+record.ID)
+	}
 	if err := s.metadata.Delete(clustersBucket, record.ID); err != nil {
 		return internal(err)
 	}
+	record.Status = statusDeleting
 	payload := struct {
 		XMLName xml.Name `xml:"DeleteCacheClusterResponse"`
 		XMLNS   string   `xml:"xmlns,attr"`
@@ -163,22 +298,56 @@ func (s *Service) deleteCacheCluster(w http.ResponseWriter, r *http.Request, req
 	return nil
 }
 
+type endpointXML struct {
+	Address string `xml:"Address"`
+	Port    int    `xml:"Port"`
+}
+
+type cacheNodeXML struct {
+	CacheNodeId         string      `xml:"CacheNodeId"`
+	CacheNodeStatus     string      `xml:"CacheNodeStatus"`
+	CacheNodeCreateTime time.Time   `xml:"CacheNodeCreateTime"`
+	Endpoint            endpointXML `xml:"Endpoint"`
+}
+
 type cacheClusterXML struct {
-	CacheClusterId     string `xml:"CacheClusterId"`
-	CacheClusterStatus string `xml:"CacheClusterStatus"`
-	CacheNodeType      string `xml:"CacheNodeType"`
-	Engine             string `xml:"Engine"`
-	NumCacheNodes      int    `xml:"NumCacheNodes"`
+	ARN                    string         `xml:"ARN"`
+	CacheClusterId         string         `xml:"CacheClusterId"`
+	CacheClusterStatus     string         `xml:"CacheClusterStatus"`
+	CacheClusterCreateTime time.Time      `xml:"CacheClusterCreateTime"`
+	CacheNodeType          string         `xml:"CacheNodeType"`
+	Engine                 string         `xml:"Engine"`
+	EngineVersion          string         `xml:"EngineVersion"`
+	NumCacheNodes          int            `xml:"NumCacheNodes"`
+	ConfigurationEndpoint  *endpointXML   `xml:"ConfigurationEndpoint,omitempty"`
+	CacheNodes             []cacheNodeXML `xml:"CacheNodes>CacheNode"`
 }
 
 func cacheClusterXMLFromRecord(record cacheClusterRecord) cacheClusterXML {
-	return cacheClusterXML{
-		CacheClusterId:     record.ID,
-		CacheClusterStatus: record.Status,
-		CacheNodeType:      record.NodeType,
-		Engine:             record.Engine,
-		NumCacheNodes:      record.Nodes,
+	endpoint := endpointXML{Address: record.Address, Port: record.Port}
+	out := cacheClusterXML{
+		ARN:                    fmt.Sprintf("arn:aws:elasticache:%s:%s:cluster:%s", region, accountID, record.ID),
+		CacheClusterId:         record.ID,
+		CacheClusterStatus:     record.Status,
+		CacheClusterCreateTime: record.Created,
+		CacheNodeType:          record.NodeType,
+		Engine:                 record.Engine,
+		EngineVersion:          record.EngineVersion,
+		NumCacheNodes:          record.Nodes,
 	}
+	if record.Address != "" {
+		out.CacheNodes = []cacheNodeXML{{
+			CacheNodeId:         "0001",
+			CacheNodeStatus:     record.Status,
+			CacheNodeCreateTime: record.Created,
+			Endpoint:            endpoint,
+		}}
+		// Memcached clients discover nodes through the configuration endpoint.
+		if record.Engine == "memcached" {
+			out.ConfigurationEndpoint = &endpoint
+		}
+	}
+	return out
 }
 
 func (s *Service) loadRecord(id string) (cacheClusterRecord, error) {
@@ -187,13 +356,29 @@ func (s *Service) loadRecord(id string) (cacheClusterRecord, error) {
 		return cacheClusterRecord{}, internal(err)
 	}
 	if raw == nil {
-		return cacheClusterRecord{}, &apierror.Error{StatusCode: http.StatusBadRequest, Code: "CacheClusterNotFound", Message: "cache cluster not found"}
+		return cacheClusterRecord{}, &apierror.Error{StatusCode: http.StatusNotFound, Code: "CacheClusterNotFound", Message: "cache cluster not found"}
 	}
 	var record cacheClusterRecord
 	if err := json.Unmarshal(raw, &record); err != nil {
 		return cacheClusterRecord{}, internal(err)
 	}
 	return record, nil
+}
+
+func (s *Service) listClusters() ([]cacheClusterRecord, error) {
+	items := make([]cacheClusterRecord, 0)
+	if err := s.metadata.Scan(clustersBucket, "", func(_, v []byte) error {
+		var record cacheClusterRecord
+		if err := json.Unmarshal(v, &record); err != nil {
+			return nil
+		}
+		items = append(items, record)
+		return nil
+	}); err != nil {
+		return nil, internal(err)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	return items, nil
 }
 
 func (s *Service) putRecord(id string, record cacheClusterRecord) error {

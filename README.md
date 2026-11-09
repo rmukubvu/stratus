@@ -67,12 +67,18 @@ Current Lambda execution runtimes:
 - ECR
 - ECS
 - ELBv2
-- RDS
-- ElastiCache
+- RDS (real PostgreSQL, MySQL and MariaDB in Docker)
+- ElastiCache (real Valkey/Redis and Memcached in Docker)
 
 Support is intentionally uneven by service. Some services have deeper
 behavioral coverage than others. The compatibility bar is the contract suite,
 not the presence of a package name.
+
+RDS instances and ElastiCache clusters are real engines: the endpoint the
+API returns speaks the real wire protocol, and the create call returns once
+the engine accepts connections. The images must be present locally
+(`docker pull postgres:16-alpine valkey/valkey:8`). See
+[docs/engines.md](docs/engines.md).
 
 ## Validated Loop
 

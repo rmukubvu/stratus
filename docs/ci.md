@@ -20,8 +20,9 @@ stratus ci -- go test ./...
    - `STRATUS_PORT`
    - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` and
      `AWS_DEFAULT_REGION`, set to harmless defaults only if you haven't set them
-5. shuts Stratus down, stops its Lambda containers and deletes the data
-   directory, whether the command passed, failed or was interrupted.
+5. shuts Stratus down, stops its Lambda, database and cache containers and
+   deletes the data directory, whether the command passed, failed or was
+   interrupted.
 
 The exit code is your command's. If Stratus itself fails (bad seed, port
 problem, never became ready) the exit code is `125`, so you can tell an

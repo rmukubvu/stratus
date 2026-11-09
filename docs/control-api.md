@@ -28,7 +28,9 @@ A per-service reset drops that service's metadata and blobs and nothing
 else. Services are reset independently, so resetting `dynamodb` leaves
 `dynamodbstreams` alone; name both to reset both. Resetting `lambda`, or
 everything, also stops warm Lambda containers so the next invocation starts
-clean.
+clean. Resetting `rds` or `elasticache`, or everything, also stops the
+database and cache engines that backed the dropped instances; the response
+lists those services under `engines_stopped`.
 
 ## Snapshots
 
@@ -39,6 +41,12 @@ and costs little disk even with large S3 objects or Lambda bundles. A
 snapshot can be restored any number of times.
 
 Names are 1-63 characters of lowercase letters, digits, `.`, `_` and `-`.
+
+A snapshot records which RDS instances and ElastiCache clusters exist, with
+their endpoints and credentials, but not the data inside their engines. A
+restore stops every engine and starts a fresh one for each recorded instance
+on the same port, so endpoints stay stable while the databases come back
+empty. See [engines.md](engines.md).
 
 ## Consistency
 

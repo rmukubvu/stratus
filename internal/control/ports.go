@@ -29,6 +29,19 @@ type Runtime interface {
 	Ping(ctx context.Context) error
 }
 
+// Backend runs real engines behind one service's resources, such as the
+// database containers behind RDS instances. Engines live outside the state
+// store, so the control plane tells backends when state changes under them.
+type Backend interface {
+	// Service is the catalog name of the service the backend serves.
+	Service() string
+	// Reset stops every engine. It runs after the service's state is dropped.
+	Reset(ctx context.Context) error
+	// Reconcile starts engines for resources that exist in state but have
+	// none running. It runs after a snapshot restore.
+	Reconcile(ctx context.Context) error
+}
+
 // SnapshotPaths is where a snapshot's data lives on disk.
 type SnapshotPaths struct {
 	MetaDB  string

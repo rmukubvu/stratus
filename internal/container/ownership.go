@@ -20,6 +20,11 @@ const (
 	LabelInstance  = "io.stratus.instance"
 	LabelOwnerPID  = "io.stratus.owner-pid"
 	LabelOwnerHost = "io.stratus.owner-host"
+	// LabelKind and LabelResource say what a container runs: the service that
+	// owns it ("lambda", "rds") and the resource within it (a function name,
+	// a DB instance identifier).
+	LabelKind     = "io.stratus.kind"
+	LabelResource = "io.stratus.resource"
 )
 
 // Owner identifies the Stratus process that owns a container.
@@ -59,6 +64,12 @@ func (o Owner) Labels() map[string]string {
 // unique per Stratus instance, so parallel instances never collide.
 func (o Owner) ContainerName(functionName string) string {
 	return fmt.Sprintf("stratus-%s-%s", o.Instance, sanitizeName(functionName))
+}
+
+// ContainerNameFor names an engine container by the service that owns it and
+// the resource it backs, unique per Stratus instance.
+func (o Owner) ContainerNameFor(kind, resource string) string {
+	return fmt.Sprintf("stratus-%s-%s-%s", o.Instance, sanitizeName(kind), sanitizeName(resource))
 }
 
 // ProcessAlive reports whether a process with the given PID exists.

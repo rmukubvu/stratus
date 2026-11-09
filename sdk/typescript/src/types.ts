@@ -23,6 +23,8 @@ export interface ResetResult {
   services: string[];
   buckets_cleared?: string[];
   runtime_recycled?: boolean;
+  /** Services whose engines (databases, caches) were stopped with their state. */
+  engines_stopped?: string[];
 }
 
 export interface Snapshot {

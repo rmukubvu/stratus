@@ -47,13 +47,9 @@ func NewManager(dataDir, blobRoot string, logger *slog.Logger) (*Manager, error)
 		logger = slog.Default()
 	}
 
-	opts := []dockerclient.Opt{dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation()}
-	if host := defaultDockerHost(); host != "" {
-		opts = append(opts, dockerclient.WithHost(host))
-	}
-	client, err := dockerclient.NewClientWithOpts(opts...)
+	client, err := newDockerClient()
 	if err != nil {
-		return nil, fmt.Errorf("create docker client: %w", err)
+		return nil, err
 	}
 
 	runtimeDir := filepath.Join(dataDir, "runtime")
@@ -95,7 +91,7 @@ func (m *Manager) reapOrphans() {
 		m.logger.Debug("orphan container cleanup skipped", "error", err)
 	}
 	if removed > 0 {
-		m.logger.Info("removed orphaned lambda containers", "count", removed)
+		m.logger.Info("removed orphaned stratus containers", "count", removed)
 	}
 }
 
@@ -218,13 +214,16 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		env = append(env, key+"="+value)
 	}
 
+	labels := m.owner.Labels()
+	labels[LabelKind] = "lambda"
+	labels[LabelResource] = spec.FunctionName
 	cfg := &container.Config{
 		Image:        imageName,
 		Entrypoint:   launchConfig.Entrypoint,
 		Cmd:          launchConfig.Cmd,
 		ExposedPorts: portSet,
 		WorkingDir:   "/var/task",
-		Labels:       m.owner.Labels(),
+		Labels:       labels,
 	}
 
 	hostCfg := &container.HostConfig{
@@ -579,6 +578,20 @@ func runtimeExtraHosts(spec lambdasvc.FunctionSpec) []string {
 		}
 	}
 	return nil
+}
+
+// newDockerClient connects to the daemon named by DOCKER_HOST, Docker
+// Desktop's per-user socket, or the default socket, in that order.
+func newDockerClient() (*dockerclient.Client, error) {
+	opts := []dockerclient.Opt{dockerclient.FromEnv, dockerclient.WithAPIVersionNegotiation()}
+	if host := defaultDockerHost(); host != "" {
+		opts = append(opts, dockerclient.WithHost(host))
+	}
+	client, err := dockerclient.NewClientWithOpts(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create docker client: %w", err)
+	}
+	return client, nil
 }
 
 func defaultDockerHost() string {
