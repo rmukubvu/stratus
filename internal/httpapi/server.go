@@ -38,7 +38,9 @@ import (
 	"github.com/stratus/internal/services/monitoring"
 	"github.com/stratus/internal/services/rds"
 	"github.com/stratus/internal/services/s3"
+	"github.com/stratus/internal/services/scheduler"
 	"github.com/stratus/internal/services/secretsmanager"
+	"github.com/stratus/internal/services/ses"
 	"github.com/stratus/internal/services/sns"
 	"github.com/stratus/internal/services/sqs"
 	"github.com/stratus/internal/services/ssm"
@@ -75,6 +77,8 @@ type Options struct {
 	ElastiCache     *elasticache.Service
 	DynamoDBStreams *dynamodbstreams.Service
 	FIS             *fis.Service
+	SES             *ses.Service
+	Scheduler       *scheduler.Service
 	Operator        *operator.Service
 	// Faults, when set, injects chaos faults into AWS API requests.
 	Faults FaultDecider
@@ -117,6 +121,8 @@ type Server struct {
 	elastiCache     *elasticache.Service
 	dynamodbStreams *dynamodbstreams.Service
 	fis             *fis.Service
+	ses             *ses.Service
+	scheduler       *scheduler.Service
 	operator        *operator.Service
 	control         http.Handler
 	gate            *control.Gate
@@ -159,6 +165,8 @@ func NewServer(opts Options) *Server {
 		elastiCache:     opts.ElastiCache,
 		dynamodbStreams: opts.DynamoDBStreams,
 		fis:             opts.FIS,
+		ses:             opts.SES,
+		scheduler:       opts.Scheduler,
 		operator:        opts.Operator,
 		control:         opts.Control,
 		gate:            opts.Gate,
@@ -411,6 +419,13 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"fis\" is not implemented"}
 		}
 		return s.fis.Handle(w, r)
+	case "ses":
+		return s.handleSES(w, r, metadata)
+	case "scheduler":
+		if s.scheduler == nil {
+			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "ResourceNotFoundException", Message: "service \"scheduler\" is not implemented"}
+		}
+		return s.scheduler.Handle(w, r)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
@@ -610,6 +625,18 @@ func (s *Server) handleRDS(w http.ResponseWriter, r *http.Request, metadata Requ
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"rds\" is not implemented"}
 	}
 	return s.rds.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
+}
+
+// handleSES serves both SES APIs: v1 is a query API on "/", v2 is REST
+// under /v2/email/.
+func (s *Server) handleSES(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.ses == nil {
+		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"ses\" is not implemented"}
+	}
+	if metadata.Classification.Protocol == ProtocolQuery {
+		return s.ses.HandleQuery(w, r, metadata.Classification.Operation, metadata.RequestID)
+	}
+	return s.ses.HandleV2(w, r)
 }
 
 func (s *Server) handleElastiCache(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {

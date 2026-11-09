@@ -7,6 +7,11 @@ import type {
   Diagnosis,
   Health,
   ResetResult,
+  SchedulerAdvance,
+  SchedulerClock,
+  SchedulerInvocation,
+  SesMessage,
+  SesMessageFilter,
   Snapshot,
 } from "./types.js";
 
@@ -85,6 +90,60 @@ export class Chaos {
   }
 }
 
+/** The inbox that captures every email sent through SES v1 or v2. */
+export class Ses {
+  constructor(private readonly t: Transport) {}
+
+  /** Emails sent so far, oldest first, optionally filtered. */
+  async messages(filter: SesMessageFilter = {}): Promise<SesMessage[]> {
+    const q = new URLSearchParams();
+    if (filter.to) q.set("to", filter.to);
+    if (filter.from) q.set("from", filter.from);
+    if (filter.subject) q.set("subject", filter.subject);
+    if (filter.since !== undefined) {
+      q.set("since", filter.since instanceof Date ? filter.since.toISOString() : filter.since);
+    }
+    if (filter.limit !== undefined) q.set("limit", String(filter.limit));
+    const qs = q.toString();
+    const res = await this.t.request<{ items: SesMessage[] | null }>("GET", "/ses/messages" + (qs ? `?${qs}` : ""));
+    return res.items ?? [];
+  }
+
+  message(id: string): Promise<SesMessage> {
+    return this.t.request("GET", `/ses/messages/${encodeURIComponent(id)}`);
+  }
+
+  /** Empties the inbox and returns how many emails were removed. Identities and templates stay. */
+  async clear(): Promise<number> {
+    const res = await this.t.request<{ cleared: number }>("DELETE", "/ses/messages");
+    return res.cleared;
+  }
+}
+
+/** The EventBridge Scheduler clock: move it instead of sleeping. */
+export class Scheduler {
+  constructor(private readonly t: Transport) {}
+
+  clock(): Promise<SchedulerClock> {
+    return this.t.request("GET", "/scheduler/clock");
+  }
+
+  /**
+   * Moves the clock forward by a duration such as "1h", or to a point in time,
+   * and fires every schedule that became due (once each) before resolving.
+   */
+  async advance(by: string | Date): Promise<SchedulerAdvance> {
+    const body = by instanceof Date ? { to: by.toISOString() } : { by };
+    const res = await this.t.request<SchedulerAdvance>("POST", "/scheduler/advance", body);
+    return { ...res, fired: res.fired ?? [] };
+  }
+
+  /** Fires one schedule now, whatever its expression or state says. */
+  run(name: string, group?: string): Promise<SchedulerInvocation> {
+    return this.t.request("POST", "/scheduler/run", group === undefined ? { name } : { name, group });
+  }
+}
+
 /**
  * Client for the Stratus control API.
  *
@@ -101,6 +160,8 @@ export class StratusClient {
   readonly region: string;
   readonly snapshots: Snapshots;
   readonly chaos: Chaos;
+  readonly ses: Ses;
+  readonly scheduler: Scheduler;
   private readonly t: Transport;
 
   constructor(options: StratusClientOptions = {}) {
@@ -114,6 +175,8 @@ export class StratusClient {
       });
     this.snapshots = new Snapshots(this.t);
     this.chaos = new Chaos(this.t);
+    this.ses = new Ses(this.t);
+    this.scheduler = new Scheduler(this.t);
   }
 
   health(): Promise<Health> {

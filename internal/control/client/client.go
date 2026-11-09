@@ -153,6 +153,34 @@ func (c *Client) Diagnose(ctx context.Context, query url.Values) (json.RawMessag
 	return c.Do(ctx, http.MethodGet, path, nil)
 }
 
+// SESMessages lists emails captured by the SES inbox. query may set to,
+// from, subject, since and limit.
+func (c *Client) SESMessages(ctx context.Context, query url.Values) (json.RawMessage, error) {
+	path := "/ses/messages"
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	return c.Do(ctx, http.MethodGet, path, nil)
+}
+
+// SchedulerAdvance moves the EventBridge Scheduler clock forward by a
+// duration (by) or to an RFC 3339 time (to) and fires what became due.
+func (c *Client) SchedulerAdvance(ctx context.Context, by, to string) (json.RawMessage, error) {
+	body := map[string]string{}
+	if by != "" {
+		body["by"] = by
+	}
+	if to != "" {
+		body["to"] = to
+	}
+	return c.Do(ctx, http.MethodPost, "/scheduler/advance", body)
+}
+
+// SchedulerRun fires one schedule immediately.
+func (c *Client) SchedulerRun(ctx context.Context, group, name string) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/scheduler/run", map[string]string{"name": name, "group": group})
+}
+
 // Endpoint returns the base URL the client talks to.
 func (c *Client) Endpoint() string { return c.base.String() }
 

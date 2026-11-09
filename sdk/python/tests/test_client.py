@@ -175,5 +175,49 @@ class UrllibTransportTest(unittest.TestCase):
         self.assertEqual(cm.exception.status, 0)
 
 
+MSG = {"id": "m1", "timestamp": "t", "source": "a@b.example", "destination": {"to": ["c@d.example"]}, "subject": "Hi", "body": {"text": "x"}, "api": "ses"}
+FIRED = {"name": "nightly", "group": "default", "schedule_arn": "arn", "target": "arn:sqs", "scheduled_time": "t", "execution_id": "e", "input": "{}"}
+
+
+class SesAndSchedulerTest(unittest.TestCase):
+    def test_ses_inbox_calls_map_to_control_api(self) -> None:
+        c, t = client({"items": [MSG], "count": 1}, MSG, {"items": None, "count": 0}, {"cleared": 1})
+        since = datetime(2026, 11, 9, 12, 0, 0, tzinfo=timezone.utc)
+        self.assertEqual(c.ses.messages(to="c@d.example", subject="Hi", since=since, limit=5), [MSG])
+        self.assertEqual(c.ses.message("m 1"), MSG)
+        self.assertEqual(c.ses.messages(), [])
+        self.assertEqual(c.ses.clear(), 1)
+        self.assertEqual(
+            [(m, p) for m, p, _ in t.calls],
+            [
+                ("GET", "/ses/messages?to=c%40d.example&subject=Hi&since=2026-11-09T12%3A00%3A00Z&limit=5"),
+                ("GET", "/ses/messages/m%201"),
+                ("GET", "/ses/messages"),
+                ("DELETE", "/ses/messages"),
+            ],
+        )
+
+    def test_scheduler_clock_calls_map_to_control_api(self) -> None:
+        c, t = client(
+            {"now": "t", "offset": "1h0m0s", "fired": [FIRED]},
+            {"now": "t2", "offset": "2h0m0s", "fired": None},
+            FIRED,
+            {"now": "t", "offset": "0s"},
+        )
+        self.assertEqual(c.scheduler.advance("1h")["fired"], [FIRED])
+        self.assertEqual(c.scheduler.advance(datetime(2026, 11, 9, 14, 0, 0, tzinfo=timezone.utc))["fired"], [])
+        self.assertEqual(c.scheduler.run("nightly", group="billing"), FIRED)
+        self.assertEqual(c.scheduler.clock()["offset"], "0s")
+        self.assertEqual(
+            t.calls,
+            [
+                ("POST", "/scheduler/advance", {"by": "1h"}),
+                ("POST", "/scheduler/advance", {"to": "2026-11-09T14:00:00Z"}),
+                ("POST", "/scheduler/run", {"name": "nightly", "group": "billing"}),
+                ("GET", "/scheduler/clock", None),
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

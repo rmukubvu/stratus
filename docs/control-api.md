@@ -57,6 +57,29 @@ they cannot deadlock. If requests do not drain within 30 seconds the
 operation fails with `Busy`. Asynchronous work started outside a request,
 such as async Lambda invocations or event source polling, is not paused.
 
+## SES inbox
+
+```
+GET    /_stratus/control/v1/ses/messages          emails sent through SES, oldest first
+GET    /_stratus/control/v1/ses/messages/{id}     one email by MessageId
+DELETE /_stratus/control/v1/ses/messages          empty the inbox; identities and templates stay
+```
+
+List filters: `to`, `from`, `subject` (substring), `since` (RFC 3339 or a
+duration such as `5m`) and `limit` (newest N). See [ses.md](ses.md).
+
+## Scheduler clock
+
+```
+GET  /_stratus/control/v1/scheduler/clock      current scheduler time and offset
+POST /_stratus/control/v1/scheduler/advance    {"by": "1h"} or {"to": "<RFC 3339>"}; fires due schedules, once each
+POST /_stratus/control/v1/scheduler/run        {"name": "nightly", "group": "default"}; fires one schedule now
+```
+
+The offset is part of the `scheduler` service's state: a reset returns the
+clock to real time and a snapshot restores it. See
+[scheduler.md](scheduler.md).
+
 ## Errors
 
 Every error has a stable code and a hint:

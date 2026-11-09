@@ -12,7 +12,18 @@ from typing import Any, Dict, Iterator, List, Optional, Union, cast
 
 from .errors import StratusError
 from .transport import Transport, UrllibTransport
-from .types import ChaosExperiment, ChaosReport, Diagnosis, Health, ResetResult, Snapshot
+from .types import (
+    ChaosExperiment,
+    ChaosReport,
+    Diagnosis,
+    Health,
+    ResetResult,
+    SchedulerAdvance,
+    SchedulerClock,
+    SchedulerInvocation,
+    SesMessage,
+    Snapshot,
+)
 
 DEFAULT_ENDPOINT = "http://localhost:4566"
 
@@ -60,6 +71,77 @@ class Chaos:
         return cast(ChaosReport, self._t.request("DELETE", "/chaos"))
 
 
+class Ses:
+    """The inbox that captures every email sent through SES v1 or v2."""
+
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def messages(
+        self,
+        to: Optional[str] = None,
+        sender: Optional[str] = None,
+        subject: Optional[str] = None,
+        since: Union[str, datetime, None] = None,
+        limit: Optional[int] = None,
+    ) -> List[SesMessage]:
+        """Emails sent so far, oldest first.
+
+        ``to`` matches To, Cc and Bcc; ``subject`` is a case-insensitive
+        substring; ``since`` is a duration such as ``"5m"`` or a datetime;
+        ``limit`` keeps only the newest N.
+        """
+        query: Dict[str, str] = {}
+        if to:
+            query["to"] = to
+        if sender:
+            query["from"] = sender
+        if subject:
+            query["subject"] = subject
+        if since is not None:
+            query["since"] = _rfc3339(since) if isinstance(since, datetime) else since
+        if limit is not None:
+            query["limit"] = str(limit)
+        path = "/ses/messages" + ("?" + urllib.parse.urlencode(query) if query else "")
+        res = self._t.request("GET", path) or {}
+        return cast(List[SesMessage], res.get("items") or [])
+
+    def message(self, message_id: str) -> SesMessage:
+        return cast(SesMessage, self._t.request("GET", f"/ses/messages/{_quote(message_id)}"))
+
+    def clear(self) -> int:
+        """Empty the inbox and return how many emails were removed. Identities and templates stay."""
+        return int(self._t.request("DELETE", "/ses/messages")["cleared"])
+
+
+class Scheduler:
+    """The EventBridge Scheduler clock: move it instead of sleeping."""
+
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def clock(self) -> SchedulerClock:
+        return cast(SchedulerClock, self._t.request("GET", "/scheduler/clock"))
+
+    def advance(self, by: Union[str, datetime]) -> SchedulerAdvance:
+        """Move the clock forward by a duration such as ``"1h"``, or to a datetime.
+
+        Every schedule that became due fires once before this returns; the
+        result lists what fired.
+        """
+        body = {"to": _rfc3339(by)} if isinstance(by, datetime) else {"by": by}
+        res = self._t.request("POST", "/scheduler/advance", body)
+        res["fired"] = res.get("fired") or []
+        return cast(SchedulerAdvance, res)
+
+    def run(self, name: str, group: Optional[str] = None) -> SchedulerInvocation:
+        """Fire one schedule now, whatever its expression or state says."""
+        body: Dict[str, str] = {"name": name}
+        if group is not None:
+            body["group"] = group
+        return cast(SchedulerInvocation, self._t.request("POST", "/scheduler/run", body))
+
+
 class ChaosRun:
     """Handle yielded by :meth:`StratusClient.chaos_experiment`; ``report`` is set on exit."""
 
@@ -92,6 +174,8 @@ class StratusClient:
         self._t: Transport = transport or UrllibTransport(self.endpoint, timeout)
         self.snapshots = Snapshots(self._t)
         self.chaos = Chaos(self._t)
+        self.ses = Ses(self._t)
+        self.scheduler = Scheduler(self._t)
 
     def health(self) -> Health:
         return cast(Health, self._t.request("GET", "/health"))

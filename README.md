@@ -41,7 +41,7 @@ Current Lambda execution runtimes:
 
 ## What Works Today
 
-`stratus` currently includes first-class support for 26 service families:
+`stratus` currently includes first-class support for 28 service families:
 
 - STS
 - S3
@@ -69,6 +69,8 @@ Current Lambda execution runtimes:
 - ELBv2
 - RDS (real PostgreSQL, MySQL and MariaDB in Docker)
 - ElastiCache (real Valkey/Redis and Memcached in Docker)
+- SES v1 and v2 (sends land in a captured inbox)
+- EventBridge Scheduler (with a clock you can fast-forward)
 
 Support is intentionally uneven by service. Some services have deeper
 behavioral coverage than others. The compatibility bar is the contract suite,
@@ -79,6 +81,14 @@ API returns speaks the real wire protocol, and the create call returns once
 the engine accepts connections. The images must be present locally
 (`docker pull postgres:16-alpine valkey/valkey:8`). See
 [docs/engines.md](docs/engines.md).
+
+Emails sent through SES are never delivered; they land in an inbox the
+control API, MCP server and SDKs can read and filter, so a test asserts on
+the email an application sent. EventBridge Scheduler runs on a clock the
+control API can move forward: advance it an hour and the hourly schedule
+delivers to its queue, topic, function or state machine before the call
+returns. See [docs/ses.md](docs/ses.md) and
+[docs/scheduler.md](docs/scheduler.md).
 
 ## Validated Loop
 

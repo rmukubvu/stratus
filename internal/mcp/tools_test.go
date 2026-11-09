@@ -38,6 +38,15 @@ func (f *fakeAPI) StopChaos(context.Context) (json.RawMessage, error)   { return
 func (f *fakeAPI) Diagnose(_ context.Context, q url.Values) (json.RawMessage, error) {
 	return f.rec("diagnose " + q.Encode())
 }
+func (f *fakeAPI) SESMessages(_ context.Context, q url.Values) (json.RawMessage, error) {
+	return f.rec("ses-messages " + q.Encode())
+}
+func (f *fakeAPI) SchedulerAdvance(_ context.Context, by, to string) (json.RawMessage, error) {
+	return f.rec("scheduler-advance by=" + by + " to=" + to)
+}
+func (f *fakeAPI) SchedulerRun(_ context.Context, group, name string) (json.RawMessage, error) {
+	return f.rec("scheduler-run group=" + group + " name=" + name)
+}
 
 func call(t *testing.T, api *fakeAPI, name, args string) *toolResult {
 	t.Helper()
@@ -67,6 +76,12 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_chaos_status", `{}`, "chaos-status"},
 		{"stratus_chaos_stop", `{}`, "chaos-stop"},
 		{"stratus_diagnose", `{"since":"5m","service":"sqs","exclude_injected":true,"max_groups":3}`, "diagnose exclude_injected=true&max_groups=3&service=sqs&since=5m"},
+		{"stratus_ses_inbox", `{}`, "ses-messages "},
+		{"stratus_ses_inbox", `{"to":"ada@b.example","subject":"Welcome","since":"5m","limit":2}`, "ses-messages limit=2&since=5m&subject=Welcome&to=ada%40b.example"},
+		{"stratus_scheduler_advance", `{"by":"30m"}`, "scheduler-advance by=30m to="},
+		{"stratus_scheduler_advance", `{"to":"2026-11-10T09:00:00Z"}`, "scheduler-advance by= to=2026-11-10T09:00:00Z"},
+		{"stratus_scheduler_run", `{"name":"nightly"}`, "scheduler-run group= name=nightly"},
+		{"stratus_scheduler_run", `{"name":"nightly","group":"billing"}`, "scheduler-run group=billing name=nightly"},
 	}
 	for _, tc := range cases {
 		api := &fakeAPI{}
