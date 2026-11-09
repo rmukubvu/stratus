@@ -80,6 +80,23 @@ The offset is part of the `scheduler` service's state: a reset returns the
 clock to real time and a snapshot restores it. See
 [scheduler.md](scheduler.md).
 
+## Bedrock fixtures
+
+```
+GET    /_stratus/control/v1/bedrock                  mode, fixture directory and upstream
+PUT    /_stratus/control/v1/bedrock/mode             {"mode": "record" | "replay"}; lasts until reset
+GET    /_stratus/control/v1/bedrock/fixtures         every fixture in match order
+POST   /_stratus/control/v1/bedrock/fixtures         add a fixture: {"model", "match": {"contains"}, "text"} or {"kind", "response"}
+DELETE /_stratus/control/v1/bedrock/fixtures         remove fixtures added here; fixture files stay
+DELETE /_stratus/control/v1/bedrock/fixtures/{id}    remove one
+GET    /_stratus/control/v1/bedrock/invocations      model calls with prompt, answer and outcome, oldest first
+DELETE /_stratus/control/v1/bedrock/invocations      empty the log
+```
+
+Invocation filters: `model` (pattern with `*`), `contains` (prompt
+substring), `outcome` (`replayed`, `recorded`, `synthesized`, `missed`,
+`failed`) and `limit`. See [bedrock.md](bedrock.md).
+
 ## Errors
 
 Every error has a stable code and a hint:

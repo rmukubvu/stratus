@@ -48,6 +48,13 @@ func (f *fakeAPI) SchedulerRun(_ context.Context, group, name string) (json.RawM
 	return f.rec("scheduler-run group=" + group + " name=" + name)
 }
 
+func (f *fakeAPI) BedrockAddFixture(_ context.Context, fixture json.RawMessage) (json.RawMessage, error) {
+	return f.rec("bedrock-fixture " + string(fixture))
+}
+func (f *fakeAPI) BedrockInvocations(_ context.Context, q url.Values) (json.RawMessage, error) {
+	return f.rec("bedrock-invocations " + q.Encode())
+}
+
 func call(t *testing.T, api *fakeAPI, name, args string) *toolResult {
 	t.Helper()
 	s, err := NewServer("stratus", "test", Instructions, Tools(api)...)
@@ -82,6 +89,13 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_scheduler_advance", `{"to":"2026-11-10T09:00:00Z"}`, "scheduler-advance by= to=2026-11-10T09:00:00Z"},
 		{"stratus_scheduler_run", `{"name":"nightly"}`, "scheduler-run group= name=nightly"},
 		{"stratus_scheduler_run", `{"name":"nightly","group":"billing"}`, "scheduler-run group=billing name=nightly"},
+		{"stratus_bedrock_fixture_add", `{"text":"five days"}`, `bedrock-fixture {"text":"five days"}`},
+		{"stratus_bedrock_fixture_add", `{"text":"five days","model":"anthropic.*","contains":"refund","id":"refunds"}`,
+			`bedrock-fixture {"id":"refunds","match":{"contains":"refund"},"model":"anthropic.*","text":"five days"}`},
+		{"stratus_bedrock_fixture_add", `{"kind":"converse","response":{"output":{"message":{"role":"assistant","content":[]}}}}`,
+			`bedrock-fixture {"kind":"converse","response":{"output":{"message":{"role":"assistant","content":[]}}}}`},
+		{"stratus_bedrock_invocations", `{}`, "bedrock-invocations "},
+		{"stratus_bedrock_invocations", `{"model":"anthropic.*","contains":"refund","outcome":"missed","limit":3}`, "bedrock-invocations contains=refund&limit=3&model=anthropic.%2A&outcome=missed"},
 	}
 	for _, tc := range cases {
 		api := &fakeAPI{}

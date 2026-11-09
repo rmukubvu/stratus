@@ -1,6 +1,12 @@
 import { StratusError } from "./errors.js";
 import { FetchTransport, type FetchLike, type Transport } from "./transport.js";
 import type {
+  BedrockFixture,
+  BedrockFixtureInput,
+  BedrockInvocation,
+  BedrockInvocationFilter,
+  BedrockMode,
+  BedrockStatus,
   ChaosExperiment,
   ChaosReport,
   DiagnoseOptions,
@@ -144,6 +150,62 @@ export class Scheduler {
   }
 }
 
+/** Bedrock fixtures and the log of model calls. */
+export class Bedrock {
+  constructor(private readonly t: Transport) {}
+
+  status(): Promise<BedrockStatus> {
+    return this.t.request("GET", "/bedrock");
+  }
+
+  /** Switches between replay and record until the next reset. */
+  setMode(mode: BedrockMode): Promise<BedrockStatus> {
+    return this.t.request("PUT", "/bedrock/mode", { mode });
+  }
+
+  /** Every fixture in match order: runtime fixtures, then fixture files. */
+  async fixtures(): Promise<BedrockFixture[]> {
+    const res = await this.t.request<{ items: BedrockFixture[] | null }>("GET", "/bedrock/fixtures");
+    return res.items ?? [];
+  }
+
+  /** Adds a fixture that lasts until reset and comes before fixture files. */
+  addFixture(input: BedrockFixtureInput): Promise<BedrockFixture> {
+    const { contains, requestHash, ...rest } = input;
+    const body: Record<string, unknown> = { ...rest };
+    if (contains !== undefined) body.match = { contains };
+    if (requestHash !== undefined) body.request_hash = requestHash;
+    return this.t.request("POST", "/bedrock/fixtures", body);
+  }
+
+  async deleteFixture(id: string): Promise<void> {
+    await this.t.request("DELETE", `/bedrock/fixtures/${encodeURIComponent(id)}`);
+  }
+
+  /** Removes every runtime fixture and returns how many there were. Files stay. */
+  async clearFixtures(): Promise<number> {
+    const res = await this.t.request<{ cleared: number }>("DELETE", "/bedrock/fixtures");
+    return res.cleared;
+  }
+
+  /** Model calls so far, oldest first, optionally filtered. */
+  async invocations(filter: BedrockInvocationFilter = {}): Promise<BedrockInvocation[]> {
+    const q = new URLSearchParams();
+    if (filter.model) q.set("model", filter.model);
+    if (filter.contains) q.set("contains", filter.contains);
+    if (filter.outcome) q.set("outcome", filter.outcome);
+    if (filter.limit !== undefined) q.set("limit", String(filter.limit));
+    const qs = q.toString();
+    const res = await this.t.request<{ items: BedrockInvocation[] | null }>("GET", "/bedrock/invocations" + (qs ? `?${qs}` : ""));
+    return res.items ?? [];
+  }
+
+  async clearInvocations(): Promise<number> {
+    const res = await this.t.request<{ cleared: number }>("DELETE", "/bedrock/invocations");
+    return res.cleared;
+  }
+}
+
 /**
  * Client for the Stratus control API.
  *
@@ -162,6 +224,7 @@ export class StratusClient {
   readonly chaos: Chaos;
   readonly ses: Ses;
   readonly scheduler: Scheduler;
+  readonly bedrock: Bedrock;
   private readonly t: Transport;
 
   constructor(options: StratusClientOptions = {}) {
@@ -177,6 +240,7 @@ export class StratusClient {
     this.chaos = new Chaos(this.t);
     this.ses = new Ses(this.t);
     this.scheduler = new Scheduler(this.t);
+    this.bedrock = new Bedrock(this.t);
   }
 
   health(): Promise<Health> {

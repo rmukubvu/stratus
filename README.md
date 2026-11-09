@@ -41,7 +41,7 @@ Current Lambda execution runtimes:
 
 ## What Works Today
 
-`stratus` currently includes first-class support for 28 service families:
+`stratus` currently includes first-class support for 29 service families:
 
 - STS
 - S3
@@ -71,6 +71,7 @@ Current Lambda execution runtimes:
 - ElastiCache (real Valkey/Redis and Memcached in Docker)
 - SES v1 and v2 (sends land in a captured inbox)
 - EventBridge Scheduler (with a clock you can fast-forward)
+- Bedrock Runtime (record real model answers once, replay them offline)
 
 Support is intentionally uneven by service. Some services have deeper
 behavioral coverage than others. The compatibility bar is the contract suite,
@@ -89,6 +90,15 @@ control API can move forward: advance it an hour and the hourly schedule
 delivers to its queue, topic, function or state machine before the call
 returns. See [docs/ses.md](docs/ses.md) and
 [docs/scheduler.md](docs/scheduler.md).
+
+Bedrock Runtime calls (`Converse`, `InvokeModel` and their streaming
+variants) are answered from fixtures, so code that calls an LLM runs in CI
+offline, for free and with the same answer every time. Record real answers
+once with `STRATUS_BEDROCK_MODE=record`, commit the fixture files, and
+replay them; or write fixtures by hand, such as "any Claude model, any
+prompt mentioning refunds". Embedding models get deterministic vectors with
+no setup, and the control API lists every prompt the application sent. See
+[docs/bedrock.md](docs/bedrock.md).
 
 ## Validated Loop
 

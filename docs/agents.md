@@ -48,6 +48,8 @@ Logs go to stderr; stdout carries only protocol messages.
 | `stratus_chaos_start` / `_status` / `_stop` | Seeded fault injection (see [chaos.md](chaos.md)) |
 | `stratus_ses_inbox` | Emails the application sent through SES, with filters (see [ses.md](ses.md)) |
 | `stratus_scheduler_advance` / `_run` | Fast-forward the EventBridge Scheduler clock, or fire one schedule now (see [scheduler.md](scheduler.md)) |
+| `stratus_bedrock_fixture_add` | Make Bedrock answer matching model calls with a fixed reply (see [bedrock.md](bedrock.md)) |
+| `stratus_bedrock_invocations` | The prompts the application sent to Bedrock, the replies, and which calls had no fixture |
 
 A failing tool returns `isError: true` with the control API's error code and a
 hint, so the agent can correct itself instead of guessing.

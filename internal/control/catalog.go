@@ -47,6 +47,7 @@ func DefaultCatalog() Catalog {
 		ServiceState{Name: "acm", BucketPrefixes: []string{"acm-"}},
 		ServiceState{Name: "apigateway", BucketPrefixes: []string{"apigateway-"}},
 		ServiceState{Name: "apigatewayv2", BucketPrefixes: []string{"apigatewayv2-"}},
+		ServiceState{Name: "bedrock", BucketPrefixes: []string{"bedrock-"}},
 		ServiceState{Name: "cloudformation", BucketPrefixes: []string{"cloudformation-"}},
 		ServiceState{Name: "cognitoidp", BucketPrefixes: []string{"cognito-"}},
 		ServiceState{Name: "dynamodb", BucketPrefixes: []string{"dynamodb-"}},

@@ -205,3 +205,56 @@ describe("ses and scheduler", () => {
     );
   });
 });
+
+describe("bedrock", () => {
+  test("fixture, mode and invocation calls map to the control API", async () => {
+    const fixture = { id: "refunds", model: "anthropic.*", match: { contains: "refund" }, text: "five days", origin: "runtime" };
+    const inv = { id: "1", time: "t", operation: "Converse", model: "m", prompt: "p", request_hash: "sha256:x", outcome: "missed" };
+    const status = { mode: "record", default_mode: "replay" };
+    const { fetch, calls } = fakeFetch(
+      { status: 201, body: fixture },
+      { body: { items: [fixture], count: 1 } },
+      { body: { deleted: "refunds" } },
+      { body: { cleared: 2 } },
+      { body: { items: [inv], count: 1 } },
+      { body: { items: null, count: 0 } },
+      { body: { cleared: 1 } },
+      { body: status },
+      { body: status },
+    );
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch });
+
+    assert.deepEqual(await c.bedrock.addFixture({ id: "refunds", model: "anthropic.*", contains: "refund", text: "five days" }), fixture);
+    assert.deepEqual(await c.bedrock.fixtures(), [fixture]);
+    await c.bedrock.deleteFixture("refunds");
+    assert.equal(await c.bedrock.clearFixtures(), 2);
+    assert.deepEqual(await c.bedrock.invocations({ outcome: "missed", contains: "refund", limit: 3 }), [inv]);
+    assert.deepEqual(await c.bedrock.invocations(), []);
+    assert.equal(await c.bedrock.clearInvocations(), 1);
+    assert.equal((await c.bedrock.setMode("record")).mode, "record");
+    assert.equal((await c.bedrock.status()).default_mode, "replay");
+
+    assert.deepEqual(
+      calls.map((x) => [x.method, x.url.slice(base.length), x.body]),
+      [
+        ["POST", "/bedrock/fixtures", { id: "refunds", model: "anthropic.*", text: "five days", match: { contains: "refund" } }],
+        ["GET", "/bedrock/fixtures", undefined],
+        ["DELETE", "/bedrock/fixtures/refunds", undefined],
+        ["DELETE", "/bedrock/fixtures", undefined],
+        ["GET", "/bedrock/invocations?contains=refund&outcome=missed&limit=3", undefined],
+        ["GET", "/bedrock/invocations", undefined],
+        ["DELETE", "/bedrock/invocations", undefined],
+        ["PUT", "/bedrock/mode", { mode: "record" }],
+        ["GET", "/bedrock", undefined],
+      ],
+    );
+  });
+
+  test("addFixture sends a request hash and an exact response", async () => {
+    const { fetch, calls } = fakeFetch({ status: 201, body: { id: "fx-1" } });
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch });
+    const response = { output: { message: { role: "assistant", content: [{ text: "hi" }] } } };
+    await c.bedrock.addFixture({ kind: "converse", requestHash: "sha256:abc", response });
+    assert.deepEqual(calls[0]!.body, { kind: "converse", response, request_hash: "sha256:abc" });
+  });
+});

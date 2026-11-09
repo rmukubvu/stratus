@@ -229,3 +229,75 @@ export interface SchedulerAdvance extends SchedulerClock {
   /** What fired because of this advance, in scheduled-time order. */
   fired: SchedulerInvocation[];
 }
+
+/** What Bedrock does with a request no fixture answers. */
+export type BedrockMode = "replay" | "record";
+
+/** The request shape a fixture answers: InvokeModel bodies or Converse. */
+export type BedrockKind = "invoke" | "converse";
+
+export interface BedrockStatus {
+  mode: BedrockMode;
+  /** The mode set by STRATUS_BEDROCK_MODE, restored by reset. */
+  default_mode: BedrockMode;
+  /** Directory of fixture files (STRATUS_BEDROCK_FIXTURES), if set. */
+  fixture_dir?: string;
+  /** Real Bedrock endpoint used in record mode. */
+  upstream?: string;
+}
+
+/** A canned model answer, as the control API returns it. */
+export interface BedrockFixture {
+  id: string;
+  kind?: BedrockKind;
+  model?: string;
+  request_hash?: string;
+  match?: { contains?: string };
+  text?: string;
+  response?: unknown;
+  request?: unknown;
+  recorded_at?: string;
+  /** "runtime" for fixtures added through the API, else the fixture file. */
+  origin?: string;
+}
+
+/** A fixture to add. Give text, or response together with kind. */
+export interface BedrockFixtureInput {
+  id?: string;
+  /** Model id, inference profile or pattern with *, e.g. "anthropic.claude-*". */
+  model?: string;
+  /** Only answer prompts containing this text. */
+  contains?: string;
+  /** Pin the fixture to one exact request, as printed by a failed replay. */
+  requestHash?: string;
+  kind?: BedrockKind;
+  text?: string;
+  /** Exact response body: a Converse response, or the provider's InvokeModel body. */
+  response?: unknown;
+}
+
+export type BedrockOutcome = "replayed" | "recorded" | "synthesized" | "missed" | "failed";
+
+/** One model call the application made. */
+export interface BedrockInvocation {
+  id: string;
+  time: string;
+  operation: string;
+  model: string;
+  prompt: string;
+  response?: string;
+  request_hash: string;
+  outcome: BedrockOutcome;
+  fixture_id?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  error?: string;
+}
+
+export interface BedrockInvocationFilter {
+  model?: string;
+  contains?: string;
+  outcome?: BedrockOutcome;
+  /** Only the newest N calls. */
+  limit?: number;
+}

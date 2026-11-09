@@ -76,6 +76,11 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 	_, _ = c.ChaosReport(ctx)
 	_, _ = c.StopChaos(ctx)
 	_, _ = c.Diagnose(ctx, url.Values{"since": {"5m"}})
+	_, _ = c.SESMessages(ctx, url.Values{"to": {"a@b.example"}})
+	_, _ = c.SchedulerAdvance(ctx, "1h", "")
+	_, _ = c.SchedulerRun(ctx, "", "nightly")
+	_, _ = c.BedrockAddFixture(ctx, json.RawMessage(`{"text":"hi"}`))
+	_, _ = c.BedrockInvocations(ctx, url.Values{"outcome": {"missed"}})
 
 	want := []string{
 		"POST /_stratus/control/v1/reset",
@@ -87,6 +92,11 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 		"GET /_stratus/control/v1/chaos",
 		"DELETE /_stratus/control/v1/chaos",
 		"GET /_stratus/control/v1/diagnostics",
+		"GET /_stratus/control/v1/ses/messages",
+		"POST /_stratus/control/v1/scheduler/advance",
+		"POST /_stratus/control/v1/scheduler/run",
+		"POST /_stratus/control/v1/bedrock/fixtures",
+		"GET /_stratus/control/v1/bedrock/invocations",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)

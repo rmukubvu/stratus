@@ -221,3 +221,50 @@ class SesAndSchedulerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BedrockTest(unittest.TestCase):
+    def test_fixture_mode_and_invocation_calls_map_to_control_api(self) -> None:
+        fixture = {"id": "refunds", "model": "anthropic.*", "match": {"contains": "refund"}, "text": "five days", "origin": "runtime"}
+        inv = {"id": "1", "time": "t", "operation": "Converse", "model": "m", "prompt": "p", "request_hash": "sha256:x", "outcome": "missed"}
+        status = {"mode": "record", "default_mode": "replay"}
+        c, t = client(
+            fixture,
+            {"items": [fixture], "count": 1},
+            {"deleted": "refunds"},
+            {"cleared": 2},
+            {"items": [inv], "count": 1},
+            {"items": None, "count": 0},
+            {"cleared": 1},
+            status,
+            status,
+        )
+        self.assertEqual(c.bedrock.add_fixture("five days", model="anthropic.*", contains="refund", fixture_id="refunds"), fixture)
+        self.assertEqual(c.bedrock.fixtures(), [fixture])
+        c.bedrock.delete_fixture("refunds")
+        self.assertEqual(c.bedrock.clear_fixtures(), 2)
+        self.assertEqual(c.bedrock.invocations(outcome="missed", contains="refund", limit=3), [inv])
+        self.assertEqual(c.bedrock.invocations(), [])
+        self.assertEqual(c.bedrock.clear_invocations(), 1)
+        self.assertEqual(c.bedrock.set_mode("record")["mode"], "record")
+        self.assertEqual(c.bedrock.status()["default_mode"], "replay")
+        self.assertEqual(
+            t.calls,
+            [
+                ("POST", "/bedrock/fixtures", {"id": "refunds", "model": "anthropic.*", "text": "five days", "match": {"contains": "refund"}}),
+                ("GET", "/bedrock/fixtures", None),
+                ("DELETE", "/bedrock/fixtures/refunds", None),
+                ("DELETE", "/bedrock/fixtures", None),
+                ("GET", "/bedrock/invocations?contains=refund&outcome=missed&limit=3", None),
+                ("GET", "/bedrock/invocations", None),
+                ("DELETE", "/bedrock/invocations", None),
+                ("PUT", "/bedrock/mode", {"mode": "record"}),
+                ("GET", "/bedrock", None),
+            ],
+        )
+
+    def test_add_fixture_with_exact_response(self) -> None:
+        c, t = client({"id": "fx-1"})
+        response = {"output": {"message": {"role": "assistant", "content": [{"text": "hi"}]}}}
+        c.bedrock.add_fixture(kind="converse", response=response, request_hash="sha256:abc")
+        self.assertEqual(t.calls, [("POST", "/bedrock/fixtures", {"kind": "converse", "request_hash": "sha256:abc", "response": response})])

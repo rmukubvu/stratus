@@ -181,6 +181,22 @@ func (c *Client) SchedulerRun(ctx context.Context, group, name string) (json.Raw
 	return c.Do(ctx, http.MethodPost, "/scheduler/run", map[string]string{"name": name, "group": group})
 }
 
+// BedrockAddFixture adds a runtime Bedrock fixture (the JSON body of POST
+// /bedrock/fixtures) and returns it with its id.
+func (c *Client) BedrockAddFixture(ctx context.Context, fixture json.RawMessage) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/bedrock/fixtures", fixture)
+}
+
+// BedrockInvocations lists logged Bedrock model calls. query may set model,
+// contains, outcome and limit.
+func (c *Client) BedrockInvocations(ctx context.Context, query url.Values) (json.RawMessage, error) {
+	path := "/bedrock/invocations"
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	return c.Do(ctx, http.MethodGet, path, nil)
+}
+
 // Endpoint returns the base URL the client talks to.
 func (c *Client) Endpoint() string { return c.base.String() }
 

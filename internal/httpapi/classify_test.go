@@ -467,3 +467,19 @@ func TestClassifySchedulerBySigningNameAndHost(t *testing.T) {
 		t.Fatalf("unsigned /schedules is still an S3 bucket: %+v", got)
 	}
 }
+
+func TestClassifyBedrockRuntimeBySigningNameAndHost(t *testing.T) {
+	signed, _ := http.NewRequest(http.MethodPost, "http://localhost:4566/model/anthropic.claude-3-haiku-20240307-v1%3A0/converse", nil)
+	signed.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20261109/us-east-1/bedrock/aws4_request, SignedHeaders=host, Signature=x")
+	byHost, _ := http.NewRequest(http.MethodPost, "http://bedrock-runtime.us-east-1.localhost:4566/model/amazon.nova-lite-v1%3A0/invoke-with-response-stream", nil)
+	for req, op := range map[*http.Request]string{signed: "Converse", byHost: "InvokeModelWithResponseStream"} {
+		got, err := Classify(req)
+		if err != nil || got.Service != "bedrock" || got.Protocol != ProtocolREST || got.Operation != op {
+			t.Fatalf("unexpected classification: %+v %v", got, err)
+		}
+	}
+	bucket, _ := http.NewRequest(http.MethodPut, "http://localhost:4566/model/weights.bin", nil)
+	if got, _ := Classify(bucket); got.Service != "s3" || got.Bucket != "model" {
+		t.Fatalf("unsigned /model/... is still an S3 bucket: %+v", got)
+	}
+}

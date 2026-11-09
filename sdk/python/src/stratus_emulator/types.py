@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Literal, TypedDict
+from typing import Any, Dict, List, Literal, TypedDict
 
 HealthStatus = Literal["ok", "degraded", "down"]
 ChaosAction = Literal[
@@ -229,3 +229,52 @@ class SchedulerClock(TypedDict):
 class SchedulerAdvance(SchedulerClock):
     #: What fired because of this advance, in scheduled-time order.
     fired: List[SchedulerInvocation]
+
+
+class BedrockStatus(TypedDict, total=False):
+    #: "replay" or "record".
+    mode: str
+    #: The mode set by STRATUS_BEDROCK_MODE, restored by reset.
+    default_mode: str
+    #: Directory of fixture files (STRATUS_BEDROCK_FIXTURES), if set.
+    fixture_dir: str
+    #: Real Bedrock endpoint used in record mode.
+    upstream: str
+
+
+class BedrockFixture(TypedDict, total=False):
+    """A canned model answer."""
+
+    id: str
+    #: "invoke" or "converse"; absent answers both.
+    kind: str
+    model: str
+    request_hash: str
+    match: Dict[str, str]
+    text: str
+    response: Any
+    request: Any
+    recorded_at: str
+    #: "runtime" for fixtures added through the API, else the fixture file.
+    origin: str
+
+
+class _BedrockInvocationBase(TypedDict):
+    id: str
+    time: str
+    operation: str
+    model: str
+    prompt: str
+    request_hash: str
+    #: replayed, recorded, synthesized, missed or failed.
+    outcome: str
+
+
+class BedrockInvocation(_BedrockInvocationBase, total=False):
+    """One model call the application made."""
+
+    response: str
+    fixture_id: str
+    input_tokens: int
+    output_tokens: int
+    error: str

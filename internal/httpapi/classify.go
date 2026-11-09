@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/services/bedrock"
 	"github.com/stratus/internal/services/fis"
 	"github.com/stratus/internal/services/scheduler"
 	"github.com/stratus/internal/services/ses"
@@ -129,12 +130,13 @@ func init() {
 }
 
 // signedRESTServices are REST APIs whose paths (/experiments, /schedules,
-// /v2/email/...) would otherwise read as path-style S3 buckets. They are
-// recognised by their SigV4 signing name, or by their host prefix when a
-// client sends unsigned requests.
-var signedRESTServices = map[string]string{"fis": "fis", "scheduler": "scheduler", "ses": "ses"}
+// /v2/email/..., /model/...) would otherwise read as path-style S3 buckets.
+// They are recognised by their SigV4 signing name, or by their host prefix
+// when a client sends unsigned requests. Bedrock Runtime signs as
+// "bedrock".
+var signedRESTServices = map[string]string{"fis": "fis", "scheduler": "scheduler", "ses": "ses", "bedrock": "bedrock"}
 
-var restHostPrefixes = map[string]string{"fis.": "fis", "scheduler.": "scheduler", "email.": "ses"}
+var restHostPrefixes = map[string]string{"fis.": "fis", "scheduler.": "scheduler", "email.": "ses", "bedrock-runtime.": "bedrock"}
 
 var restPrefixToService = map[string]string{
 	"/2015-03-31/functions":             "lambda",
@@ -251,6 +253,8 @@ func restOperation(service string, r *http.Request) string {
 		return scheduler.Operation(r.Method, r.URL.Path)
 	case "ses":
 		return ses.OperationV2(r.Method, r.URL.Path)
+	case "bedrock":
+		return bedrock.Operation(r.Method, r.URL.EscapedPath())
 	}
 	return ""
 }
