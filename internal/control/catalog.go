@@ -78,7 +78,7 @@ func DefaultCatalog() Catalog {
 		ServiceState{Name: "sqs", BucketPrefixes: []string{"sqs-"}},
 		ServiceState{Name: "ssm", BucketPrefixes: []string{"ssm-"}},
 		ServiceState{Name: "stepfunctions", BucketPrefixes: []string{"stepfunctions-"}},
-		ServiceState{Name: "sts"},
+		ServiceState{Name: "sts", BucketPrefixes: []string{"sts-"}},
 	)
 	if err != nil {
 		panic(err) // static data; covered by tests

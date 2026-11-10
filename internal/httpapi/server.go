@@ -348,7 +348,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 		})
 		return nil
 	case "sts":
-		return svc.handleSTS(w, metadata)
+		return svc.handleSTS(w, r, metadata)
 	case "s3":
 		return svc.handleS3(w, r, metadata)
 	case "lambda":
@@ -440,28 +440,11 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 	}
 }
 
-func (s *Services) handleSTS(w http.ResponseWriter, metadata RequestMetadata) error {
-	switch metadata.Classification.Operation {
-	case "GetCallerIdentity":
-		output := s.STS.GetCallerIdentity(sts.GetCallerIdentityInput{
-			AccessKeyID: accessKeyFromMetadata(metadata),
-			Account:     metadata.Scope.Account,
-		})
-		WriteXML(w, http.StatusOK, sts.NewGetCallerIdentityResponse(output, metadata.RequestID))
-		return nil
-	case "":
-		return &apierror.Error{
-			StatusCode: http.StatusBadRequest,
-			Code:       "InvalidAction",
-			Message:    "missing Action for STS query request",
-		}
-	default:
-		return &apierror.Error{
-			StatusCode: http.StatusBadRequest,
-			Code:       "InvalidAction",
-			Message:    "The action " + metadata.Classification.Operation + " is not valid for this endpoint.",
-		}
-	}
+func (s *Services) handleSTS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	return s.STS.Handle(w, r, metadata.Classification.Operation, metadata.RequestID, sts.Caller{
+		AccessKeyID: accessKeyFromMetadata(metadata),
+		Account:     metadata.Scope.Account,
+	})
 }
 
 func (s *Services) handleS3(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {

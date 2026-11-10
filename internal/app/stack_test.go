@@ -33,7 +33,7 @@ func newTestStacks(t *testing.T) *Stacks {
 		faults:  chaos.NewInjector(engine, nil, logger),
 		chaos:   engine,
 		bedrock: bedrock.NewService(bedrock.Options{Metadata: meta}),
-		sts:     sts.NewService(),
+		sts:     sts.NewService(meta),
 		getenv:  func(string) string { return "" },
 		logger:  logger,
 	})
