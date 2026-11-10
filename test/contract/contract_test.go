@@ -781,21 +781,26 @@ func TestAWSCLILambdaInvokeErrorTimeoutAndCrash(t *testing.T) {
 		"--zip-file", "fileb://"+crashZip,
 	)
 
-	crashCmd := exec.Command("aws",
-		"--endpoint-url", h.baseURL,
+	// Lambda reports a runtime that exits mid-invocation as an unhandled
+	// function error (Runtime.ExitError), not as a service failure.
+	crashPayloadPath := filepath.Join(t.TempDir(), "crash.json")
+	crashMeta := runAWS(t, h.baseURL,
 		"lambda", "invoke",
 		"--function-name", "mission-four-crash",
 		"--payload", "{}",
-		filepath.Join(t.TempDir(), "crash.json"),
+		crashPayloadPath,
 		"--cli-binary-format", "raw-in-base64-out",
+		"--output", "json",
 	)
-	crashCmd.Env = awsEnv()
-	crashOut, err := crashCmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("expected crash invoke to fail")
+	if !strings.Contains(string(crashMeta), "FunctionError") {
+		t.Fatalf("expected crash to be reported as a function error: %s", crashMeta)
 	}
-	if !strings.Contains(string(crashOut), "ServiceException") {
-		t.Fatalf("expected ServiceException for crash path: %s", crashOut)
+	crashBody, err := os.ReadFile(crashPayloadPath)
+	if err != nil {
+		t.Fatalf("read crash invoke payload: %v", err)
+	}
+	if !strings.Contains(string(crashBody), "Runtime.") {
+		t.Fatalf("expected a Runtime.* error type for the crash: %s", crashBody)
 	}
 }
 

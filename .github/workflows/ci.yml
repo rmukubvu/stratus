@@ -32,6 +32,12 @@ jobs:
       - name: Pre-pull Node Lambda runtime image
         run: docker pull public.ecr.aws/lambda/nodejs:20
 
+      - name: Pre-pull Java and custom-runtime Lambda images
+        run: |
+          docker pull public.ecr.aws/lambda/java:21
+          docker pull public.ecr.aws/lambda/provided:al2023
+          docker pull python:3.11-slim
+
       - name: Pre-pull RDS and ElastiCache engine images
         run: |
           docker pull postgres:16-alpine

@@ -13,6 +13,9 @@ type WarmContainer struct {
 	HostPort  int
 	LastUsed  time.Time
 	CreatedAt time.Time
+
+	// invokeMu serialises invocations: the emulator runs one at a time.
+	invokeMu sync.Mutex
 }
 
 type WarmPool struct {

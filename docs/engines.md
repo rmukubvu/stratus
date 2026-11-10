@@ -35,7 +35,7 @@ redis-cli -p 49313 ping
 | ElastiCache | `redis`, `valkey` | `valkey/valkey:8` | `STRATUS_ELASTICACHE_REDIS_IMAGE` |
 | ElastiCache | `memcached` | `memcached:1.6-alpine` | `STRATUS_ELASTICACHE_MEMCACHED_IMAGE` |
 
-Stratus never pulls images. Like Lambda runtimes, an engine image must be
+Stratus never pulls images. Like [Lambda runtimes](lambda.md), an engine image must be
 present locally, so test runs stay deterministic and work offline. If it is
 missing, the create call fails with a `ServiceUnavailable` error that names
 the image to `docker pull`. Pre-pull the engines you use in CI:

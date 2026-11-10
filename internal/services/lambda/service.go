@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -66,6 +67,13 @@ type Invoker interface {
 	Close() error
 }
 
+// Package types a function can be deployed as.
+const (
+	PackageTypeZip   = "Zip"
+	PackageTypeImage = "Image"
+)
+
+// FunctionSpec is everything an Invoker needs to run one function.
 type FunctionSpec struct {
 	FunctionName string
 	Handler      string
@@ -74,11 +82,33 @@ type FunctionSpec struct {
 	MemorySize   int
 	Environment  map[string]string
 	LayerDirs    []string
+	Region       string
+	// PackageType is PackageTypeZip (code in CodeDir, run on a managed
+	// runtime image) or PackageTypeImage (run ImageURI as the function).
+	PackageType string
+	ImageURI    string
+	ImageConfig ImageConfig
+}
+
+// ImageConfig overrides the container image's own entrypoint, command and
+// working directory, as Lambda's ImageConfig does.
+type ImageConfig struct {
+	EntryPoint       []string `json:"EntryPoint,omitempty"`
+	Command          []string `json:"Command,omitempty"`
+	WorkingDirectory string   `json:"WorkingDirectory,omitempty"`
+}
+
+// IsZero reports whether no override is set.
+func (c ImageConfig) IsZero() bool {
+	return len(c.EntryPoint) == 0 && len(c.Command) == 0 && c.WorkingDirectory == ""
 }
 
 type ProvisionInput struct {
 	Architectures []string
 	CodeZip       []byte
+	PackageType   string
+	ImageURI      string
+	ImageConfig   ImageConfig
 	Description   string
 	Environment   map[string]string
 	FunctionName  string
@@ -107,7 +137,7 @@ type createFunctionInput struct {
 	FileSystemConfigs       []any             `json:"FileSystemConfigs"`
 	FunctionName            string            `json:"FunctionName"`
 	Handler                 string            `json:"Handler"`
-	ImageConfig             map[string]any    `json:"ImageConfig"`
+	ImageConfig             ImageConfig       `json:"ImageConfig"`
 	KMSKeyArn               string            `json:"KMSKeyArn"`
 	Layers                  []string          `json:"Layers"`
 	LoggingConfig           map[string]any    `json:"LoggingConfig"`
@@ -153,6 +183,8 @@ type functionRecord struct {
 	Architectures []string          `json:"architectures"`
 	Layers        []string          `json:"layers,omitempty"`
 	PackageType   string            `json:"package_type"`
+	ImageURI      string            `json:"image_uri,omitempty"`
+	ImageConfig   ImageConfig       `json:"image_config,omitzero"`
 }
 
 type aliasRecord struct {
@@ -209,23 +241,24 @@ type permissionRecord struct {
 }
 
 type functionConfigurationResponse struct {
-	Architectures []string          `json:"Architectures,omitempty"`
-	CodeSha256    string            `json:"CodeSha256"`
-	CodeSize      int64             `json:"CodeSize"`
-	Description   string            `json:"Description,omitempty"`
-	Environment   environmentOutput `json:"Environment,omitempty"`
-	FunctionArn   string            `json:"FunctionArn"`
-	FunctionName  string            `json:"FunctionName"`
-	Handler       string            `json:"Handler"`
-	LastModified  string            `json:"LastModified"`
-	MemorySize    int               `json:"MemorySize"`
-	PackageType   string            `json:"PackageType,omitempty"`
-	RevisionID    string            `json:"RevisionId"`
-	Role          string            `json:"Role"`
-	Runtime       string            `json:"Runtime"`
-	State         string            `json:"State,omitempty"`
-	Timeout       int               `json:"Timeout"`
-	Version       string            `json:"Version"`
+	Architectures []string             `json:"Architectures,omitempty"`
+	CodeSha256    string               `json:"CodeSha256"`
+	CodeSize      int64                `json:"CodeSize"`
+	Description   string               `json:"Description,omitempty"`
+	Environment   environmentOutput    `json:"Environment,omitempty"`
+	FunctionArn   string               `json:"FunctionArn"`
+	FunctionName  string               `json:"FunctionName"`
+	Handler       string               `json:"Handler"`
+	LastModified  string               `json:"LastModified"`
+	MemorySize    int                  `json:"MemorySize"`
+	PackageType   string               `json:"PackageType,omitempty"`
+	ImageConfig   *imageConfigResponse `json:"ImageConfigResponse,omitempty"`
+	RevisionID    string               `json:"RevisionId"`
+	Role          string               `json:"Role"`
+	Runtime       string               `json:"Runtime"`
+	State         string               `json:"State,omitempty"`
+	Timeout       int                  `json:"Timeout"`
+	Version       string               `json:"Version"`
 }
 
 type environmentOutput struct {
@@ -238,8 +271,14 @@ type getFunctionResponse struct {
 }
 
 type codeResponse struct {
-	Location       string `json:"Location"`
-	RepositoryType string `json:"RepositoryType"`
+	Location         string `json:"Location,omitempty"`
+	RepositoryType   string `json:"RepositoryType"`
+	ImageURI         string `json:"ImageUri,omitempty"`
+	ResolvedImageURI string `json:"ResolvedImageUri,omitempty"`
+}
+
+type imageConfigResponse struct {
+	ImageConfig ImageConfig `json:"ImageConfig"`
 }
 
 type aliasResponse struct {
@@ -348,6 +387,9 @@ func (s *Service) createFunction(w http.ResponseWriter, r *http.Request) error {
 	record, err := s.provisionFunction(ProvisionInput{
 		Architectures: input.Architectures,
 		CodeZip:       input.Code.ZipFile,
+		PackageType:   input.PackageType,
+		ImageURI:      input.Code.ImageURI,
+		ImageConfig:   input.ImageConfig,
 		Description:   input.Description,
 		Environment:   input.Environment.Variables,
 		FunctionName:  input.FunctionName,
@@ -372,11 +414,19 @@ func (s *Service) getFunction(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	code := codeResponse{
+		Location:       lambdaCodeLocation(r, record.FunctionName),
+		RepositoryType: "Local",
+	}
+	if record.PackageType == PackageTypeImage {
+		code = codeResponse{
+			RepositoryType:   "ECR",
+			ImageURI:         record.ImageURI,
+			ResolvedImageURI: record.ImageURI,
+		}
+	}
 	resp := getFunctionResponse{
-		Code: codeResponse{
-			Location:       lambdaCodeLocation(r, record.FunctionName),
-			RepositoryType: "Local",
-		},
+		Code:          code,
 		Configuration: s.configurationResponse(record),
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -1145,7 +1195,8 @@ func (s *Service) provisionFunction(input ProvisionInput) (functionRecord, error
 	createInput := createFunctionInput{
 		Architectures: input.Architectures,
 		Code: createCodeInput{
-			ZipFile: input.CodeZip,
+			ZipFile:  input.CodeZip,
+			ImageURI: input.ImageURI,
 		},
 		Description: input.Description,
 		Environment: environmentInput{
@@ -1153,8 +1204,10 @@ func (s *Service) provisionFunction(input ProvisionInput) (functionRecord, error
 		},
 		FunctionName: input.FunctionName,
 		Handler:      input.Handler,
+		ImageConfig:  input.ImageConfig,
 		Layers:       append([]string(nil), input.Layers...),
 		MemorySize:   input.MemorySize,
+		PackageType:  input.PackageType,
 		Role:         input.Role,
 		Runtime:      input.Runtime,
 		Timeout:      input.Timeout,
@@ -1173,11 +1226,6 @@ func (s *Service) provisionFunction(input ProvisionInput) (functionRecord, error
 		}
 	}
 
-	result, err := s.blobs.Put(codeNamespace+"/"+createInput.FunctionName, "code.zip", bytes.NewReader(createInput.Code.ZipFile))
-	if err != nil {
-		return functionRecord{}, internal(err)
-	}
-
 	now := s.now().UTC()
 	record := functionRecord{
 		FunctionName:  createInput.FunctionName,
@@ -1188,27 +1236,56 @@ func (s *Service) provisionFunction(input ProvisionInput) (functionRecord, error
 		Timeout:       defaultInt(createInput.Timeout, 3),
 		MemorySize:    defaultInt(createInput.MemorySize, 128),
 		Environment:   cloneMap(createInput.Environment.Variables),
-		CodeSize:      result.Size,
-		CodeSHA256:    result.SHA256Base64,
 		LastModified:  now.Format("2006-01-02T15:04:05.000-0700"),
 		RevisionID:    uuid.NewString(),
 		Version:       "$LATEST",
 		Architectures: normalizeArchitectures(createInput.Architectures),
 		Layers:        append([]string(nil), createInput.Layers...),
-		PackageType:   "Zip",
+		PackageType:   PackageTypeZip,
 	}
 
-	raw, err := json.Marshal(record)
+	if isImagePackage(createInput.PackageType) {
+		// The image itself is the code: nothing is stored or extracted. The
+		// digest Lambda reports is stood in for by a hash of the reference.
+		sum := sha256.Sum256([]byte(createInput.Code.ImageURI))
+		record.PackageType = PackageTypeImage
+		record.ImageURI = createInput.Code.ImageURI
+		record.ImageConfig = createInput.ImageConfig
+		record.CodeSHA256 = base64.StdEncoding.EncodeToString(sum[:])
+		if err := s.putFunctionRecord(record); err != nil {
+			return functionRecord{}, err
+		}
+		return record, nil
+	}
+
+	result, err := s.blobs.Put(codeNamespace+"/"+createInput.FunctionName, "code.zip", bytes.NewReader(createInput.Code.ZipFile))
 	if err != nil {
 		return functionRecord{}, internal(err)
 	}
-	if err := s.metadata.Put(functionsBucket, createInput.FunctionName, raw); err != nil {
-		return functionRecord{}, internal(err)
+	record.CodeSize = result.Size
+	record.CodeSHA256 = result.SHA256Base64
+	if err := s.putFunctionRecord(record); err != nil {
+		return functionRecord{}, err
 	}
 	if err := s.extractSource(createInput.FunctionName, createInput.Code.ZipFile); err != nil {
 		return functionRecord{}, internal(err)
 	}
 	return record, nil
+}
+
+func (s *Service) putFunctionRecord(record functionRecord) error {
+	raw, err := json.Marshal(record)
+	if err != nil {
+		return internal(err)
+	}
+	if err := s.metadata.Put(functionsBucket, record.FunctionName, raw); err != nil {
+		return internal(err)
+	}
+	return nil
+}
+
+func isImagePackage(packageType string) bool {
+	return packageType == PackageTypeImage
 }
 
 func (s *Service) putVersionRecord(record functionRecord) error {
@@ -1679,6 +1756,10 @@ func (s *Service) specFromRecord(record functionRecord) FunctionSpec {
 		MemorySize:   record.MemorySize,
 		Environment:  cloneMap(record.Environment),
 		LayerDirs:    s.resolveLayerDirs(record.Layers),
+		Region:       regionName(),
+		PackageType:  defaultString(record.PackageType, PackageTypeZip),
+		ImageURI:     record.ImageURI,
+		ImageConfig:  record.ImageConfig,
 	}
 }
 
@@ -1705,6 +1786,9 @@ func (s *Service) configurationResponse(record functionRecord) functionConfigura
 		State:        "Active",
 		Timeout:      record.Timeout,
 		Version:      record.Version,
+	}
+	if !record.ImageConfig.IsZero() {
+		resp.ImageConfig = &imageConfigResponse{ImageConfig: record.ImageConfig}
 	}
 	return resp
 }
@@ -1781,25 +1865,25 @@ func validateCreateInput(input createFunctionInput) error {
 	if input.Role == "" {
 		return badRequest("InvalidParameterValueException", "Role is required")
 	}
-	if input.Runtime == "" {
-		return badRequest("InvalidParameterValueException", "Runtime is required")
-	}
-	if input.Handler == "" {
-		return badRequest("InvalidParameterValueException", "Handler is required")
-	}
-	if len(input.Code.ZipFile) == 0 {
-		return badRequest("InvalidParameterValueException", "ZipFile is required")
-	}
-	if input.PackageType != "" && input.PackageType != "Zip" {
-		return notImplemented("only Zip package type is supported")
+	switch input.PackageType {
+	case "", PackageTypeZip:
+		if err := validateZipPackage(input); err != nil {
+			return err
+		}
+	case PackageTypeImage:
+		if err := validateImagePackage(input); err != nil {
+			return err
+		}
+	default:
+		return badRequest("InvalidParameterValueException", "PackageType must be Zip or Image")
 	}
 	if input.Publish {
 		return notImplemented("published versions are not supported")
 	}
-	if input.Code.ImageURI != "" || input.Code.S3Bucket != "" || input.Code.S3Key != "" || input.Code.S3ObjectVersion != "" {
-		return notImplemented("only inline ZipFile uploads are supported")
+	if input.Code.S3Bucket != "" || input.Code.S3Key != "" || input.Code.S3ObjectVersion != "" {
+		return notImplemented("only inline ZipFile uploads and container images are supported")
 	}
-	if len(input.FileSystemConfigs) > 0 || len(input.ImageConfig) > 0 ||
+	if len(input.FileSystemConfigs) > 0 ||
 		len(input.VpcConfig) > 0 || len(input.DeadLetterConfig) > 0 || len(input.TracingConfig) > 0 ||
 		len(input.EphemeralStorage) > 0 || len(input.LoggingConfig) > 0 || len(input.SnapStart) > 0 ||
 		len(input.RuntimeManagementConfig) > 0 || input.KMSKeyArn != "" || input.CodeSigningConfigArn != "" ||
@@ -1814,6 +1898,41 @@ func validateCreateInput(input createFunctionInput) error {
 	}
 	if len(input.Architectures) > 1 {
 		return notImplemented("multiple architectures are not supported")
+	}
+	return nil
+}
+
+func validateZipPackage(input createFunctionInput) error {
+	if input.Runtime == "" {
+		return badRequest("InvalidParameterValueException", "Runtime is required")
+	}
+	if input.Handler == "" {
+		return badRequest("InvalidParameterValueException", "Handler is required")
+	}
+	if len(input.Code.ZipFile) == 0 {
+		return badRequest("InvalidParameterValueException", "ZipFile is required")
+	}
+	if input.Code.ImageURI != "" {
+		return badRequest("InvalidParameterValueException", "ImageUri requires PackageType Image")
+	}
+	if !input.ImageConfig.IsZero() {
+		return badRequest("InvalidParameterValueException", "ImageConfig requires PackageType Image")
+	}
+	return nil
+}
+
+func validateImagePackage(input createFunctionInput) error {
+	if input.Code.ImageURI == "" {
+		return badRequest("InvalidParameterValueException", "ImageUri is required for PackageType Image")
+	}
+	if len(input.Code.ZipFile) > 0 {
+		return badRequest("InvalidParameterValueException", "ZipFile cannot be used with PackageType Image")
+	}
+	if input.Runtime != "" || input.Handler != "" {
+		return badRequest("InvalidParameterValueException", "Runtime and Handler cannot be set for PackageType Image; use ImageConfig")
+	}
+	if len(input.Layers) > 0 {
+		return badRequest("InvalidParameterValueException", "Layers are not supported for PackageType Image")
 	}
 	return nil
 }
@@ -2132,6 +2251,13 @@ func ternary(condition bool, left, right string) string {
 	return right
 }
 
+func defaultString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
 func regionName() string {
 	return "us-east-1"
 }
@@ -2182,6 +2308,16 @@ func (s *Service) extractLayerSource(layerName string, version int, zipBytes []b
 	return extractArchiveToDir(sourceDir, zipBytes)
 }
 
+// extractedFileMode keeps a zip entry's execute bits, which custom runtimes
+// need for their bootstrap. A bootstrap is always executable, because zips
+// built on Windows carry no Unix mode at all.
+func extractedFileMode(file *zip.File) os.FileMode {
+	if path.Base(file.Name) == "bootstrap" {
+		return 0o755
+	}
+	return 0o644 | (file.Mode().Perm() & 0o111)
+}
+
 func extractArchiveToDir(sourceDir string, zipBytes []byte) error {
 	if err := os.RemoveAll(sourceDir); err != nil {
 		return err
@@ -2215,7 +2351,7 @@ func extractArchiveToDir(sourceDir string, zipBytes []byte) error {
 		if err != nil {
 			return err
 		}
-		dst, err := os.OpenFile(cleanTarget, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		dst, err := os.OpenFile(cleanTarget, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, extractedFileMode(file))
 		if err != nil {
 			src.Close()
 			return err
