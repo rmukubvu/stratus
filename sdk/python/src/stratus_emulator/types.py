@@ -53,11 +53,17 @@ class ResetResult(_ResetBase, total=False):
     engines_stopped: List[str]
 
 
-class Snapshot(TypedDict):
+class _SnapshotBase(TypedDict):
     id: str
     created_at: str
     services: List[str]
     size_bytes: int
+
+
+class Snapshot(_SnapshotBase, total=False):
+    # Engines whose data the snapshot holds, as "service/resource",
+    # e.g. "rds/orders-db". Absent when no engine data was captured.
+    engines: List[str]
 
 
 class ChaosErrorSpec(TypedDict, total=False):

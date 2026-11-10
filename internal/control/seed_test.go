@@ -105,3 +105,36 @@ func TestSeedDataDirRejectsNonSnapshotDir(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestSeedDataDirCopiesEngineDataForFirstBoot(t *testing.T) {
+	snapDir := makeSnapshot(t)
+	archive := filepath.Join(snapDir, "engines", "rds", "orders-db.tar.gz")
+	if err := os.MkdirAll(filepath.Dir(archive), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(archive, []byte("engine data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := filepath.Join(t.TempDir(), "run")
+
+	if _, err := control.SeedDataDir(snapDir, run); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(control.SeedEngineDir(run), "rds", "orders-db.tar.gz"))
+	if err != nil || string(got) != "engine data" {
+		t.Fatalf("seeded engine data = %q, %v", got, err)
+	}
+}
+
+func TestSeedDataDirWithoutEngineDataLeavesNoEngineDir(t *testing.T) {
+	run := filepath.Join(t.TempDir(), "run")
+
+	if _, err := control.SeedDataDir(makeSnapshot(t), run); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if _, err := os.Stat(control.SeedEngineDir(run)); !os.IsNotExist(err) {
+		t.Fatalf("a snapshot without engine data should seed none, stat err = %v", err)
+	}
+}

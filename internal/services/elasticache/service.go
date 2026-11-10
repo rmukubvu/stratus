@@ -110,11 +110,12 @@ func (s *Service) Reset(ctx context.Context) error {
 	return nil
 }
 
-// Reconcile starts an engine for every recorded cluster that has none,
-// keeping each cluster's endpoint. It runs after a snapshot restore and at
-// startup. A cluster whose engine cannot start is marked failed; the error
-// names them all.
-func (s *Service) Reconcile(ctx context.Context) error {
+// Reconcile starts an engine for every recorded cluster that has none. It
+// runs after a snapshot restore and at startup. Each engine keeps its recorded
+// endpoint unless opts asks for fresh ones, and starts from its archive in
+// opts.DataDir when there is one. A cluster whose engine cannot start is
+// marked failed; the error names them all.
+func (s *Service) Reconcile(ctx context.Context, opts backing.ReconcileOptions) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -129,7 +130,11 @@ func (s *Service) Reconcile(ctx context.Context) error {
 			continue
 		}
 		if err == nil {
-			err = s.startEngine(ctx, &record, record.Port)
+			hostPort := record.Port
+			if opts.FreshEndpoints {
+				hostPort = 0
+			}
+			err = s.startEngine(ctx, &record, hostPort, backing.SeedFrom(opts.DataDir, record.ID))
 		}
 		if err != nil {
 			record.Status = statusFailed
@@ -140,6 +145,29 @@ func (s *Service) Reconcile(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// Capture exports the data of every running cluster whose engine keeps any
+// into dir, one archive per cluster, and returns the cluster IDs it captured.
+func (s *Service) Capture(ctx context.Context, dir string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	records, err := s.listClusters()
+	if err != nil {
+		return nil, err
+	}
+	engines := make([]backing.Exportable, 0, len(records))
+	for _, record := range records {
+		engine, ok := s.catalog.Lookup(record.Engine)
+		if !ok {
+			continue
+		}
+		if data, keeps := engine.Data(); keeps {
+			engines = append(engines, backing.Exportable{Name: record.ID, Data: data})
+		}
+	}
+	return backing.ExportAll(ctx, s.engines, kind, dir, engines)
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requestID string) error {
@@ -172,7 +200,7 @@ func (s *Service) createCacheCluster(w http.ResponseWriter, r *http.Request, req
 	if existing, _ := s.metadata.Get(clustersBucket, record.ID); existing != nil {
 		return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "CacheClusterAlreadyExists", Message: "cache cluster already exists: " + record.ID}
 	}
-	if err := s.startEngine(r.Context(), &record, 0); err != nil {
+	if err := s.startEngine(r.Context(), &record, 0, ""); err != nil {
 		return backing.APIError(err, "cache cluster "+record.ID)
 	}
 	if err := s.putRecord(record.ID, record); err != nil {
@@ -215,14 +243,14 @@ func (s *Service) clusterFromForm(form url.Values) (cacheClusterRecord, error) {
 	}, nil
 }
 
-// startEngine runs the cluster's engine on hostPort (zero picks one) and
-// records where it listens.
-func (s *Service) startEngine(ctx context.Context, record *cacheClusterRecord, hostPort int) error {
+// startEngine runs the cluster's engine on hostPort (zero picks one), from
+// the data archive seed when it is set, and records where it listens.
+func (s *Service) startEngine(ctx context.Context, record *cacheClusterRecord, hostPort int, seed string) error {
 	engine, ok := s.catalog.Lookup(record.Engine)
 	if !ok {
 		return errors.New(s.catalog.unsupported(record.Engine))
 	}
-	endpoint, err := s.engines.Start(ctx, engine.Spec(record.ID, hostPort))
+	endpoint, err := s.engines.Start(ctx, engine.Spec(record.ID, hostPort, seed))
 	if err != nil {
 		return err
 	}

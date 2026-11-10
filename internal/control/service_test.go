@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stratus/internal/backing"
 )
 
 type fixture struct {
@@ -197,6 +199,40 @@ func TestCreateSnapshotWithNameRecordsServicesWithState(t *testing.T) {
 	}
 }
 
+func TestCreateSnapshotCapturesEngineDataPerBackend(t *testing.T) {
+	f := newFixture("rds-instances", "elasticache-clusters")
+	f.rds.captures = []string{"orders-db", "audit-db"}
+	f.cache.captures = []string{"sessions"}
+
+	snap, err := f.svc.CreateSnapshot(context.Background(), "with-data")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	want := []string{"elasticache/sessions", "rds/audit-db", "rds/orders-db"}
+	if !reflect.DeepEqual(snap.Engines, want) {
+		t.Fatalf("engines = %v, want %v", snap.Engines, want)
+	}
+	paths := fakePaths("with-data")
+	if !reflect.DeepEqual(f.rds.capturedTo, []string{paths.EngineDirFor("rds")}) ||
+		!reflect.DeepEqual(f.cache.capturedTo, []string{paths.EngineDirFor("elasticache")}) {
+		t.Fatalf("each backend should capture into its own dir: rds %v cache %v", f.rds.capturedTo, f.cache.capturedTo)
+	}
+	if got, _, _ := f.repo.Get("with-data"); !reflect.DeepEqual(got.Engines, want) {
+		t.Fatalf("committed snapshot should list engines: %+v", got)
+	}
+}
+
+func TestCreateSnapshotAbortsWhenEngineCaptureFails(t *testing.T) {
+	f := newFixture()
+	f.rds.captureErr = errBoom
+
+	_, err := f.svc.CreateSnapshot(context.Background(), "broken")
+	requireCode(t, err, "InternalError")
+	if !reflect.DeepEqual(f.repo.aborted, []SnapshotID{"broken"}) {
+		t.Fatalf("staging not aborted: %v", f.repo.aborted)
+	}
+}
+
 func TestCreateSnapshotGeneratesNameWhenEmpty(t *testing.T) {
 	snap, err := newFixture().svc.CreateSnapshot(context.Background(), "")
 	if err != nil {
@@ -262,8 +298,13 @@ func TestRestoreSnapshotRestoresStateBlobsAndRecyclesRuntime(t *testing.T) {
 	// Every engine stops before any restarts, so a restarted engine never
 	// collides with a stale one on the same port.
 	want := []string{"elasticache:reset", "rds:reset", "elasticache:reconcile", "rds:reconcile"}
-	if !reflect.DeepEqual(f.calls, want) {
+	if got := f.calls[len(f.calls)-len(want):]; !reflect.DeepEqual(got, want) {
 		t.Fatalf("backend calls %v, want %v", f.calls, want)
+	}
+	// Engines restart from the snapshot's data, keeping their endpoints.
+	wantOpts := []backing.ReconcileOptions{{DataDir: paths.EngineDirFor("rds")}}
+	if !reflect.DeepEqual(f.rds.reconciled, wantOpts) {
+		t.Fatalf("rds reconciled with %+v, want %+v", f.rds.reconciled, wantOpts)
 	}
 }
 
@@ -275,6 +316,7 @@ func TestRestoreUnknownSnapshotReturnsNotFound(t *testing.T) {
 func TestRestoreStopsWhenMetadataRestoreFails(t *testing.T) {
 	f := newFixture()
 	_, _ = f.svc.CreateSnapshot(context.Background(), "baseline")
+	f.calls = nil
 	f.state.restoreFn = func(string) error { return errBoom }
 	_, err := f.svc.RestoreSnapshot(context.Background(), "baseline")
 	requireCode(t, err, "InternalError")

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +29,8 @@ type fakeRunner struct {
 	startErr   error
 	runningErr error
 	stopAllErr error
+	exported   map[string]backing.Data
+	exportErr  error
 }
 
 func newFakeRunner() *fakeRunner {
@@ -65,6 +68,22 @@ func (f *fakeRunner) Running(_ context.Context, _, name string) (bool, error) {
 		return false, f.runningErr
 	}
 	return f.running[name], nil
+}
+
+func (f *fakeRunner) Export(_ context.Context, _, name string, data backing.Data, dst string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.exportErr != nil {
+		return f.exportErr
+	}
+	if !f.running[name] {
+		return backing.ErrNotRunning
+	}
+	if f.exported == nil {
+		f.exported = map[string]backing.Data{}
+	}
+	f.exported[name] = data
+	return os.WriteFile(dst, []byte(name), 0o644)
 }
 
 func (f *fakeRunner) StopAll(_ context.Context, kind string) error {
@@ -291,7 +310,7 @@ func TestReconcileWithoutDockerMarksClustersFailedAndReports(t *testing.T) {
 	mustCall(t, svc, "CreateCacheCluster", url.Values{"CacheClusterId": {"a"}})
 	runner.runningErr = backing.ErrUnavailable
 
-	if err := svc.Reconcile(context.Background()); err == nil {
+	if err := svc.Reconcile(context.Background(), backing.ReconcileOptions{}); err == nil {
 		t.Fatal("reconcile should report that the engine could not be inspected or started")
 	}
 	if got := describe(t, svc, "a")[0].Status; got != "failed" {
@@ -306,7 +325,7 @@ func TestReconcileRestartsMissingEnginesOnTheirRecordedPort(t *testing.T) {
 	before := describe(t, svc, "a")[0]
 	_ = runner.StopAll(context.Background(), "elasticache")
 
-	if err := svc.Reconcile(context.Background()); err != nil {
+	if err := svc.Reconcile(context.Background(), backing.ReconcileOptions{}); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 
@@ -326,7 +345,7 @@ func TestReconcileMarksClustersWhoseEngineCannotStart(t *testing.T) {
 	_ = runner.StopAll(context.Background(), "elasticache")
 	runner.startErr = &backing.ImageMissingError{Image: defaultRedisImage}
 
-	err := svc.Reconcile(context.Background())
+	err := svc.Reconcile(context.Background(), backing.ReconcileOptions{})
 	if err == nil || !strings.Contains(err.Error(), defaultRedisImage) {
 		t.Fatalf("reconcile should report why the engine could not start, got %v", err)
 	}
@@ -347,5 +366,58 @@ func TestDefaultEnginesHonourImageOverrides(t *testing.T) {
 	memcached, _ := engines.Lookup("memcached")
 	if memcached.Image != defaultMemcachedImage {
 		t.Fatalf("memcached should keep its default: %q", memcached.Image)
+	}
+}
+
+func TestCaptureExportsValkeyDataAndSkipsMemcached(t *testing.T) {
+	runner := newFakeRunner()
+	svc := newTestService(t, runner)
+	mustCall(t, svc, "CreateCacheCluster", url.Values{"CacheClusterId": {"sessions"}, "Engine": {"redis"}})
+	mustCall(t, svc, "CreateCacheCluster", url.Values{"CacheClusterId": {"mc"}, "Engine": {"memcached"}})
+	dir := t.TempDir()
+
+	captured, err := svc.Capture(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+
+	if strings.Join(captured, ",") != "sessions" {
+		t.Fatalf("only engines that keep data are captured, got %v", captured)
+	}
+	data := runner.exported["sessions"]
+	if data.Path != "/data" || data.Flush == nil {
+		t.Fatalf("valkey should flush to /data before export: %+v", data)
+	}
+}
+
+func TestReconcileSeedsValkeyButNeverMemcached(t *testing.T) {
+	runner := newFakeRunner()
+	svc := newTestService(t, runner)
+	mustCall(t, svc, "CreateCacheCluster", url.Values{"CacheClusterId": {"sessions"}, "Engine": {"valkey"}})
+	mustCall(t, svc, "CreateCacheCluster", url.Values{"CacheClusterId": {"mc"}, "Engine": {"memcached"}})
+	dir := t.TempDir()
+	for _, name := range []string{"sessions", "mc"} {
+		if err := os.WriteFile(backing.ArchivePath(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = runner.StopAll(context.Background(), "elasticache")
+	runner.started = nil
+
+	if err := svc.Reconcile(context.Background(), backing.ReconcileOptions{DataDir: dir, FreshEndpoints: true}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	for _, spec := range runner.started {
+		switch spec.Name {
+		case "sessions":
+			if spec.Seed != backing.ArchivePath(dir, "sessions") || spec.HostPort != 0 {
+				t.Fatalf("valkey should start from its archive on a fresh port: %+v", spec)
+			}
+		case "mc":
+			if spec.Seed != "" || spec.Data != nil {
+				t.Fatalf("memcached keeps no data and takes no seed: %+v", spec)
+			}
+		}
 	}
 }

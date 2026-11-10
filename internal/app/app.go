@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/stratus/internal/backing"
 	"github.com/stratus/internal/chaos"
 	"github.com/stratus/internal/config"
 	"github.com/stratus/internal/container"
@@ -160,7 +161,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	backends := []control.Backend{rdsService, elastiCacheService}
 	// Records can outlive their containers: a restart reaps the old ones and
 	// a seed brings records with no containers at all. Start what is missing.
-	startEngines(backends, logger)
+	startEngines(backends, cfg.DataDir, cfg.Seed != "", logger)
 	logsService := logs.NewService(metaStore)
 	chaosEngine := chaos.NewEngine(control.DefaultCatalog().Names(), nil)
 	deliveryFaults := chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger)
@@ -354,11 +355,24 @@ func (a *App) closeResources() error {
 
 // startEngines reconciles every backend at startup. Docker may be down; that
 // is not fatal, the affected resources report a failed status instead.
-func startEngines(backends []control.Backend, logger *slog.Logger) {
+//
+// A data directory seeded from a snapshot starts its engines from the
+// snapshot's engine data, on fresh ports because sibling seeds of the same
+// snapshot may be running beside it. The seeded data is used once and then
+// removed.
+func startEngines(backends []control.Backend, dataDir string, seeded bool, logger *slog.Logger) {
+	seedDir := control.SeedEngineDir(dataDir)
 	for _, backend := range backends {
-		if err := backend.Reconcile(context.Background()); err != nil {
+		var opts backing.ReconcileOptions
+		if seeded {
+			opts = backing.ReconcileOptions{DataDir: filepath.Join(seedDir, backend.Service()), FreshEndpoints: true}
+		}
+		if err := backend.Reconcile(context.Background(), opts); err != nil {
 			logger.Warn("engines could not be started", "service", backend.Service(), "error", err)
 		}
+	}
+	if err := os.RemoveAll(seedDir); err != nil {
+		logger.Warn("could not remove seeded engine data", "dir", seedDir, "error", err)
 	}
 }
 

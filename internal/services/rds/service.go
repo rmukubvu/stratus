@@ -125,11 +125,13 @@ func (s *Service) Reset(ctx context.Context) error {
 	return nil
 }
 
-// Reconcile starts an engine for every recorded instance that has none,
-// keeping each instance's endpoint. It runs after a snapshot restore and at
-// startup, when the records exist but the containers do not. An instance
-// whose engine cannot start is marked failed; the error names them all.
-func (s *Service) Reconcile(ctx context.Context) error {
+// Reconcile starts an engine for every recorded instance that has none. It
+// runs after a snapshot restore and at startup, when the records exist but the
+// containers do not. Each engine keeps its recorded endpoint unless opts asks
+// for fresh ones, and starts from its archive in opts.DataDir when there is
+// one. An instance whose engine cannot start is marked failed; the error
+// names them all.
+func (s *Service) Reconcile(ctx context.Context, opts backing.ReconcileOptions) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -144,7 +146,11 @@ func (s *Service) Reconcile(ctx context.Context) error {
 			continue
 		}
 		if err == nil {
-			err = s.startEngine(ctx, &record, record.Port)
+			hostPort := record.Port
+			if opts.FreshEndpoints {
+				hostPort = 0
+			}
+			err = s.startEngine(ctx, &record, hostPort, backing.SeedFrom(opts.DataDir, record.Identifier))
 		}
 		if err != nil {
 			record.Status = statusFailed
@@ -155,6 +161,25 @@ func (s *Service) Reconcile(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// Capture exports the data of every running instance into dir, one archive
+// per instance, and returns the identifiers it captured.
+func (s *Service) Capture(ctx context.Context, dir string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	records, err := s.listInstances()
+	if err != nil {
+		return nil, err
+	}
+	engines := make([]backing.Exportable, 0, len(records))
+	for _, record := range records {
+		if engine, ok := s.catalog.Lookup(record.Engine); ok {
+			engines = append(engines, backing.Exportable{Name: record.Identifier, Data: engine.Data()})
+		}
+	}
+	return backing.ExportAll(ctx, s.engines, kind, dir, engines)
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requestID string) error {
@@ -269,7 +294,7 @@ func (s *Service) createDBInstance(w http.ResponseWriter, r *http.Request, reque
 			return err
 		}
 	}
-	if err := s.startEngine(r.Context(), &record, 0); err != nil {
+	if err := s.startEngine(r.Context(), &record, 0, ""); err != nil {
 		return backing.APIError(err, "DB instance "+record.Identifier)
 	}
 	if err := s.putRecord(instancesBucket, record.Identifier, record); err != nil {
@@ -323,15 +348,15 @@ func (s *Service) instanceFromForm(form url.Values) (instanceRecord, error) {
 	}, nil
 }
 
-// startEngine runs the instance's engine on hostPort (zero picks one) and
-// records where it listens.
-func (s *Service) startEngine(ctx context.Context, record *instanceRecord, hostPort int) error {
+// startEngine runs the instance's engine on hostPort (zero picks one), from
+// the data archive seed when it is set, and records where it listens.
+func (s *Service) startEngine(ctx context.Context, record *instanceRecord, hostPort int, seed string) error {
 	engine, ok := s.catalog.Lookup(record.Engine)
 	if !ok {
 		return errors.New(s.catalog.unsupported(record.Engine))
 	}
 	creds := Credentials{Username: record.MasterUsername, Password: record.MasterUserPassword, Database: record.DBName}
-	endpoint, err := s.engines.Start(ctx, engine.Spec(record.Identifier, creds, hostPort))
+	endpoint, err := s.engines.Start(ctx, engine.Spec(record.Identifier, creds, hostPort, seed))
 	if err != nil {
 		return err
 	}

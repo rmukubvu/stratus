@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -64,6 +65,9 @@ func (b *Backing) Start(ctx context.Context, spec backing.Spec) (backing.Endpoin
 	if spec.Kind == "" || spec.Name == "" || spec.Image == "" || spec.Port <= 0 {
 		return backing.Endpoint{}, fmt.Errorf("backing: spec needs kind, name, image and port")
 	}
+	if spec.Seed != "" && spec.Data == nil {
+		return backing.Endpoint{}, fmt.Errorf("backing: engine %s has a seed but no data path", spec.Name)
+	}
 	if err := b.ensureImage(ctx, spec.Image); err != nil {
 		return backing.Endpoint{}, err
 	}
@@ -99,6 +103,10 @@ func (b *Backing) Start(ctx context.Context, spec backing.Spec) (backing.Endpoin
 	}
 	b.remember(spec.Kind)
 
+	if err := b.seed(ctx, resp.ID, spec); err != nil {
+		b.remove(resp.ID)
+		return backing.Endpoint{}, err
+	}
 	if err := b.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		b.remove(resp.ID)
 		return backing.Endpoint{}, dockerError("start container", err)
@@ -122,6 +130,104 @@ func (b *Backing) Start(ctx context.Context, spec backing.Spec) (backing.Endpoin
 	b.logger.Info("engine started", "kind", spec.Kind, "name", spec.Name, "image", spec.Image, "endpoint", endpoint.String())
 	return endpoint, nil
 }
+
+// seed loads a snapshot's data into a created container before it starts, so
+// the engine boots on that data instead of initialising an empty directory.
+// The archive holds the data directory itself, so it unpacks into its parent.
+// Entries keep their recorded owners; the engine images also fix ownership of
+// their data directory on start.
+func (b *Backing) seed(ctx context.Context, id string, spec backing.Spec) error {
+	if spec.Seed == "" {
+		return nil
+	}
+	archive, err := backing.OpenArchive(spec.Seed)
+	if err != nil {
+		return fmt.Errorf("backing: open seed for %s: %w", spec.Name, err)
+	}
+	defer archive.Close()
+	parent := path.Dir(spec.Data.Path)
+	if err := b.client.CopyToContainer(ctx, id, parent, archive, container.CopyToContainerOptions{}); err != nil {
+		return dockerError("load seed data", err)
+	}
+	return nil
+}
+
+// Export copies the engine's data directory into the archive dst. The engine
+// first flushes in-memory state, then is paused for the copy, so the archive
+// is a crash-consistent point-in-time image that the engine recovers from on
+// its next start, the same way it would after a power loss.
+func (b *Backing) Export(ctx context.Context, kind, name string, data backing.Data, dst string) error {
+	running, err := b.runningContainer(ctx, kind, name)
+	if err != nil {
+		return err
+	}
+	if data.Flush != nil {
+		endpoint, err := endpointOf(running)
+		if err != nil {
+			return err
+		}
+		flushCtx, cancel := context.WithTimeout(ctx, exportFlushTimeout)
+		err = data.Flush(flushCtx, endpoint.String())
+		cancel()
+		if err != nil {
+			return fmt.Errorf("backing: flush %s before export: %w", name, err)
+		}
+	}
+
+	if err := b.client.ContainerPause(ctx, running.ID); err != nil {
+		return dockerError("pause container", err)
+	}
+	copyErr := b.copyOut(ctx, running.ID, data, dst)
+	// The pause must end even if the caller gave up, or the engine would
+	// stay frozen for every client.
+	unpauseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := b.client.ContainerUnpause(unpauseCtx, running.ID); err != nil && copyErr == nil {
+		return dockerError("unpause container", err)
+	}
+	return copyErr
+}
+
+// copyOut reads the data directory to the end before returning: Docker holds
+// the container until the stream is drained, and the pause must cover it all.
+func (b *Backing) copyOut(ctx context.Context, id string, data backing.Data, dst string) error {
+	stream, _, err := b.client.CopyFromContainer(ctx, id, data.Path)
+	if err != nil {
+		return dockerError("copy engine data", err)
+	}
+	defer stream.Close()
+	if err := backing.WriteArchive(dst, stream, data.Exclude); err != nil {
+		return fmt.Errorf("backing: archive engine data: %w", err)
+	}
+	return nil
+}
+
+func (b *Backing) runningContainer(ctx context.Context, kind, name string) (container.Summary, error) {
+	found, err := b.find(ctx, kind, name)
+	if err != nil {
+		return container.Summary{}, err
+	}
+	for _, c := range found {
+		if c.State == container.StateRunning {
+			return c, nil
+		}
+	}
+	return container.Summary{}, fmt.Errorf("%w: %s/%s", backing.ErrNotRunning, kind, name)
+}
+
+// endpointOf finds the loopback port an engine container publishes.
+func endpointOf(c container.Summary) (backing.Endpoint, error) {
+	for _, p := range c.Ports {
+		if p.PublicPort > 0 {
+			return backing.Endpoint{Address: loopback, Port: int(p.PublicPort)}, nil
+		}
+	}
+	return backing.Endpoint{}, errors.New("backing: container does not publish a port")
+}
+
+// exportFlushTimeout bounds an engine's flush to disk, which for a large
+// in-memory dataset can take a while.
+const exportFlushTimeout = 2 * time.Minute
 
 // Stop removes the engine if it exists.
 func (b *Backing) Stop(ctx context.Context, kind, name string) error {
@@ -292,7 +398,9 @@ func (b *Backing) removeByID(ctx context.Context, id string) error {
 	stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	_ = b.client.ContainerStop(stopCtx, id, container.StopOptions{Timeout: intPtr(2)})
-	err := b.client.ContainerRemove(stopCtx, id, container.RemoveOptions{Force: true})
+	// Engine images declare their data directory as a volume. Remove it with
+	// the container, or every engine ever started leaves a volume behind.
+	err := b.client.ContainerRemove(stopCtx, id, container.RemoveOptions{Force: true, RemoveVolumes: true})
 	if err != nil && !dockerclient.IsErrNotFound(err) {
 		return dockerError("remove container", err)
 	}

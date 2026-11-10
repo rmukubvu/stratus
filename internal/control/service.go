@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/stratus/internal/backing"
 )
 
 // Status is the overall health of the emulator.
@@ -221,24 +223,48 @@ func (s *Service) stopEngines(ctx context.Context, targets []string) ([]string, 
 }
 
 // restartEngines replaces every backend's engines with ones matching the
-// current state, after that state was swapped under them.
-func (s *Service) restartEngines(ctx context.Context) error {
-	names := make([]string, 0, len(s.backends))
-	for name := range s.backends {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+// current state, after that state was swapped under them. Each engine starts
+// from the data paths holds for it.
+func (s *Service) restartEngines(ctx context.Context, paths SnapshotPaths) error {
+	names := s.backendNames()
 	for _, name := range names {
 		if err := s.backends[name].Reset(ctx); err != nil {
 			return internalError("stop "+name+" engines", err)
 		}
 	}
 	for _, name := range names {
-		if err := s.backends[name].Reconcile(ctx); err != nil {
+		opts := backing.ReconcileOptions{DataDir: paths.EngineDirFor(name)}
+		if err := s.backends[name].Reconcile(ctx, opts); err != nil {
 			return internalError("start "+name+" engines", err)
 		}
 	}
 	return nil
+}
+
+// captureEngines writes every backend's engine data under paths and returns
+// what it captured as "<service>/<resource>", sorted.
+func (s *Service) captureEngines(ctx context.Context, paths SnapshotPaths) ([]string, error) {
+	var captured []string
+	for _, name := range s.backendNames() {
+		resources, err := s.backends[name].Capture(ctx, paths.EngineDirFor(name))
+		if err != nil {
+			return nil, internalError("snapshot "+name+" engine data", err)
+		}
+		for _, resource := range resources {
+			captured = append(captured, name+"/"+resource)
+		}
+	}
+	sort.Strings(captured)
+	return captured, nil
+}
+
+func (s *Service) backendNames() []string {
+	names := make([]string, 0, len(s.backends))
+	for name := range s.backends {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (s *Service) bucketsToClear(targets []string, resetAll bool) ([]string, error) {
@@ -323,6 +349,10 @@ func (s *Service) CreateSnapshot(ctx context.Context, name string) (Snapshot, er
 		if err := s.blobs.CloneTo(paths.BlobDir); err != nil {
 			return internalError("snapshot blobs", err)
 		}
+		engines, err := s.captureEngines(ctx, paths)
+		if err != nil {
+			return err
+		}
 		services, err := s.servicesWithState()
 		if err != nil {
 			return err
@@ -331,7 +361,8 @@ func (s *Service) CreateSnapshot(ctx context.Context, name string) (Snapshot, er
 			ID:        id,
 			CreatedAt: s.clock.Now().UTC(),
 			Services:  services,
-			SizeBytes: diskSize(paths.MetaDB) + diskSize(paths.BlobDir),
+			Engines:   engines,
+			SizeBytes: diskSize(paths.MetaDB) + diskSize(paths.BlobDir) + diskSize(paths.EngineDir),
 		}
 		return nil
 	})
@@ -372,7 +403,7 @@ func (s *Service) RestoreSnapshot(ctx context.Context, rawID string) (Snapshot, 
 				return internalError("recycle Lambda containers", err)
 			}
 		}
-		return s.restartEngines(ctx)
+		return s.restartEngines(ctx, paths)
 	})
 	if err != nil {
 		return Snapshot{}, err

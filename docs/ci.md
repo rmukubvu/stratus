@@ -56,7 +56,9 @@ stratus ci --seed ./fixtures/snapshots/seeded -- go test ./payments/...
 
 Each job gets its own copy. Blobs are hard-linked, so seeding is fast and
 cheap even with large S3 objects, and writes in one job are never seen by
-another job or by the snapshot. You can also seed a long-running server
+another job or by the snapshot. RDS databases and ElastiCache clusters come
+up with the rows and keys they held when the snapshot was taken, each job on
+its own ports (see [engines.md](engines.md#seeded-jobs)). You can also seed a long-running server
 with `stratus serve --seed <dir> --data-dir <empty-dir>`.
 
 ## No orphaned containers

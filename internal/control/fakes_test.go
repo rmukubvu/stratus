@@ -1,6 +1,8 @@
 package control
 
 import (
+	"github.com/stratus/internal/backing"
+
 	"context"
 	"errors"
 	"sort"
@@ -88,6 +90,11 @@ type fakeBackend struct {
 	resets     int
 	reconciles int
 	resetErr   error
+	// captures are the resources Capture reports; captureErr fails it.
+	captures   []string
+	captureErr error
+	capturedTo []string
+	reconciled []backing.ReconcileOptions
 	// log records the order of calls across backends that share it.
 	log *[]string
 }
@@ -102,12 +109,21 @@ func (f *fakeBackend) Reset(context.Context) error {
 	return f.resetErr
 }
 
-func (f *fakeBackend) Reconcile(context.Context) error {
+func (f *fakeBackend) Reconcile(_ context.Context, opts backing.ReconcileOptions) error {
 	f.reconciles++
+	f.reconciled = append(f.reconciled, opts)
 	if f.log != nil {
 		*f.log = append(*f.log, f.name+":reconcile")
 	}
 	return nil
+}
+
+func (f *fakeBackend) Capture(_ context.Context, dir string) ([]string, error) {
+	f.capturedTo = append(f.capturedTo, dir)
+	if f.log != nil {
+		*f.log = append(*f.log, f.name+":capture")
+	}
+	return f.captures, f.captureErr
 }
 
 type fakeRepo struct {
@@ -159,7 +175,11 @@ func (r *fakeRepo) Delete(id SnapshotID) error {
 }
 
 func fakePaths(id SnapshotID) SnapshotPaths {
-	return SnapshotPaths{MetaDB: "/snap/" + string(id) + "/meta.db", BlobDir: "/snap/" + string(id) + "/blobs"}
+	return SnapshotPaths{
+		MetaDB:    "/snap/" + string(id) + "/meta.db",
+		BlobDir:   "/snap/" + string(id) + "/blobs",
+		EngineDir: "/snap/" + string(id) + "/engines",
+	}
 }
 
 type fakeStaging struct {

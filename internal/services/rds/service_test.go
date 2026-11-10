@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -29,6 +31,8 @@ type fakeRunner struct {
 	startErr   error
 	runningErr error
 	stopAllErr error
+	exported   map[string]backing.Data
+	exportErr  error
 }
 
 func newFakeRunner() *fakeRunner {
@@ -66,6 +70,22 @@ func (f *fakeRunner) Running(_ context.Context, _, name string) (bool, error) {
 		return false, f.runningErr
 	}
 	return f.running[name], nil
+}
+
+func (f *fakeRunner) Export(_ context.Context, _, name string, data backing.Data, dst string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.exportErr != nil {
+		return f.exportErr
+	}
+	if !f.running[name] {
+		return backing.ErrNotRunning
+	}
+	if f.exported == nil {
+		f.exported = map[string]backing.Data{}
+	}
+	f.exported[name] = data
+	return os.WriteFile(dst, []byte(name), 0o644)
 }
 
 func (f *fakeRunner) StopAll(_ context.Context, kind string) error {
@@ -160,7 +180,7 @@ func TestCreateDBInstanceStartsEngineAndReturnsItsEndpoint(t *testing.T) {
 	if spec.Kind != "rds" || spec.Name != "app-db" || spec.Image != defaultPostgresImage || spec.Port != 5432 || spec.HostPort != 0 {
 		t.Fatalf("unexpected engine spec: %+v", spec)
 	}
-	wantEnv := []string{"POSTGRES_USER=app", "POSTGRES_PASSWORD=secret", "POSTGRES_DB=orders"}
+	wantEnv := []string{"POSTGRES_USER=app", "POSTGRES_PASSWORD=secret", "POSTGRES_DB=orders", "PGDATA=/var/lib/postgresql/data"}
 	if strings.Join(spec.Env, ",") != strings.Join(wantEnv, ",") {
 		t.Fatalf("unexpected env %v", spec.Env)
 	}
@@ -354,7 +374,7 @@ func TestReconcileWithoutDockerMarksInstancesFailedAndReports(t *testing.T) {
 	mustCall(t, svc, "CreateDBInstance", createParams("a", "postgres"))
 	runner.runningErr = backing.ErrUnavailable
 
-	if err := svc.Reconcile(context.Background()); err == nil {
+	if err := svc.Reconcile(context.Background(), backing.ReconcileOptions{}); err == nil {
 		t.Fatal("reconcile should report that the engine could not be inspected or started")
 	}
 	if got := describe(t, svc, "a")[0].Status; got != "failed" {
@@ -367,7 +387,7 @@ func TestReconcileWithoutRecordsNeverTouchesDocker(t *testing.T) {
 	runner.runningErr = backing.ErrUnavailable
 	svc := newTestService(t, runner)
 
-	if err := svc.Reconcile(context.Background()); err != nil {
+	if err := svc.Reconcile(context.Background(), backing.ReconcileOptions{}); err != nil {
 		t.Fatalf("nothing to reconcile must not need Docker: %v", err)
 	}
 }
@@ -384,7 +404,7 @@ func TestReconcileRestartsMissingEnginesOnTheirRecordedPort(t *testing.T) {
 	delete(runner.running, "a")
 	runner.running["b"] = true
 
-	if err := svc.Reconcile(context.Background()); err != nil {
+	if err := svc.Reconcile(context.Background(), backing.ReconcileOptions{}); err != nil {
 		t.Fatalf("reconcile: %v", err)
 	}
 
@@ -411,7 +431,7 @@ func TestReconcileMarksInstancesWhoseEngineCannotStart(t *testing.T) {
 	_ = runner.StopAll(context.Background(), "rds")
 	runner.startErr = backing.ErrUnavailable
 
-	err := svc.Reconcile(context.Background())
+	err := svc.Reconcile(context.Background(), backing.ReconcileOptions{})
 	if err == nil || !strings.Contains(err.Error(), "a") {
 		t.Fatalf("reconcile should report the instance it could not start, got %v", err)
 	}
@@ -438,5 +458,96 @@ func TestDefaultEnginesHonourImageOverrides(t *testing.T) {
 	}
 	if _, ok := engines.Lookup("oracle-ee"); ok {
 		t.Fatal("unknown engines must not resolve")
+	}
+}
+
+func TestCaptureExportsEveryRunningInstanceDataDirectory(t *testing.T) {
+	runner := newFakeRunner()
+	svc := newTestService(t, runner)
+	mustCall(t, svc, "CreateDBInstance", createParams("orders", "postgres"))
+	mustCall(t, svc, "CreateDBInstance", createParams("users", "mysql"))
+	mustCall(t, svc, "CreateDBInstance", createParams("stopped", "mariadb"))
+	delete(runner.running, "stopped")
+	dir := t.TempDir()
+
+	captured, err := svc.Capture(context.Background(), dir)
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+
+	if strings.Join(captured, ",") != "orders,users" {
+		t.Fatalf("only running instances hold data to capture, got %v", captured)
+	}
+	if got := runner.exported["orders"]; got.Path != postgresDataDir || len(got.Exclude) != 1 {
+		t.Fatalf("postgres should export PGDATA without its lock file: %+v", got)
+	}
+	if got := runner.exported["users"].Path; got != mysqlDataDir {
+		t.Fatalf("mysql should export its data dir, got %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "orders.tar.gz")); err != nil {
+		t.Fatalf("archive should be written per instance: %v", err)
+	}
+}
+
+func TestCaptureFailsWhenAnExportFails(t *testing.T) {
+	runner := newFakeRunner()
+	svc := newTestService(t, runner)
+	mustCall(t, svc, "CreateDBInstance", createParams("orders", "postgres"))
+	runner.exportErr = errors.New("disk full")
+
+	if _, err := svc.Capture(context.Background(), t.TempDir()); err == nil || !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("a failed export should fail the capture, got %v", err)
+	}
+}
+
+func TestReconcileStartsEnginesFromCapturedData(t *testing.T) {
+	runner := newFakeRunner()
+	svc := newTestService(t, runner)
+	mustCall(t, svc, "CreateDBInstance", createParams("orders", "postgres"))
+	mustCall(t, svc, "CreateDBInstance", createParams("fresh", "postgres"))
+	dir := t.TempDir()
+	if _, err := svc.Capture(context.Background(), dir); err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if err := os.Remove(filepath.Join(dir, "fresh.tar.gz")); err != nil {
+		t.Fatal(err)
+	}
+	_ = runner.StopAll(context.Background(), "rds")
+	runner.started = nil
+
+	if err := svc.Reconcile(context.Background(), backing.ReconcileOptions{DataDir: dir}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	seeds := map[string]string{}
+	for _, spec := range runner.started {
+		seeds[spec.Name] = spec.Seed
+	}
+	if seeds["orders"] != filepath.Join(dir, "orders.tar.gz") {
+		t.Fatalf("orders should start from its archive, got %q", seeds["orders"])
+	}
+	if seeds["fresh"] != "" {
+		t.Fatalf("an instance without an archive should start empty, got %q", seeds["fresh"])
+	}
+}
+
+func TestReconcileWithFreshEndpointsPublishesNewPorts(t *testing.T) {
+	runner := newFakeRunner()
+	svc := newTestService(t, runner)
+	mustCall(t, svc, "CreateDBInstance", createParams("orders", "postgres"))
+	before := describe(t, svc, "orders")[0]
+	_ = runner.StopAll(context.Background(), "rds")
+
+	if err := svc.Reconcile(context.Background(), backing.ReconcileOptions{FreshEndpoints: true}); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+
+	restarted := runner.started[len(runner.started)-1]
+	if restarted.HostPort != 0 {
+		t.Fatalf("a seeded fork must not reuse the snapshot's port, asked for %d", restarted.HostPort)
+	}
+	after := describe(t, svc, "orders")[0]
+	if after.Port == before.Port || after.Status != "available" {
+		t.Fatalf("instance should report its new endpoint: before %+v after %+v", before, after)
 	}
 }

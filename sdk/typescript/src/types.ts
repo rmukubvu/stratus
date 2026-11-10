@@ -31,6 +31,8 @@ export interface Snapshot {
   id: string;
   created_at: string;
   services: string[];
+  /** Engines whose data the snapshot holds, as "service/resource", e.g. "rds/orders-db". */
+  engines?: string[];
   size_bytes: number;
 }
 
