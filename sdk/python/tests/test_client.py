@@ -106,6 +106,7 @@ class ClientTest(unittest.TestCase):
             {"endpoint_url": "http://localhost:4566", "region_name": "eu-west-1", "aws_access_key_id": "test", "aws_secret_access_key": "test"},
         )
         self.assertEqual(c.aws_env()["AWS_ENDPOINT_URL"], "http://localhost:4566")
+        self.assertEqual(c.aws_env()["AWS_DISABLE_HOST_PREFIX_INJECTION"], "true")
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -289,3 +290,21 @@ class KafkaTest(unittest.TestCase):
             c.kafka.bootstrap_brokers("missing")
         self.assertEqual(caught.exception.code, "KafkaClusterNotFound")
         self.assertEqual(t.calls, [("GET", "/kafka/clusters", None)] * 3)
+
+
+class DnsTest(unittest.TestCase):
+    def test_resolve_asks_the_control_api_and_defaults_to_a_records(self) -> None:
+        answer = {"name": "api.corp.local.", "type": "A", "value": "10.0.0.1", "ttl": 60, "zone_id": "Z1"}
+        c, t = client(
+            {"name": "api.corp.local.", "type": "A", "answers": [answer], "found": True},
+            {"name": "x.corp.local.", "type": "SRV", "answers": None, "found": False},
+        )
+
+        self.assertEqual(c.dns.resolve("api.corp.local")["answers"], [answer])
+        missing = c.dns.resolve("x.corp.local", "SRV")
+        self.assertFalse(missing["found"])
+        self.assertEqual(missing["answers"], [])
+        self.assertEqual(
+            t.calls,
+            [("GET", "/dns/resolve?name=api.corp.local&type=A", None), ("GET", "/dns/resolve?name=x.corp.local&type=SRV", None)],
+        )

@@ -148,6 +148,7 @@ func TestCommandEnvForcesEndpointsAndOnlyDefaultsCredentials(t *testing.T) {
 		"STRATUS_ENDPOINT=http://127.0.0.1:5000",
 		"STRATUS_DOCKER_ENDPOINT=http://host.docker.internal:5000",
 		"STRATUS_PORT=5000",
+		"AWS_DISABLE_HOST_PREFIX_INJECTION=true",
 		"AWS_REGION=eu-west-1",
 		"AWS_ACCESS_KEY_ID=mine",
 		"AWS_SECRET_ACCESS_KEY=test",

@@ -297,3 +297,24 @@ class KafkaCluster(TypedDict):
     kafka_version: str
     #: host:port to pass to a Kafka client; empty while no broker runs.
     bootstrap_brokers: str
+
+
+class DnsAnswer(TypedDict):
+    """One record in a DNS answer."""
+
+    name: str
+    type: str
+    value: str
+    ttl: int
+    zone_id: str
+
+
+class DnsResolution(TypedDict):
+    """What a lookup against the emulated hosted zones returns."""
+
+    name: str
+    type: str
+    #: CNAME steps first, then the records of the requested type.
+    answers: List[DnsAnswer]
+    #: False for NXDOMAIN or when the name has no records of that type.
+    found: bool

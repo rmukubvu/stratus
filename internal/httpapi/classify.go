@@ -8,6 +8,7 @@ import (
 	"github.com/stratus/internal/services/bedrock"
 	"github.com/stratus/internal/services/fis"
 	"github.com/stratus/internal/services/kafka"
+	"github.com/stratus/internal/services/route53"
 	"github.com/stratus/internal/services/scheduler"
 	"github.com/stratus/internal/services/ses"
 )
@@ -19,7 +20,9 @@ const (
 	ProtocolQuery    Protocol = "query"
 	ProtocolJSON     Protocol = "json"
 	ProtocolREST     Protocol = "rest"
-	ProtocolS3       Protocol = "s3"
+	// ProtocolRESTXML is a REST API that speaks XML, errors included.
+	ProtocolRESTXML Protocol = "rest-xml"
+	ProtocolS3      Protocol = "s3"
 )
 
 type Classification struct {
@@ -47,6 +50,7 @@ var targetToService = map[string]string{
 	"DynamoDBStreams_20120810":             "dynamodbstreams",
 	"AmazonSQS":                            "sqs",
 	"AmazonCloudWatch":                     "monitoring",
+	"Route53AutoNaming_v20170314":          "servicediscovery",
 }
 
 var queryActionToService = map[string]string{
@@ -135,9 +139,9 @@ func init() {
 // They are recognised by their SigV4 signing name, or by their host prefix
 // when a client sends unsigned requests. Bedrock Runtime signs as
 // "bedrock"; MSK signs as "kafka".
-var signedRESTServices = map[string]string{"fis": "fis", "scheduler": "scheduler", "ses": "ses", "bedrock": "bedrock", "kafka": "kafka"}
+var signedRESTServices = map[string]string{"fis": "fis", "scheduler": "scheduler", "ses": "ses", "bedrock": "bedrock", "kafka": "kafka", "route53": "route53"}
 
-var restHostPrefixes = map[string]string{"fis.": "fis", "scheduler.": "scheduler", "email.": "ses", "bedrock-runtime.": "bedrock", "kafka.": "kafka"}
+var restHostPrefixes = map[string]string{"fis.": "fis", "scheduler.": "scheduler", "email.": "ses", "bedrock-runtime.": "bedrock", "kafka.": "kafka", "route53.": "route53"}
 
 var restPrefixToService = map[string]string{
 	"/2015-03-31/functions":             "lambda",
@@ -151,6 +155,7 @@ var restPrefixToService = map[string]string{
 	"/_aws/execute-api/":                "apigatewayv2",
 	"/stacks":                           "cloudformation",
 	ses.V2PathPrefix:                    "ses",
+	route53.PathPrefix:                  "route53",
 }
 
 func Classify(r *http.Request) (Classification, error) {
@@ -179,7 +184,7 @@ func Classify(r *http.Request) (Classification, error) {
 
 	if service := signedRESTService(r); service != "" {
 		return Classification{
-			Protocol:  ProtocolREST,
+			Protocol:  restProtocol(service),
 			Service:   service,
 			Operation: restOperation(service, r),
 		}, nil
@@ -207,9 +212,11 @@ func Classify(r *http.Request) (Classification, error) {
 				operation = classifyLambdaOperation(r)
 			case "ses":
 				operation = ses.OperationV2(r.Method, r.URL.Path)
+			case "route53":
+				operation = route53.Operation(r.Method, r.URL.Path)
 			}
 			return Classification{
-				Protocol:  ProtocolREST,
+				Protocol:  restProtocol(service),
 				Service:   service,
 				Operation: operation,
 			}, nil
@@ -258,8 +265,18 @@ func restOperation(service string, r *http.Request) string {
 		return bedrock.Operation(r.Method, r.URL.EscapedPath())
 	case "kafka":
 		return kafka.Operation(r.Method, r.URL.EscapedPath())
+	case "route53":
+		return route53.Operation(r.Method, r.URL.Path)
 	}
 	return ""
+}
+
+// restProtocol tells REST-JSON services from Route 53, which speaks XML.
+func restProtocol(service string) Protocol {
+	if service == "route53" {
+		return ProtocolRESTXML
+	}
+	return ProtocolREST
 }
 
 func isHealthPath(path string) bool {

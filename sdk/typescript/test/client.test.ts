@@ -153,6 +153,7 @@ describe("StratusClient", () => {
       region: "eu-west-1",
       credentials: { accessKeyId: "test", secretAccessKey: "test" },
       forcePathStyle: true,
+      disableHostPrefix: true,
     });
   });
 });
@@ -270,5 +271,20 @@ describe("kafka", () => {
     await assert.rejects(c.kafka.bootstrapBrokers("missing"), (err: unknown) => err instanceof StratusError && err.code === "KafkaClusterNotFound");
 
     assert.deepEqual(calls.map((x) => `${x.method} ${x.url.slice(base.length)}`), ["GET /kafka/clusters", "GET /kafka/clusters", "GET /kafka/clusters"]);
+  });
+});
+
+describe("dns", () => {
+  test("resolve asks the control API and defaults to A records", async () => {
+    const answer = { name: "api.corp.local.", type: "A", value: "10.0.0.1", ttl: 60, zone_id: "Z1" };
+    const { fetch, calls } = fakeFetch({ body: { name: "api.corp.local.", type: "A", answers: [answer], found: true } }, { body: { name: "x.corp.local.", type: "SRV", answers: null, found: false } });
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch });
+
+    assert.deepEqual((await c.dns.resolve("api.corp.local")).answers, [answer]);
+    const missing = await c.dns.resolve("x.corp.local", "SRV");
+    assert.equal(missing.found, false);
+    assert.deepEqual(missing.answers, []);
+
+    assert.deepEqual(calls.map((x) => `${x.method} ${x.url.slice(base.length)}`), ["GET /dns/resolve?name=api.corp.local&type=A", "GET /dns/resolve?name=x.corp.local&type=SRV"]);
   });
 });

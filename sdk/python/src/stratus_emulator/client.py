@@ -20,6 +20,7 @@ from .types import (
     ChaosReport,
     Diagnosis,
     Health,
+    DnsResolution,
     KafkaCluster,
     ResetResult,
     SchedulerAdvance,
@@ -165,6 +166,20 @@ class Kafka:
         raise StratusError("KafkaClusterNotFound", f'MSK cluster "{name}" does not exist', "list clusters with kafka.clusters()", 404)
 
 
+class Dns:
+    """DNS lookups against the emulated Route 53 zones, Cloud Map's included."""
+
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def resolve(self, name: str, type: str = "A") -> DnsResolution:
+        """Resolve a name the way a client inside the VPC would."""
+        query = urllib.parse.urlencode({"name": name, "type": type})
+        res = self._t.request("GET", f"/dns/resolve?{query}") or {}
+        res["answers"] = res.get("answers") or []
+        return cast(DnsResolution, res)
+
+
 class Bedrock:
     """Bedrock fixtures and the log of model calls."""
 
@@ -275,6 +290,7 @@ class StratusClient:
         self.scheduler = Scheduler(self._t)
         self.bedrock = Bedrock(self._t)
         self.kafka = Kafka(self._t)
+        self.dns = Dns(self._t)
 
     def health(self) -> Health:
         return cast(Health, self._t.request("GET", "/health"))
@@ -377,6 +393,9 @@ class StratusClient:
             "AWS_DEFAULT_REGION": self.region,
             "AWS_ACCESS_KEY_ID": "test",
             "AWS_SECRET_ACCESS_KEY": "test",
+            # Keeps host-prefixed operations (Cloud Map's DiscoverInstances)
+            # on the Stratus host instead of data-<host>.
+            "AWS_DISABLE_HOST_PREFIX_INJECTION": "true",
         }
 
 

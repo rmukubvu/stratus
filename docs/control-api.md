@@ -100,6 +100,26 @@ Invocation filters: `model` (pattern with `*`), `contains` (prompt
 substring), `outcome` (`replayed`, `recorded`, `synthesized`, `missed`,
 `failed`) and `limit`. See [bedrock.md](bedrock.md).
 
+## MSK clusters
+
+```
+GET    /_stratus/control/v1/kafka/clusters           every cluster with its bootstrap brokers (host:port)
+```
+
+See [msk.md](msk.md).
+
+## DNS
+
+```
+GET    /_stratus/control/v1/dns/resolve?name=api.corp.local&type=A
+```
+
+Resolves a name against the emulated Route 53 hosted zones, including the
+zones and records Cloud Map creates. `type` defaults to `A`. The answer lists
+CNAME and alias steps first, then the records of the requested type;
+`found: false` means NXDOMAIN or no records of that type. See
+[route53.md](route53.md) and [cloudmap.md](cloudmap.md).
+
 ## Errors
 
 Every error has a stable code and a hint:
