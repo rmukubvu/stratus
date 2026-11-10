@@ -12,19 +12,19 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
 const (
-	clustersBucket      = "ecs-clusters"
-	taskDefsBucket      = "ecs-task-definitions"
-	servicesBucket      = "ecs-services"
-	tasksBucket         = "ecs-tasks"
-	accountID           = "000000000000"
-	region              = "us-east-1"
+	clustersBucket = "ecs-clusters"
+	taskDefsBucket = "ecs-task-definitions"
+	servicesBucket = "ecs-services"
+	tasksBucket    = "ecs-tasks"
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 	mu       sync.Mutex
@@ -38,17 +38,17 @@ type clusterRecord struct {
 }
 
 type taskDefinitionRecord struct {
-	Arn                  string            `json:"arn"`
-	Compatibilities      []string          `json:"compatibilities"`
-	ContainerDefinitions []map[string]any  `json:"container_definitions"`
-	Cpu                  string            `json:"cpu,omitempty"`
-	ExecutionRoleArn     string            `json:"execution_role_arn,omitempty"`
-	Family               string            `json:"family"`
-	Memory               string            `json:"memory,omitempty"`
-	NetworkMode          string            `json:"network_mode,omitempty"`
-	RequiresCompat       []string          `json:"requires_compatibilities,omitempty"`
-	Revision             int               `json:"revision"`
-	TaskRoleArn          string            `json:"task_role_arn,omitempty"`
+	Arn                  string           `json:"arn"`
+	Compatibilities      []string         `json:"compatibilities"`
+	ContainerDefinitions []map[string]any `json:"container_definitions"`
+	Cpu                  string           `json:"cpu,omitempty"`
+	ExecutionRoleArn     string           `json:"execution_role_arn,omitempty"`
+	Family               string           `json:"family"`
+	Memory               string           `json:"memory,omitempty"`
+	NetworkMode          string           `json:"network_mode,omitempty"`
+	RequiresCompat       []string         `json:"requires_compatibilities,omitempty"`
+	Revision             int              `json:"revision"`
+	TaskRoleArn          string           `json:"task_role_arn,omitempty"`
 }
 
 type serviceRecord struct {
@@ -72,7 +72,7 @@ type taskRecord struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation string) error {
@@ -118,7 +118,7 @@ func (s *Service) createCluster(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 	record := clusterRecord{
-		Arn:       clusterARN(input.ClusterName),
+		Arn:       s.clusterARN(input.ClusterName),
 		CreatedAt: s.now().UTC(),
 		Name:      input.ClusterName,
 		Status:    "ACTIVE",
@@ -169,7 +169,7 @@ func (s *Service) registerTaskDefinition(w http.ResponseWriter, r *http.Request)
 		return err
 	}
 	record := taskDefinitionRecord{
-		Arn:                  taskDefinitionARN(input.Family, revision),
+		Arn:                  s.taskDefinitionARN(input.Family, revision),
 		Compatibilities:      []string{"EC2", "FARGATE"},
 		ContainerDefinitions: input.ContainerDefinitions,
 		Cpu:                  input.Cpu,
@@ -226,7 +226,7 @@ func (s *Service) createService(w http.ResponseWriter, r *http.Request) error {
 		return validation("serviceName is required")
 	}
 	record := serviceRecord{
-		Arn:            serviceARN(cluster.Name, input.ServiceName),
+		Arn:            s.serviceARN(cluster.Name, input.ServiceName),
 		ClusterArn:     cluster.Arn,
 		CreatedAt:      s.now().UTC(),
 		DesiredCount:   input.DesiredCount,
@@ -315,7 +315,7 @@ func (s *Service) runTask(w http.ResponseWriter, r *http.Request) error {
 		launchType = "FARGATE"
 	}
 	record := taskRecord{
-		Arn:            taskARN(cluster.Name),
+		Arn:            s.taskARN(cluster.Name),
 		ClusterArn:     cluster.Arn,
 		CreatedAt:      s.now().UTC(),
 		LastStatus:     "RUNNING",
@@ -381,12 +381,12 @@ func (s *Service) resolveCluster(name string) (clusterRecord, error) {
 func (s *Service) nextRevision(family string) (int, error) {
 	maxRevision := 0
 	if err := s.metadata.Scan(taskDefsBucket, family+"|", func(k, _ []byte) error {
-		 parts := strings.Split(string(k), "|")
-		 if len(parts) == 2 {
-		 	if rev := atoi(parts[1]); rev > maxRevision {
-		 		maxRevision = rev
-		 	}
-		 }
+		parts := strings.Split(string(k), "|")
+		if len(parts) == 2 {
+			if rev := atoi(parts[1]); rev > maxRevision {
+				maxRevision = rev
+			}
+		}
 		return nil
 	}); err != nil {
 		return 0, internal(err)
@@ -452,27 +452,27 @@ func (s *Service) putRecord(bucket, key string, payload any) error {
 
 func clusterResponse(record clusterRecord) map[string]any {
 	return map[string]any{
-		"clusterArn": record.Arn,
-		"clusterName": record.Name,
+		"clusterArn":                        record.Arn,
+		"clusterName":                       record.Name,
 		"registeredContainerInstancesCount": 0,
-		"runningTasksCount": 0,
-		"status": record.Status,
+		"runningTasksCount":                 0,
+		"status":                            record.Status,
 	}
 }
 
 func taskDefinitionResponse(record taskDefinitionRecord) map[string]any {
 	return map[string]any{
-		"compatibilities":       record.Compatibilities,
-		"containerDefinitions":  record.ContainerDefinitions,
-		"cpu":                   record.Cpu,
-		"executionRoleArn":      record.ExecutionRoleArn,
-		"family":                record.Family,
-		"memory":                record.Memory,
-		"networkMode":           record.NetworkMode,
+		"compatibilities":         record.Compatibilities,
+		"containerDefinitions":    record.ContainerDefinitions,
+		"cpu":                     record.Cpu,
+		"executionRoleArn":        record.ExecutionRoleArn,
+		"family":                  record.Family,
+		"memory":                  record.Memory,
+		"networkMode":             record.NetworkMode,
 		"requiresCompatibilities": record.RequiresCompat,
-		"revision":              record.Revision,
-		"taskDefinitionArn":     record.Arn,
-		"taskRoleArn":           record.TaskRoleArn,
+		"revision":                record.Revision,
+		"taskDefinitionArn":       record.Arn,
+		"taskRoleArn":             record.TaskRoleArn,
 	}
 }
 
@@ -491,29 +491,29 @@ func serviceResponse(record serviceRecord) map[string]any {
 
 func taskResponse(record taskRecord) map[string]any {
 	return map[string]any{
-		"clusterArn":         record.ClusterArn,
-		"containers":         []any{},
-		"lastStatus":         record.LastStatus,
-		"launchType":         record.LaunchType,
-		"taskArn":            record.Arn,
-		"taskDefinitionArn":  record.TaskDefinition,
+		"clusterArn":        record.ClusterArn,
+		"containers":        []any{},
+		"lastStatus":        record.LastStatus,
+		"launchType":        record.LaunchType,
+		"taskArn":           record.Arn,
+		"taskDefinitionArn": record.TaskDefinition,
 	}
 }
 
-func clusterARN(name string) string {
-	return "arn:aws:ecs:" + region + ":" + accountID + ":cluster/" + name
+func (s *Service) clusterARN(name string) string {
+	return "arn:aws:ecs:" + s.scope.Region + ":" + s.scope.Account + ":cluster/" + name
 }
 
-func taskDefinitionARN(family string, revision int) string {
-	return "arn:aws:ecs:" + region + ":" + accountID + ":task-definition/" + family + ":" + fmt.Sprintf("%d", revision)
+func (s *Service) taskDefinitionARN(family string, revision int) string {
+	return "arn:aws:ecs:" + s.scope.Region + ":" + s.scope.Account + ":task-definition/" + family + ":" + fmt.Sprintf("%d", revision)
 }
 
-func serviceARN(clusterName, serviceName string) string {
-	return "arn:aws:ecs:" + region + ":" + accountID + ":service/" + clusterName + "/" + serviceName
+func (s *Service) serviceARN(clusterName, serviceName string) string {
+	return "arn:aws:ecs:" + s.scope.Region + ":" + s.scope.Account + ":service/" + clusterName + "/" + serviceName
 }
 
-func taskARN(clusterName string) string {
-	return "arn:aws:ecs:" + region + ":" + accountID + ":task/" + clusterName + "/" + uuid.NewString()
+func (s *Service) taskARN(clusterName string) string {
+	return "arn:aws:ecs:" + s.scope.Region + ":" + s.scope.Account + ":task/" + clusterName + "/" + uuid.NewString()
 }
 
 func taskDefKey(family string, revision int) string {
@@ -554,4 +554,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

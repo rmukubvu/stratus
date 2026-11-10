@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stratus/internal/chaos"
+	"github.com/stratus/internal/scope"
 )
 
 // Resource types Stratus can target.
@@ -254,11 +255,11 @@ func apiParams() map[string]Parameter {
 	}
 }
 
-func actionArn(id string) string {
-	return fmt.Sprintf("arn:aws:fis:%s:%s:action/%s", region, accountID, id)
+func actionArn(sc scope.Scope, id string) string {
+	return sc.ARN("fis", "action/"+id)
 }
 
-func newCatalog() map[string]ActionDefinition {
+func newCatalog(sc scope.Scope) map[string]ActionDefinition {
 	defs := []ActionDefinition{
 		{
 			ID:          "aws:fis:wait",
@@ -305,7 +306,7 @@ func newCatalog() map[string]ActionDefinition {
 	}
 	catalog := make(map[string]ActionDefinition, len(defs))
 	for _, d := range defs {
-		d.Arn = actionArn(d.ID)
+		d.Arn = actionArn(sc, d.ID)
 		catalog[d.ID] = d
 	}
 	return catalog

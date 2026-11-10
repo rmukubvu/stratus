@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/services/dynamodbstreams"
 	"github.com/stratus/internal/store"
 )
@@ -18,6 +19,7 @@ const (
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	streams  *dynamodbstreams.Service
 	now      func() time.Time
@@ -47,7 +49,7 @@ type tableRecord struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) SetStreams(streams *dynamodbstreams.Service) {
@@ -256,7 +258,7 @@ func (s *Service) listTagsOfResource(w http.ResponseWriter, r *http.Request) err
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"Tags":        []map[string]string{},
-		"ResourceArn": "arn:aws:dynamodb:us-east-1:000000000000:table/" + record.TableName,
+		"ResourceArn": s.scope.ARN("dynamodb", "table/"+record.TableName),
 	})
 	return nil
 }
@@ -581,7 +583,7 @@ func (s *Service) tableDescription(record tableRecord) map[string]any {
 		"ItemCount":             0,
 		"KeySchema":             keySchema,
 		"ProvisionedThroughput": map[string]any{"NumberOfDecreasesToday": 0, "ReadCapacityUnits": 0, "WriteCapacityUnits": 0},
-		"TableArn":              "arn:aws:dynamodb:us-east-1:000000000000:table/" + record.TableName,
+		"TableArn":              s.scope.ARN("dynamodb", "table/"+record.TableName),
 		"TableName":             record.TableName,
 		"TableStatus":           record.TableStatus,
 		"TableSizeBytes":        0,
@@ -807,4 +809,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

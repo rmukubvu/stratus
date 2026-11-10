@@ -1,6 +1,8 @@
 package control
 
 import (
+	"github.com/stratus/internal/scope"
+
 	"fmt"
 	"sort"
 	"strings"
@@ -101,7 +103,10 @@ func (c Catalog) Lookup(name string) (ServiceState, bool) {
 }
 
 // OwnerOf returns the service that owns a metadata bucket.
+// Buckets of other accounts and regions belong to the same service as their
+// unprefixed name.
 func (c Catalog) OwnerOf(bucket string) (string, bool) {
+	_, bucket = scope.SplitPrefixed(bucket)
 	owner, best := "", 0
 	for name, st := range c.services {
 		for _, prefix := range st.BucketPrefixes {

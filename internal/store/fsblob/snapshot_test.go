@@ -115,3 +115,28 @@ func TestReplaceWithMissingSourceKeepsLiveBlobs(t *testing.T) {
 		t.Fatalf("live blobs changed: %q", got)
 	}
 }
+
+func TestDeleteNamespaceIncludesScopedStores(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	scoped := s.Scoped("@111122223333/eu-west-1/")
+	for _, st := range []*Store{s, scoped} {
+		if _, err := st.Put("lambda", "fn/code.zip", strings.NewReader("x")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.Put("s3", "bucket/key", strings.NewReader("y")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.DeleteNamespace("lambda"); err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range []*Store{s, scoped} {
+		if _, err := os.Stat(st.NamespacePath("lambda")); !os.IsNotExist(err) {
+			t.Fatalf("lambda namespace survived in %s", st.NamespacePath(""))
+		}
+		if _, err := os.Stat(st.NamespacePath("s3")); err != nil {
+			t.Fatalf("s3 namespace was removed from %s", st.NamespacePath(""))
+		}
+	}
+}

@@ -341,7 +341,7 @@ func (d *Directory) namespaceJSON(ns Namespace) map[string]any {
 		props["DnsProperties"] = map[string]any{"HostedZoneId": ns.HostedZoneID, "SOA": map[string]any{"TTL": 15}}
 	}
 	return map[string]any{
-		"Id": ns.ID, "Arn": ns.ARN(), "Name": ns.Name, "Type": ns.Type, "Description": ns.Description,
+		"Id": ns.ID, "Arn": ns.ARN(d.scope), "Name": ns.Name, "Type": ns.Type, "Description": ns.Description,
 		"ServiceCount": d.ServiceCount(ns.ID), "Properties": props, "CreateDate": epoch(ns.Created),
 		"CreatorRequestId": ns.CreatorRequestID,
 	}
@@ -349,7 +349,7 @@ func (d *Directory) namespaceJSON(ns Namespace) map[string]any {
 
 func (d *Directory) serviceJSON(svc Service) map[string]any {
 	out := map[string]any{
-		"Id": svc.ID, "Arn": svc.ARN(), "Name": svc.Name, "NamespaceId": svc.NamespaceID, "Type": svc.Type,
+		"Id": svc.ID, "Arn": svc.ARN(d.scope), "Name": svc.Name, "NamespaceId": svc.NamespaceID, "Type": svc.Type,
 		"Description": svc.Description, "InstanceCount": d.InstanceCount(svc.ID), "CreateDate": epoch(svc.Created),
 		"CreatorRequestId": svc.CreatorRequestID,
 	}

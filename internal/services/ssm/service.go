@@ -2,18 +2,19 @@ package ssm
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"sort"
 	"time"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
 const parametersBucket = "ssm-parameters"
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 }
@@ -34,7 +35,7 @@ type parameterRecord struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation string) error {
@@ -174,7 +175,7 @@ func (s *Service) getParameter(w http.ResponseWriter, r *http.Request) error {
 			"Value":            record.Value,
 			"Version":          record.Version,
 			"LastModifiedDate": float64(record.LastModifiedTime.Unix()),
-			"ARN":              fmt.Sprintf("arn:aws:ssm:us-east-1:000000000000:parameter%s", record.Name),
+			"ARN":              s.scope.ARN("ssm", "parameter"+record.Name),
 			"DataType":         "text",
 		},
 	})
@@ -287,4 +288,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

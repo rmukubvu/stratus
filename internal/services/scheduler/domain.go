@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"github.com/stratus/internal/scope"
+
 	"regexp"
 	"strings"
 	"time"
@@ -18,9 +20,6 @@ const (
 
 	WindowOff      = "OFF"
 	WindowFlexible = "FLEXIBLE"
-
-	accountID = "000000000000"
-	region    = "us-east-1"
 )
 
 var nameRe = regexp.MustCompile(`^[0-9a-zA-Z\-_.]{1,64}$`)
@@ -139,12 +138,12 @@ type ListFilter struct {
 	State      string
 }
 
-func scheduleARN(group, name string) string {
-	return "arn:aws:scheduler:" + region + ":" + accountID + ":schedule/" + group + "/" + name
+func scheduleARN(sc scope.Scope, group, name string) string {
+	return sc.ARN("scheduler", "schedule/"+group+"/"+name)
 }
 
-func groupARN(name string) string {
-	return "arn:aws:scheduler:" + region + ":" + accountID + ":schedule-group/" + name
+func groupARN(sc scope.Scope, name string) string {
+	return sc.ARN("scheduler", "schedule-group/"+name)
 }
 
 // targetKind names the service behind a target ARN, or "" when Stratus

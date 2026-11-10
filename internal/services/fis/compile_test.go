@@ -1,6 +1,7 @@
 package fis
 
 import (
+	"github.com/stratus/internal/scope"
 	"strings"
 	"testing"
 	"time"
@@ -100,7 +101,7 @@ func TestCompileLambdaInvocationError(t *testing.T) {
 	c, err := compile(lambdaTemplate(
 		"arn:aws:lambda:us-east-1:000000000000:function:checkout",
 		"arn:aws:lambda:us-east-1:000000000000:function:billing:live",
-	), newCatalog(), 42)
+	), newCatalog(scope.Default()), 42)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestCompileAPIAndDeliveryActions(t *testing.T) {
 				Parameters: map[string]string{"source": "sns", "service": "sqs", "resource": "audit", "duration": "PT1M"}},
 		},
 	}
-	c, err := compile(tmpl, newCatalog(), 1)
+	c, err := compile(tmpl, newCatalog(scope.Default()), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +150,7 @@ func TestCompileAPIAndDeliveryActions(t *testing.T) {
 }
 
 func TestCompileValidation(t *testing.T) {
-	catalog := newCatalog()
+	catalog := newCatalog(scope.Default())
 	cases := map[string]struct {
 		mutate func(*Template)
 		want   string

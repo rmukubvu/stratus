@@ -19,38 +19,11 @@ import (
 	"github.com/stratus/internal/diagnose"
 	"github.com/stratus/internal/httpapi"
 	"github.com/stratus/internal/operator"
-	"github.com/stratus/internal/services/acm"
-	"github.com/stratus/internal/services/apigateway"
-	"github.com/stratus/internal/services/apigatewayv2"
 	"github.com/stratus/internal/services/bedrock"
-	"github.com/stratus/internal/services/cloudformation"
-	"github.com/stratus/internal/services/cognitoidp"
-	"github.com/stratus/internal/services/dynamodb"
-	"github.com/stratus/internal/services/dynamodbstreams"
-	"github.com/stratus/internal/services/ecr"
-	"github.com/stratus/internal/services/ecs"
-	"github.com/stratus/internal/services/elasticache"
-	"github.com/stratus/internal/services/elbv2"
-	eventssvc "github.com/stratus/internal/services/events"
-	"github.com/stratus/internal/services/fis"
-	"github.com/stratus/internal/services/iam"
 	"github.com/stratus/internal/services/kafka"
-	"github.com/stratus/internal/services/kinesis"
-	"github.com/stratus/internal/services/kms"
-	lambdasvc "github.com/stratus/internal/services/lambda"
-	"github.com/stratus/internal/services/logs"
-	"github.com/stratus/internal/services/monitoring"
-	"github.com/stratus/internal/services/rds"
 	"github.com/stratus/internal/services/route53"
-	"github.com/stratus/internal/services/s3"
 	"github.com/stratus/internal/services/scheduler"
-	"github.com/stratus/internal/services/secretsmanager"
-	"github.com/stratus/internal/services/servicediscovery"
 	"github.com/stratus/internal/services/ses"
-	"github.com/stratus/internal/services/sns"
-	"github.com/stratus/internal/services/sqs"
-	"github.com/stratus/internal/services/ssm"
-	"github.com/stratus/internal/services/stepfunctions"
 	"github.com/stratus/internal/services/sts"
 	"github.com/stratus/internal/store/bbolt"
 	"github.com/stratus/internal/store/fsblob"
@@ -94,96 +67,40 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	blobStore := fsblob.New(blobRoot)
-	lambdaService := lambdasvc.NewService(lambdasvc.Options{
-		Metadata: metaStore,
-		Blobs:    blobStore,
-		Invoker:  lambdaRuntime,
-	})
-	snsService := sns.NewService(metaStore)
-	sqsService := sqs.NewService(metaStore)
-	streamsService := dynamodbstreams.NewService(metaStore)
-	dynamoDBService := dynamodb.NewService(metaStore)
-	s3Service := s3.NewService(s3.Options{
-		Metadata: metaStore,
-		Blobs:    blobStore,
-	})
-	sqsService.SetLambda(lambdaService)
-	snsService.SetQueuePublisher(sqsService)
-	snsService.SetLambdaInvoker(lambdaService)
-	lambdaService.SetQueuePublisher(sqsService)
-	lambdaService.SetTopicPublisher(snsService)
-	streamsService.SetLambda(lambdaService)
-	dynamoDBService.SetStreams(streamsService)
-	apiGatewayV2Service := apigatewayv2.NewService(apigatewayv2.Options{
-		Metadata: metaStore,
-		Lambda:   lambdaService,
-	})
-	apiGatewayService := apigateway.NewService(apigateway.Options{
-		Metadata: metaStore,
-		Lambda:   lambdaService,
-	})
-	eventsService := eventssvc.NewService(metaStore, lambdaService)
-	eventsService.SetSNS(snsService)
-	eventsService.SetSQS(sqsService)
-	kinesisService := kinesis.NewService(metaStore)
-	kinesisService.SetLambda(lambdaService)
-	cognitoIDPService := cognitoidp.NewService(metaStore)
-	stepFunctionsService := stepfunctions.NewService(metaStore, lambdaService)
-	eventsService.SetStepFunctions(stepFunctionsService)
-	sesService := ses.NewService(ses.Options{Metadata: metaStore})
 	bedrockConfig, err := bedrock.ConfigFromEnv(os.Getenv)
 	if err != nil {
 		return nil, err
 	}
-	bedrockService := bedrock.NewService(bedrock.Options{
-		Metadata:   metaStore,
-		FixtureDir: bedrockConfig.FixtureDir,
-		Mode:       bedrockConfig.Mode,
-		Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
+	chaosEngine := chaos.NewEngine(control.DefaultCatalog().Names(), nil)
+	blobStore := fsblob.New(blobRoot)
+	stacks := newStacks(platform{
+		meta:    metaStore,
+		blobs:   blobStore,
+		invoker: lambdaRuntime,
+		engines: engines,
+		faults:  chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger),
+		chaos:   chaosEngine,
+		bedrock: bedrock.NewService(bedrock.Options{
+			Metadata:   metaStore,
+			FixtureDir: bedrockConfig.FixtureDir,
+			Mode:       bedrockConfig.Mode,
+			Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
+		}),
+		sts:    sts.NewService(),
+		getenv: os.Getenv,
+		logger: logger,
 	})
-	schedulerService := scheduler.NewService(scheduler.Options{Metadata: metaStore, Logger: logger})
-	schedulerService.SetLambda(lambdaService)
-	schedulerService.SetSQS(sqsService)
-	schedulerService.SetSNS(snsService)
-	schedulerService.SetStepFunctions(stepFunctionsService)
-	ecrService := ecr.NewService(metaStore)
-	ecsService := ecs.NewService(metaStore)
-	elbv2Service := elbv2.NewService(metaStore)
-	acmService := acm.NewService(metaStore)
-	rdsService := rds.NewService(rds.Options{
-		Metadata: metaStore,
-		Engines:  engines,
-		Catalog:  rds.DefaultEngines(os.Getenv),
-	})
-	elastiCacheService := elasticache.NewService(elasticache.Options{
-		Metadata: metaStore,
-		Engines:  engines,
-		Catalog:  elasticache.DefaultEngines(os.Getenv),
-	})
-	kafkaService := kafka.NewService(kafka.Options{
-		Metadata: metaStore,
-		Engines:  engines,
-		Engine:   kafka.DefaultEngine(os.Getenv),
-	})
-	route53Service := route53.NewService(route53.Options{Metadata: metaStore})
-	cloudMapService := servicediscovery.NewDirectory(servicediscovery.Options{Metadata: metaStore, Zones: route53Service})
-	backends := []control.Backend{rdsService, elastiCacheService, kafkaService}
+	defaults := stacks.Default()
+	if err := stacks.Restore(); err != nil {
+		return nil, err
+	}
+	backends := stacks.scopedBackends()
 	// Records can outlive their containers: a restart reaps the old ones and
 	// a seed brings records with no containers at all. Start what is missing.
 	startEngines(backends, cfg.DataDir, cfg.Seed != "", logger)
-	logsService := logs.NewService(metaStore)
-	chaosEngine := chaos.NewEngine(control.DefaultCatalog().Names(), nil)
-	deliveryFaults := chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger)
-	lambdaService.SetFaults(deliveryFaults)
-	snsService.SetFaults(deliveryFaults)
-	eventsService.SetFaults(deliveryFaults)
-	stepFunctionsService.SetFaults(deliveryFaults)
-	schedulerService.SetFaults(deliveryFaults)
-	schedulerService.Start()
 
 	operatorStore := operator.NewStore("http://127.0.0.1"+cfg.Address(), cfg.DataDir, cfg.LogLevel, cfg.LogFormat)
-	operatorService := operator.NewService(operatorStore, logsService)
+	operatorService := operator.NewService(operatorStore, defaults.logs)
 
 	snapshotRepo, err := control.NewFSSnapshotRepository(filepath.Join(cfg.DataDir, "snapshots"))
 	if err != nil {
@@ -198,13 +115,15 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Snapshots: snapshotRepo,
 	})
 
+	// The control API's service views (SES inbox, scheduler clock, MSK
+	// brokers, DNS) serve the default account and region.
 	controlHandler := control.NewHandler(controlService)
 	chaos.RegisterRoutes(controlHandler, chaosEngine)
-	ses.RegisterRoutes(controlHandler, sesService)
-	scheduler.RegisterRoutes(controlHandler, schedulerService)
-	bedrock.RegisterRoutes(controlHandler, bedrockService)
-	kafka.RegisterRoutes(controlHandler, kafkaService)
-	route53.RegisterRoutes(controlHandler, route53Service)
+	ses.RegisterRoutes(controlHandler, defaults.ses)
+	scheduler.RegisterRoutes(controlHandler, defaults.scheduler)
+	bedrock.RegisterRoutes(controlHandler, defaults.services.Bedrock)
+	kafka.RegisterRoutes(controlHandler, defaults.kafka)
+	route53.RegisterRoutes(controlHandler, defaults.route53)
 	diagnose.RegisterRoutes(controlHandler, diagnose.NewService(
 		failuresFrom(operatorStore),
 		injectionsFrom(chaosEngine),
@@ -212,59 +131,14 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	))
 
 	handler := httpapi.NewServer(httpapi.Options{
-		Logger:     logger,
-		STS:        sts.NewService(),
-		S3:         s3Service,
-		Lambda:     lambdaService,
-		APIGateway: apiGatewayService,
-		DynamoDB:   dynamoDBService,
-		CloudFormation: cloudformation.NewService(cloudformation.Options{
-			Metadata:       metaStore,
-			Lambda:         lambdaService,
-			APIGateway:     apiGatewayService,
-			APIGatewayV2:   apiGatewayV2Service,
-			S3:             s3Service,
-			SNS:            snsService,
-			Events:         eventsService,
-			SecretsManager: secretsmanager.NewService(metaStore),
-			Kinesis:        kinesisService,
-			CognitoIDP:     cognitoIDPService,
-			StepFunctions:  stepFunctionsService,
-			SSM:            ssm.NewService(metaStore),
-			KMS:            kms.NewService(metaStore),
-		}),
-		IAM:             iam.NewService(metaStore),
-		SSM:             ssm.NewService(metaStore),
-		Logs:            logsService,
-		SNS:             snsService,
-		SQS:             sqsService,
-		Monitoring:      monitoring.NewService(metaStore),
-		KMS:             kms.NewService(metaStore),
-		Events:          eventsService,
-		SecretsManager:  secretsmanager.NewService(metaStore),
-		Kinesis:         kinesisService,
-		CognitoIDP:      cognitoIDPService,
-		StepFunctions:   stepFunctionsService,
-		APIGatewayV2:    apiGatewayV2Service,
-		ECR:             ecrService,
-		ECS:             ecsService,
-		ELBV2:           elbv2Service,
-		ACM:             acmService,
-		RDS:             rdsService,
-		ElastiCache:     elastiCacheService,
-		DynamoDBStreams: streamsService,
-		FIS:             fis.NewService(metaStore, chaosEngine),
-		SES:             sesService,
-		Scheduler:       schedulerService,
-		Bedrock:         bedrockService,
-		Kafka:           kafkaService,
-		Route53:         route53Service,
-		CloudMap:        cloudMapService,
-		Operator:        operatorService,
-		Control:         controlHandler,
-		Gate:            controlService.Gate(),
-		Faults:          chaosEngine,
-		ColdStart:       lambdaRuntime.CleanupFunction,
+		Logger:    logger,
+		Services:  defaults.services,
+		Stacks:    stacks,
+		Operator:  operatorService,
+		Control:   controlHandler,
+		Gate:      controlService.Gate(),
+		Faults:    chaosEngine,
+		ColdStart: lambdaRuntime.CleanupFunction,
 	})
 
 	server := &http.Server{
@@ -278,7 +152,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		cfg:     cfg,
 		logger:  logger,
 		server:  server,
-		closers: []io.Closer{schedulerService, metaStore, lambdaRuntime, engines},
+		closers: []io.Closer{stacks, metaStore, lambdaRuntime, engines},
 	}, nil
 }
 

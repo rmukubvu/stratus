@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 	"github.com/stratus/internal/store"
 )
@@ -21,11 +22,10 @@ import (
 const (
 	streamsBucket = "kinesis-streams"
 	recordsBucket = "kinesis-records"
-	accountID     = "000000000000"
-	region        = "us-east-1"
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	lambda   *lambdasvc.Service
 	now      func() time.Time
@@ -63,7 +63,7 @@ type iteratorToken struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) SetLambda(lambda *lambdasvc.Service) {
@@ -154,7 +154,7 @@ func (s *Service) CreateStream(input CreateStreamInput) (string, error) {
 		return "", validation("StreamName is required")
 	}
 	if _, err := s.loadStream(input.StreamName); err == nil {
-		return streamARN(input.StreamName), nil
+		return s.streamARN(input.StreamName), nil
 	}
 	mode := input.Mode
 	if mode == "" {
@@ -175,7 +175,7 @@ func (s *Service) CreateStream(input CreateStreamInput) (string, error) {
 	if err := s.putStream(record); err != nil {
 		return "", internal(err)
 	}
-	return streamARN(record.Name), nil
+	return s.streamARN(record.Name), nil
 }
 
 func (s *Service) DeleteStreamByName(name string) error {
@@ -212,7 +212,7 @@ func (s *Service) describeStreamSummary(w http.ResponseWriter, r *http.Request) 
 			"EncryptionType":       "NONE",
 			"OpenShardCount":       stream.ShardCount,
 			"RetentionPeriodHours": 24,
-			"StreamARN":            streamARN(stream.Name),
+			"StreamARN":            s.streamARN(stream.Name),
 			"StreamModeDetails":    map[string]any{"StreamMode": stream.Mode},
 			"StreamName":           stream.Name,
 			"StreamStatus":         stream.Status,
@@ -439,7 +439,7 @@ func (s *Service) describeStream(w http.ResponseWriter, r *http.Request) error {
 		"StreamDescription": map[string]any{
 			"HasMoreShards": false,
 			"Shards":        shards,
-			"StreamARN":     streamARN(stream.Name),
+			"StreamARN":     s.streamARN(stream.Name),
 			"StreamName":    stream.Name,
 			"StreamStatus":  stream.Status,
 		},
@@ -619,10 +619,10 @@ func (s *Service) dispatchRecord(streamName string, item record) {
 	payload := map[string]any{
 		"eventID":           item.ShardID + ":" + item.SequenceNumber,
 		"eventSource":       "aws:kinesis",
-		"eventSourceARN":    streamARN(streamName),
+		"eventSourceARN":    s.streamARN(streamName),
 		"eventVersion":      "1.0",
-		"invokeIdentityArn": "arn:aws:iam::000000000000:role/stratus",
-		"awsRegion":         region,
+		"invokeIdentityArn": s.scope.GlobalARN("iam", "role/stratus"),
+		"awsRegion":         s.scope.Region,
 		"kinesis": map[string]any{
 			"approximateArrivalTimestamp": float64(item.ApproximateArrivalTimestamp.Unix()),
 			"data":                        base64.StdEncoding.EncodeToString(item.Data),
@@ -632,7 +632,7 @@ func (s *Service) dispatchRecord(streamName string, item record) {
 			"streamName":                  streamName,
 		},
 	}
-	s.lambda.DispatchKinesisRecords(context.Background(), streamARN(streamName), []map[string]any{payload})
+	s.lambda.DispatchKinesisRecords(context.Background(), s.streamARN(streamName), []map[string]any{payload})
 }
 
 func encodeIterator(token iteratorToken) (string, error) {
@@ -677,8 +677,8 @@ func validShardID(id string, count int) bool {
 	return false
 }
 
-func streamARN(name string) string {
-	return fmt.Sprintf("arn:aws:kinesis:%s:%s:stream/%s", region, accountID, name)
+func (s *Service) streamARN(name string) string {
+	return fmt.Sprintf("arn:aws:kinesis:%s:%s:stream/%s", s.scope.Region, s.scope.Account, name)
 }
 
 func recordKey(streamName, shard string, seq int64) string {
@@ -708,4 +708,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

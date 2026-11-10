@@ -3,6 +3,8 @@ package sts
 import (
 	"encoding/xml"
 	"fmt"
+
+	"github.com/stratus/internal/scope"
 )
 
 const namespace = "https://sts.amazonaws.com/doc/2011-06-15/"
@@ -13,6 +15,9 @@ type Service struct {
 
 type GetCallerIdentityInput struct {
 	AccessKeyID string
+	// Account is the account the request acts in. Empty means the service's
+	// default account.
+	Account string
 }
 
 type GetCallerIdentityOutput struct {
@@ -39,7 +44,7 @@ type CallerIdentityMeta struct {
 }
 
 func NewService() *Service {
-	return &Service{accountID: "000000000000"}
+	return &Service{accountID: scope.DefaultAccount}
 }
 
 func (s *Service) GetCallerIdentity(input GetCallerIdentityInput) GetCallerIdentityOutput {
@@ -48,9 +53,13 @@ func (s *Service) GetCallerIdentity(input GetCallerIdentityInput) GetCallerIdent
 		accessKey = "STRATUSLOCAL"
 	}
 
+	account := input.Account
+	if account == "" {
+		account = s.accountID
+	}
 	return GetCallerIdentityOutput{
-		Account: s.accountID,
-		ARN:     fmt.Sprintf("arn:aws:iam::%s:user/stratus", s.accountID),
+		Account: account,
+		ARN:     fmt.Sprintf("arn:aws:iam::%s:user/stratus", account),
 		UserID:  accessKey + ":stratus",
 	}
 }

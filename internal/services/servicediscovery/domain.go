@@ -1,6 +1,8 @@
 package servicediscovery
 
 import (
+	"github.com/stratus/internal/scope"
+
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -8,8 +10,6 @@ import (
 )
 
 const (
-	accountID = "000000000000"
-	region    = "us-east-1"
 
 	// Namespace types.
 	typeHTTP       = "HTTP"
@@ -54,8 +54,8 @@ type Namespace struct {
 }
 
 // ARN is the namespace's Amazon Resource Name.
-func (n Namespace) ARN() string {
-	return fmt.Sprintf("arn:aws:servicediscovery:%s:%s:namespace/%s", region, accountID, n.ID)
+func (n Namespace) ARN(sc scope.Scope) string {
+	return sc.ARN("servicediscovery", "namespace/"+n.ID)
 }
 
 // isDNS reports whether the namespace has a hosted zone.
@@ -92,8 +92,8 @@ type Service struct {
 }
 
 // ARN is the service's Amazon Resource Name.
-func (s Service) ARN() string {
-	return fmt.Sprintf("arn:aws:servicediscovery:%s:%s:service/%s", region, accountID, s.ID)
+func (s Service) ARN(sc scope.Scope) string {
+	return sc.ARN("servicediscovery", "service/"+s.ID)
 }
 
 // Instance is one registered endpoint of a service.

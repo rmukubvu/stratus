@@ -22,6 +22,7 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/services/apigateway"
 	"github.com/stratus/internal/services/apigatewayv2"
 	"github.com/stratus/internal/services/cognitoidp"
@@ -39,7 +40,6 @@ import (
 
 const (
 	namespace             = "http://cloudformation.amazonaws.com/doc/2010-05-15/"
-	accountID             = "000000000000"
 	stacksBucket          = "cloudformation-stacks"
 	changeSetsBucket      = "cloudformation-change-sets"
 	logGroupsBucket       = "logs-groups"
@@ -56,6 +56,7 @@ const (
 var stackNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,127}$`)
 
 type Service struct {
+	scope          scope.Scope
 	metadata       store.Store
 	lambda         *lambdasvc.Service
 	apiGateway     *apigateway.Service
@@ -161,6 +162,7 @@ type resourceState struct {
 }
 
 type templateContext struct {
+	Scope      scope.Scope
 	Parameters map[string]string
 	Resources  map[string]resourceState
 }
@@ -429,6 +431,7 @@ type outputXML struct {
 
 func NewService(opts Options) *Service {
 	return &Service{
+		scope:          scope.Default(),
 		metadata:       opts.Metadata,
 		lambda:         opts.Lambda,
 		apiGateway:     opts.APIGateway,
@@ -579,6 +582,7 @@ func (s *Service) createStack(w http.ResponseWriter, r *http.Request, requestID 
 		return err
 	}
 	ctx := &templateContext{
+		Scope:      s.scope,
 		Parameters: parameterValueMap(parameters),
 		Resources:  map[string]resourceState{},
 	}
@@ -595,7 +599,7 @@ func (s *Service) createStack(w http.ResponseWriter, r *http.Request, requestID 
 		DisableRollback:     disableRollback,
 		ManagedResources:    managedResources,
 		Parameters:          parameters,
-		StackID:             stackID(stackName),
+		StackID:             s.stackID(stackName),
 		StackName:           stackName,
 		StackStatus:         "CREATE_COMPLETE",
 		TemplateBody:        normalized,
@@ -667,7 +671,7 @@ func (s *Service) createChangeSet(w http.ResponseWriter, r *http.Request, reques
 
 	record := changeSetRecord{
 		Capabilities:        capabilities,
-		ChangeSetID:         changeSetID(stackName, changeSetName),
+		ChangeSetID:         s.changeSetID(stackName, changeSetName),
 		ChangeSetName:       changeSetName,
 		ChangeSetType:       changeSetType,
 		ClientToken:         form.Get("ClientToken"),
@@ -689,7 +693,7 @@ func (s *Service) createChangeSet(w http.ResponseWriter, r *http.Request, reques
 		XMLNS: namespace,
 		Result: createChangeSetResult{
 			ID:      record.ChangeSetID,
-			StackID: firstNonEmpty(existingStack.StackID, stackID(stackName)),
+			StackID: firstNonEmpty(existingStack.StackID, s.stackID(stackName)),
 		},
 		ResponseMetadata: responseMetadata{RequestID: requestID},
 	})
@@ -705,7 +709,7 @@ func (s *Service) describeChangeSet(w http.ResponseWriter, r *http.Request, requ
 	if err != nil {
 		return err
 	}
-	stackIDValue := stackID(record.StackName)
+	stackIDValue := s.stackID(record.StackName)
 	if stack, err := s.loadStack(record.StackName); err == nil {
 		stackIDValue = stack.StackID
 	}
@@ -778,11 +782,12 @@ func (s *Service) executeChangeSet(w http.ResponseWriter, r *http.Request, reque
 		return validationError("template body is not a valid CloudFormation object")
 	}
 	ctx := &templateContext{
+		Scope:      s.scope,
 		Parameters: parameterValueMap(record.Parameters),
 		Resources:  map[string]resourceState{},
 	}
 
-	stackIDValue := stackID(record.StackName)
+	stackIDValue := s.stackID(record.StackName)
 	creationTime := s.now().UTC()
 	disableRollback := false
 	timeoutInMinutes := 0
@@ -1173,8 +1178,8 @@ func parametersFromForm(doc templateDocument, form url.Values) ([]stackParameter
 	return out, nil
 }
 
-func stackID(name string) string {
-	return fmt.Sprintf("arn:aws:cloudformation:us-east-1:%s:stack/%s/%s", accountID, name, uuid.NewString())
+func (s *Service) stackID(name string) string {
+	return s.scope.ARN("cloudformation", "stack/"+name+"/"+uuid.NewString())
 }
 
 func parameterValueMap(parameters []stackParameter) map[string]string {
@@ -1266,7 +1271,7 @@ func (s *Service) applyResource(stackName, logicalID string, resource templateRe
 		return []managedResource{{LogicalID: logicalID, Type: resource.Type, Name: name}}, resourceState{
 			RefValue: name,
 			Attrs: map[string]string{
-				"Arn":       fmt.Sprintf("arn:aws:sqs:us-east-1:%s:%s", accountID, name),
+				"Arn":       s.scope.ARN("sqs", name),
 				"QueueName": name,
 			},
 		}, nil
@@ -1293,7 +1298,7 @@ func (s *Service) applyResource(stackName, logicalID string, resource templateRe
 		return []managedResource{{LogicalID: logicalID, Type: resource.Type, Name: name}}, resourceState{
 			RefValue: name,
 			Attrs: map[string]string{
-				"Arn": fmt.Sprintf("arn:aws:dynamodb:us-east-1:%s:table/%s", accountID, name),
+				"Arn": s.scope.ARN("dynamodb", "table/"+name),
 			},
 		}, nil
 	case "AWS::Lambda::Function":
@@ -1653,9 +1658,9 @@ func resolveValue(value any, ctx *templateContext) (any, error) {
 			}
 			switch name {
 			case "AWS::AccountId":
-				return accountID, nil
+				return ctx.Scope.Account, nil
 			case "AWS::Region":
-				return "us-east-1", nil
+				return ctx.Scope.Region, nil
 			case "AWS::Partition":
 				return "aws", nil
 			default:
@@ -1942,7 +1947,7 @@ func (s *Service) createIAMRole(stackName, logicalID string, properties map[stri
 	return []managedResource{{LogicalID: logicalID, Type: "AWS::IAM::Role", Name: roleName}}, resourceState{
 		RefValue: roleName,
 		Attrs: map[string]string{
-			"Arn":      fmt.Sprintf("arn:aws:iam::%s:role/%s", accountID, roleName),
+			"Arn":      fmt.Sprintf("arn:aws:iam::%s:role/%s", s.scope.Account, roleName),
 			"RoleName": roleName,
 		},
 	}, nil
@@ -2671,8 +2676,8 @@ func (s *Service) createCognitoUserPool(stackName, logicalID string, properties 
 		RefValue: poolID,
 		Attrs: map[string]string{
 			"Arn":          arn,
-			"ProviderName": "cognito-idp.us-east-1.amazonaws.com/" + poolID,
-			"ProviderURL":  "cognito-idp.us-east-1.amazonaws.com/" + poolID,
+			"ProviderName": "cognito-idp." + s.scope.Region + ".amazonaws.com/" + poolID,
+			"ProviderURL":  "cognito-idp." + s.scope.Region + ".amazonaws.com/" + poolID,
 		},
 	}, nil
 }
@@ -3174,7 +3179,7 @@ func (s *Service) loadChangeSetByForm(form url.Values) (changeSetRecord, error) 
 		if stackName == "" {
 			return changeSetRecord{}, validationError("StackName is required")
 		}
-		id = changeSetID(stackName, changeSetName)
+		id = s.changeSetID(stackName, changeSetName)
 	}
 	raw, err := s.metadata.Get(changeSetsBucket, id)
 	if err != nil {
@@ -3221,8 +3226,8 @@ func (s *Service) putChangeSet(record changeSetRecord) error {
 	return s.metadata.Put(changeSetsBucket, record.ChangeSetID, raw)
 }
 
-func changeSetID(stackName, changeSetName string) string {
-	return fmt.Sprintf("arn:aws:cloudformation:us-east-1:%s:changeSet/%s/%s", accountID, changeSetName, stackName)
+func (s *Service) changeSetID(stackName, changeSetName string) string {
+	return s.scope.ARN("cloudformation", "changeSet/"+changeSetName+"/"+stackName)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -3259,4 +3264,9 @@ func writeXML(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 	w.WriteHeader(status)
 	_ = xml.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

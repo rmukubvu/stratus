@@ -15,6 +15,7 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/chaos"
+	"github.com/stratus/internal/scope"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 	"github.com/stratus/internal/services/sns"
 	"github.com/stratus/internal/services/sqs"
@@ -43,6 +44,7 @@ type Options struct {
 // the control API so tests never wait for wall-clock time; the offset lives
 // in the metadata store, so reset and snapshots cover it.
 type Service struct {
+	scope         scope.Scope
 	metadata      store.Store
 	realNow       func() time.Time
 	logger        *slog.Logger
@@ -62,6 +64,7 @@ type Service struct {
 // NewService builds the service. Call Start to run the background ticker.
 func NewService(opts Options) *Service {
 	svc := &Service{
+		scope:    scope.Default(),
 		metadata: opts.Metadata,
 		realNow:  opts.Now,
 		logger:   opts.Logger,
@@ -346,7 +349,7 @@ func (s *Service) build(in ScheduleInput, createdAt, now time.Time) (Schedule, e
 	sch := Schedule{
 		Name:                       in.Name,
 		GroupName:                  group,
-		Arn:                        scheduleARN(group, in.Name),
+		Arn:                        scheduleARN(s.scope, group, in.Name),
 		Description:                in.Description,
 		State:                      state,
 		ScheduleExpression:         strings.TrimSpace(in.ScheduleExpression),
@@ -759,7 +762,7 @@ func (s *Service) loadGroup(name string) (*Group, error) {
 
 func (s *Service) saveGroup(name string, tags map[string]string) (Group, error) {
 	now := s.Now()
-	g := Group{Name: name, Arn: groupARN(name), State: "ACTIVE", Tags: tags, CreationDate: now, LastModificationDate: now}
+	g := Group{Name: name, Arn: groupARN(s.scope, name), State: "ACTIVE", Tags: tags, CreationDate: now, LastModificationDate: now}
 	return g, s.putGroup(g)
 }
 
@@ -794,4 +797,9 @@ func groupNotFound(name string) *apierror.Error {
 
 func internal(err error) *apierror.Error {
 	return &apierror.Error{StatusCode: http.StatusInternalServerError, Code: "InternalServerException", Message: err.Error()}
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

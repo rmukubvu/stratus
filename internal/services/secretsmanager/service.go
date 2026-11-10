@@ -12,16 +12,16 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
 const (
 	secretsBucket = "secretsmanager-secrets"
-	accountID     = "000000000000"
-	region        = "us-east-1"
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 	mu       sync.Mutex
@@ -82,7 +82,7 @@ type deleteSecretInput struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation string) error {
@@ -129,7 +129,7 @@ func (s *Service) createSecret(w http.ResponseWriter, r *http.Request) error {
 	versionID := versionID(input.ClientRequestToken)
 	now := s.now().UTC()
 	record := secretRecord{
-		ARN:             secretARN(input.Name),
+		ARN:             s.secretARN(input.Name),
 		CreatedDate:     now,
 		Description:     input.Description,
 		KMSKeyID:        input.KmsKeyID,
@@ -167,7 +167,7 @@ func (s *Service) CreateSecret(input CreateSecretInput) (string, error) {
 	versionID := versionID("")
 	now := s.now().UTC()
 	record := secretRecord{
-		ARN:             secretARN(input.Name),
+		ARN:             s.secretARN(input.Name),
 		CreatedDate:     now,
 		Description:     input.Description,
 		KMSKeyID:        input.KMSKeyID,
@@ -371,9 +371,9 @@ func (s *Service) putSecret(record secretRecord) error {
 	return s.metadata.Put(secretsBucket, record.Name, raw)
 }
 
-func secretARN(name string) string {
+func (s *Service) secretARN(name string) string {
 	suffix := strings.ReplaceAll(uuid.NewString()[:6], "-", "")
-	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:%s-%s", region, accountID, name, suffix)
+	return fmt.Sprintf("arn:aws:secretsmanager:%s:%s:secret:%s-%s", s.scope.Region, s.scope.Account, name, suffix)
 }
 
 func secretNameFromARNSecret(value string) string {
@@ -430,4 +430,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

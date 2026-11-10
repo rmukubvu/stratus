@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
@@ -19,9 +20,6 @@ const (
 	identitiesBucket = "ses-identities"
 	templatesBucket  = "ses-templates"
 	messagesBucket   = "ses-messages"
-
-	region    = "us-east-1"
-	accountID = "000000000000"
 
 	// Quotas reported by GetSendQuota and GetAccount. They match the SES
 	// sandbox so code that checks them sees familiar numbers; nothing is
@@ -39,6 +37,7 @@ type Options struct {
 // Service holds identities, templates and the inbox. It is protocol
 // agnostic; query.go and v2.go adapt it to the two SES API families.
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 	mu       sync.Mutex
@@ -51,7 +50,7 @@ func NewService(opts Options) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{metadata: opts.Metadata, now: now}
+	return &Service{scope: scope.Default(), metadata: opts.Metadata, now: now}
 }
 
 // VerifyIdentity registers an address or domain as a verified sender. It is
@@ -289,8 +288,8 @@ func (s *Service) requireVerified(source string) error {
 	return &apierror.Error{
 		StatusCode: http.StatusBadRequest,
 		Code:       "MessageRejected",
-		Message: fmt.Sprintf("Email address is not verified. The following identities failed the check in region %s: %s "+
-			"(verify it with `aws ses verify-email-identity --email-address %s`)", strings.ToUpper(region), address, address),
+		Message: fmt.Sprintf("Email address is not verified. The following identities failed the check in s.scope.Region %s: %s "+
+			"(verify it with `aws ses verify-email-identity --email-address %s`)", strings.ToUpper(s.scope.Region), address, address),
 	}
 }
 
@@ -448,4 +447,9 @@ func randomToken() string {
 	var buf [16]byte
 	_, _ = rand.Read(buf[:])
 	return hex.EncodeToString(buf[:])
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

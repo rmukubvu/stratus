@@ -24,3 +24,12 @@ func ParseSigV4Authorization(header string) *SigV4Identity {
 		Service:     match[4],
 	}
 }
+
+// ParseSigV4Credential parses a presigned URL's X-Amz-Credential value,
+// <key>/<date>/<region>/<service>/aws4_request.
+func ParseSigV4Credential(credential string) *SigV4Identity {
+	if credential == "" {
+		return nil
+	}
+	return ParseSigV4Authorization("Credential=" + credential)
+}

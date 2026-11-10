@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/stratus/internal/backing"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
@@ -37,6 +38,7 @@ type Options struct {
 // Service is the MSK application service. It also serves as the control
 // plane's backend for kafka brokers.
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	engines  backing.Runner
 	engine   Engine
@@ -48,6 +50,7 @@ type Service struct {
 // NewService builds an MSK service.
 func NewService(opts Options) *Service {
 	s := &Service{
+		scope:    scope.Default(),
 		metadata: opts.Metadata,
 		engines:  opts.Engines,
 		engine:   opts.Engine,
@@ -75,7 +78,7 @@ func (s *Service) CreateProvisioned(ctx context.Context, name string, cfg provis
 	if err := cfg.validate(); err != nil {
 		return cluster{}, err
 	}
-	c, err := newCluster(name, tags, s.now())
+	c, err := newCluster(s.scope, name, tags, s.now())
 	if err != nil {
 		return cluster{}, err
 	}
@@ -86,7 +89,7 @@ func (s *Service) CreateProvisioned(ctx context.Context, name string, cfg provis
 // CreateServerless starts a broker for a serverless cluster. Its VPC and
 // authentication settings are kept verbatim.
 func (s *Service) CreateServerless(ctx context.Context, name string, serverless json.RawMessage, tags map[string]string) (cluster, error) {
-	c, err := newCluster(name, tags, s.now())
+	c, err := newCluster(s.scope, name, tags, s.now())
 	if err != nil {
 		return cluster{}, err
 	}
@@ -315,4 +318,9 @@ func (s *Service) put(c cluster) error {
 		return internal(err)
 	}
 	return nil
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

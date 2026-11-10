@@ -10,32 +10,32 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
 const (
 	certificatesBucket = "acm-certificates"
-	accountID          = "000000000000"
-	region             = "us-east-1"
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 	mu       sync.Mutex
 }
 
 type certificateRecord struct {
-	Arn         string    `json:"arn"`
-	CreatedAt   time.Time `json:"created_at"`
-	DomainName  string    `json:"domain_name"`
-	Status      string    `json:"status"`
-	Type        string    `json:"type"`
-	Validation  string    `json:"validation"`
+	Arn        string    `json:"arn"`
+	CreatedAt  time.Time `json:"created_at"`
+	DomainName string    `json:"domain_name"`
+	Status     string    `json:"status"`
+	Type       string    `json:"type"`
+	Validation string    `json:"validation"`
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation string) error {
@@ -58,7 +58,7 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 
 func (s *Service) requestCertificate(w http.ResponseWriter, r *http.Request) error {
 	var input struct {
-		DomainName      string `json:"DomainName"`
+		DomainName       string `json:"DomainName"`
 		ValidationMethod string `json:"ValidationMethod"`
 	}
 	if err := decodeJSON(r, &input); err != nil {
@@ -71,7 +71,7 @@ func (s *Service) requestCertificate(w http.ResponseWriter, r *http.Request) err
 		input.ValidationMethod = "DNS"
 	}
 	record := certificateRecord{
-		Arn:        certificateARN(),
+		Arn:        s.certificateARN(),
 		CreatedAt:  s.now().UTC(),
 		DomainName: input.DomainName,
 		Status:     "ISSUED",
@@ -110,11 +110,11 @@ func (s *Service) describeCertificate(w http.ResponseWriter, r *http.Request) er
 				"ValidationMethod": record.Validation,
 				"ValidationStatus": "SUCCESS",
 			}},
-			"InUseBy": []string{},
-			"IssuedAt": record.CreatedAt.Format(time.RFC3339),
+			"InUseBy":      []string{},
+			"IssuedAt":     record.CreatedAt.Format(time.RFC3339),
 			"KeyAlgorithm": "RSA_2048",
-			"Status": record.Status,
-			"Type":   record.Type,
+			"Status":       record.Status,
+			"Type":         record.Type,
 		},
 	})
 	return nil
@@ -174,8 +174,8 @@ func (s *Service) loadCertificate(arn string) (certificateRecord, error) {
 	return record, nil
 }
 
-func certificateARN() string {
-	return "arn:aws:acm:" + region + ":" + accountID + ":certificate/" + uuid.NewString()
+func (s *Service) certificateARN() string {
+	return "arn:aws:acm:" + s.scope.Region + ":" + s.scope.Account + ":certificate/" + uuid.NewString()
 }
 
 func validation(message string) error {
@@ -197,4 +197,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

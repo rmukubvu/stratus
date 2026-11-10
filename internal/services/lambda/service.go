@@ -21,6 +21,7 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/chaos"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 	"github.com/stratus/internal/store/fsblob"
 )
@@ -34,7 +35,6 @@ const (
 	invokeConfigsBucket = "lambda-invoke-configs"
 	permissionsBucket   = "lambda-permissions"
 	codeNamespace       = "lambda"
-	accountID           = "000000000000"
 )
 
 type Options struct {
@@ -44,6 +44,7 @@ type Options struct {
 }
 
 type Service struct {
+	scope          scope.Scope
 	metadata       store.Store
 	blobs          *fsblob.Store
 	invoker        Invoker
@@ -63,7 +64,9 @@ type TopicPublisher interface {
 
 type Invoker interface {
 	Invoke(ctx context.Context, spec FunctionSpec, payload []byte) (InvokeResult, error)
-	CleanupFunction(ctx context.Context, functionName string) error
+	// CleanupFunction discards the warm environment of the function whose
+	// FunctionSpec.Key is key.
+	CleanupFunction(ctx context.Context, key string) error
 	Close() error
 }
 
@@ -75,14 +78,20 @@ const (
 
 // FunctionSpec is everything an Invoker needs to run one function.
 type FunctionSpec struct {
+	// Key identifies the function across accounts and regions: the plain
+	// function name in the default scope (see RuntimeKey).
+	Key          string
 	FunctionName string
-	Handler      string
-	Runtime      string
-	Timeout      int
-	MemorySize   int
-	Environment  map[string]string
-	LayerDirs    []string
-	Region       string
+	// CodeDir is the host directory holding the extracted deployment package.
+	CodeDir     string
+	Account     string
+	Region      string
+	Handler     string
+	Runtime     string
+	Timeout     int
+	MemorySize  int
+	Environment map[string]string
+	LayerDirs   []string
 	// PackageType is PackageTypeZip (code in CodeDir, run on a managed
 	// runtime image) or PackageTypeImage (run ImageURI as the function).
 	PackageType string
@@ -291,6 +300,7 @@ type aliasResponse struct {
 
 func NewService(opts Options) *Service {
 	return &Service{
+		scope:    scope.Default(),
 		metadata: opts.Metadata,
 		blobs:    opts.Blobs,
 		invoker:  opts.Invoker,
@@ -592,7 +602,7 @@ func (s *Service) createAlias(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusCreated, aliasResponseForRecord(alias))
+	writeJSON(w, http.StatusCreated, s.aliasResponseForRecord(alias))
 	return nil
 }
 
@@ -607,7 +617,7 @@ func (s *Service) listAliases(w http.ResponseWriter, r *http.Request) error {
 	}
 	items := make([]aliasResponse, 0, len(aliases))
 	for _, alias := range aliases {
-		items = append(items, aliasResponseForRecord(alias))
+		items = append(items, s.aliasResponseForRecord(alias))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"Aliases": items})
 	return nil
@@ -622,7 +632,7 @@ func (s *Service) getAlias(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, aliasResponseForRecord(alias))
+	writeJSON(w, http.StatusOK, s.aliasResponseForRecord(alias))
 	return nil
 }
 
@@ -642,7 +652,7 @@ func (s *Service) updateAlias(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, aliasResponseForRecord(alias))
+	writeJSON(w, http.StatusOK, s.aliasResponseForRecord(alias))
 	return nil
 }
 
@@ -800,7 +810,7 @@ func (s *Service) putFunctionEventInvokeConfig(w http.ResponseWriter, r *http.Re
 	if err := s.saveEventInvokeConfig(record); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, eventInvokeConfigResponse(record))
+	writeJSON(w, http.StatusOK, s.eventInvokeConfigResponse(record))
 	return nil
 }
 
@@ -813,7 +823,7 @@ func (s *Service) getFunctionEventInvokeConfig(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, eventInvokeConfigResponse(record))
+	writeJSON(w, http.StatusOK, s.eventInvokeConfigResponse(record))
 	return nil
 }
 
@@ -829,7 +839,7 @@ func (s *Service) deleteFunctionEventInvokeConfig(w http.ResponseWriter, r *http
 	if err := s.metadata.Delete(invokeConfigsBucket, eventInvokeConfigKey(name, qualifier)); err != nil {
 		return internal(err)
 	}
-	writeJSON(w, http.StatusOK, eventInvokeConfigResponse(record))
+	writeJSON(w, http.StatusOK, s.eventInvokeConfigResponse(record))
 	return nil
 }
 
@@ -893,7 +903,7 @@ func (s *Service) addPermission(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{
-		"Statement": permissionStatementJSON(record),
+		"Statement": s.permissionStatementJSON(record),
 	})
 	return nil
 }
@@ -921,7 +931,7 @@ func (s *Service) getPolicy(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"Policy":     permissionPolicyJSON(records),
+		"Policy":     s.permissionPolicyJSON(records),
 		"RevisionId": records[0].RevisionID,
 	})
 	return nil
@@ -955,7 +965,7 @@ func (s *Service) DispatchSQSEvent(ctx context.Context, queueARN string, message
 			"attributes":     attributes,
 			"eventSource":    "aws:sqs",
 			"eventSourceARN": queueARN,
-			"awsRegion":      "us-east-1",
+			"awsRegion":      s.scope.Region,
 		}},
 	}
 	s.dispatchEventSource(ctx, queueARN, event)
@@ -980,7 +990,7 @@ func (s *Service) Provision(input ProvisionInput) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return lambdaARN(record.FunctionName), nil
+	return s.lambdaARN(record.FunctionName), nil
 }
 
 func (s *Service) Delete(ctx context.Context, name string) error {
@@ -1012,7 +1022,7 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 		return internal(err)
 	}
 	if s.invoker != nil {
-		if err := s.invoker.CleanupFunction(ctx, name); err != nil {
+		if err := s.invoker.CleanupFunction(ctx, RuntimeKey(s.scope, name)); err != nil {
 			return internal(err)
 		}
 	}
@@ -1054,10 +1064,6 @@ func (s *Service) InvokeAsyncByName(ctx context.Context, name string, payload []
 		s.deliverAsyncResult(record, body, result, err)
 	}(append([]byte(nil), payload...), record)
 	return nil
-}
-
-func FunctionARN(name string) string {
-	return lambdaARN(name)
 }
 
 func (s *Service) recordFromRequest(r *http.Request) (functionRecord, error) {
@@ -1428,7 +1434,7 @@ func (s *Service) createLayerVersion(r *http.Request) (string, layerVersionRecor
 		return "", layerVersionRecord{}, internal(err)
 	}
 	record := layerVersionRecord{
-		Arn:                layerVersionARN(layerName, nextVersion),
+		Arn:                s.layerVersionARN(layerName, nextVersion),
 		CompatibleRuntimes: append([]string(nil), input.CompatibleRuntimes...),
 		ContentSHA256:      result.SHA256Base64,
 		ContentSize:        result.Size,
@@ -1543,7 +1549,7 @@ func (s *Service) createEventSourceMappingRecord(functionNameOrArn, eventSourceA
 		CreatedAt:        now,
 		Enabled:          stateEnabled,
 		EventSourceArn:   eventSourceArn,
-		FunctionArn:      lambdaARN(record.FunctionName),
+		FunctionArn:      s.lambdaARN(record.FunctionName),
 		FunctionName:     record.FunctionName,
 		LastModified:     now.Format(time.RFC3339),
 		StartingPosition: startingPosition,
@@ -1642,7 +1648,7 @@ func (s *Service) dispatchEventSource(ctx context.Context, eventSourceArn string
 				SourceARN: eventSourceArn,
 				Service:   "lambda",
 				Operation: "Invoke",
-				TargetARN: lambdaARN(mapping.FunctionName),
+				TargetARN: s.lambdaARN(mapping.FunctionName),
 				Function:  mapping.FunctionName,
 				Async:     true,
 			}
@@ -1685,7 +1691,7 @@ func (s *Service) deliverAsyncResult(record functionRecord, requestPayload []byt
 	message, err := json.Marshal(map[string]any{
 		"requestContext": map[string]any{
 			"condition":   successCondition(success),
-			"functionArn": lambdaARN(record.FunctionName),
+			"functionArn": s.lambdaARN(record.FunctionName),
 		},
 		"requestPayload": json.RawMessage(nonEmptyJSON(requestPayload)),
 		"responseContext": map[string]any{
@@ -1699,7 +1705,7 @@ func (s *Service) deliverAsyncResult(record functionRecord, requestPayload []byt
 	}
 	delivery := chaos.Delivery{
 		Source:    "lambda",
-		SourceARN: lambdaARN(record.FunctionName),
+		SourceARN: s.lambdaARN(record.FunctionName),
 		TargetARN: destination,
 		Async:     true,
 	}
@@ -1749,6 +1755,10 @@ func (s *Service) invokeByName(ctx context.Context, name, qualifier string, payl
 
 func (s *Service) specFromRecord(record functionRecord) FunctionSpec {
 	return FunctionSpec{
+		Key:          RuntimeKey(s.scope, record.FunctionName),
+		CodeDir:      s.blobs.NamespacePath(filepath.Join(codeNamespace, record.FunctionName, "source")),
+		Account:      s.scope.Account,
+		Region:       s.scope.Region,
 		FunctionName: record.FunctionName,
 		Handler:      record.Handler,
 		Runtime:      record.Runtime,
@@ -1756,7 +1766,6 @@ func (s *Service) specFromRecord(record functionRecord) FunctionSpec {
 		MemorySize:   record.MemorySize,
 		Environment:  cloneMap(record.Environment),
 		LayerDirs:    s.resolveLayerDirs(record.Layers),
-		Region:       regionName(),
 		PackageType:  defaultString(record.PackageType, PackageTypeZip),
 		ImageURI:     record.ImageURI,
 		ImageConfig:  record.ImageConfig,
@@ -1774,7 +1783,7 @@ func (s *Service) configurationResponse(record functionRecord) functionConfigura
 		Environment: environmentOutput{
 			Variables: cloneMap(record.Environment),
 		},
-		FunctionArn:  qualifiedFunctionARN(record.FunctionName, record.Version),
+		FunctionArn:  s.qualifiedFunctionARN(record.FunctionName, record.Version),
 		FunctionName: record.FunctionName,
 		Handler:      record.Handler,
 		LastModified: record.LastModified,
@@ -1803,7 +1812,7 @@ func (s *Service) layerVersionResponse(layerName string, record layerVersionReco
 		},
 		"CreatedDate":     record.CreatedDate,
 		"Description":     record.Description,
-		"LayerArn":        fmt.Sprintf("arn:aws:lambda:%s:%s:layer:%s", regionName(), accountID, layerName),
+		"LayerArn":        s.scope.ARN("lambda", "layer:"+layerName),
 		"LayerVersionArn": record.Arn,
 		"LicenseInfo":     record.LicenseInfo,
 		"Version":         record.Version,
@@ -1823,9 +1832,9 @@ func eventSourceMappingResponse(record eventSourceMappingRecord) map[string]any 
 	}
 }
 
-func eventInvokeConfigResponse(record eventInvokeConfigRecord) map[string]any {
+func (s *Service) eventInvokeConfigResponse(record eventInvokeConfigRecord) map[string]any {
 	resp := map[string]any{
-		"FunctionArn":              lambdaARN(record.FunctionName),
+		"FunctionArn":              s.lambdaARN(record.FunctionName),
 		"LastModified":             time.Now().UTC().Format(time.RFC3339),
 		"MaximumEventAgeInSeconds": record.MaxEventAge,
 		"MaximumRetryAttempts":     record.MaxRetries,
@@ -2063,20 +2072,20 @@ func aliasPathParts(p string, requireAlias bool) (string, string, error) {
 	return name, "", nil
 }
 
-func lambdaARN(name string) string {
-	return fmt.Sprintf("arn:aws:lambda:us-east-1:%s:function:%s", accountID, name)
+func (s *Service) lambdaARN(name string) string {
+	return s.scope.ARN("lambda", "function:"+name)
 }
 
-func qualifiedFunctionARN(name, qualifier string) string {
-	base := lambdaARN(name)
+func (s *Service) qualifiedFunctionARN(name, qualifier string) string {
+	base := s.lambdaARN(name)
 	if qualifier == "" || qualifier == "$LATEST" {
 		return base
 	}
 	return base + ":" + qualifier
 }
 
-func aliasARN(name, alias string) string {
-	return qualifiedFunctionARN(name, alias)
+func (s *Service) aliasARN(name, alias string) string {
+	return s.qualifiedFunctionARN(name, alias)
 }
 
 func permissionPrefix(name, qualifier string) string {
@@ -2090,12 +2099,12 @@ func permissionKey(name, qualifier, statementID string) string {
 	return name + "|" + qualifier + "|" + statementID
 }
 
-func permissionStatementJSON(record permissionRecord) string {
+func (s *Service) permissionStatementJSON(record permissionRecord) string {
 	statement := map[string]any{
 		"Action":    record.Action,
 		"Effect":    "Allow",
 		"Principal": map[string]string{"Service": record.Principal},
-		"Resource":  qualifiedFunctionARN(record.FunctionName, record.Qualifier),
+		"Resource":  s.qualifiedFunctionARN(record.FunctionName, record.Qualifier),
 		"Sid":       record.StatementID,
 	}
 	if record.SourceARN != "" {
@@ -2107,14 +2116,14 @@ func permissionStatementJSON(record permissionRecord) string {
 	return string(body)
 }
 
-func permissionPolicyJSON(records []permissionRecord) string {
+func (s *Service) permissionPolicyJSON(records []permissionRecord) string {
 	statements := make([]map[string]any, 0, len(records))
 	for _, record := range records {
 		statement := map[string]any{
 			"Action":    record.Action,
 			"Effect":    "Allow",
 			"Principal": map[string]string{"Service": record.Principal},
-			"Resource":  qualifiedFunctionARN(record.FunctionName, record.Qualifier),
+			"Resource":  s.qualifiedFunctionARN(record.FunctionName, record.Qualifier),
 			"Sid":       record.StatementID,
 		}
 		if record.SourceARN != "" {
@@ -2149,9 +2158,9 @@ func normalizeArchitectures(input []string) []string {
 	return out
 }
 
-func aliasResponseForRecord(alias aliasRecord) aliasResponse {
+func (s *Service) aliasResponseForRecord(alias aliasRecord) aliasResponse {
 	return aliasResponse{
-		AliasArn:        aliasARN(alias.FunctionName, alias.AliasName),
+		AliasArn:        s.aliasARN(alias.FunctionName, alias.AliasName),
 		Description:     alias.Description,
 		FunctionVersion: alias.FunctionVersion,
 		Name:            alias.AliasName,
@@ -2167,8 +2176,8 @@ func layerNamespace(layerName string, version int) string {
 	return fmt.Sprintf("lambda-layers/%s/%d", layerName, version)
 }
 
-func layerVersionARN(layerName string, version int) string {
-	return fmt.Sprintf("arn:aws:lambda:%s:%s:layer:%s:%d", regionName(), accountID, layerName, version)
+func (s *Service) layerVersionARN(layerName string, version int) string {
+	return s.scope.ARN("lambda", fmt.Sprintf("layer:%s:%d", layerName, version))
 }
 
 func parseLayerVersionARN(arn string) (string, int, error) {
@@ -2256,10 +2265,6 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-func regionName() string {
-	return "us-east-1"
 }
 
 func cloneMap(in map[string]string) map[string]string {
@@ -2377,4 +2382,19 @@ func tailLog(data []byte, limit int) []byte {
 		return data
 	}
 	return data[len(data)-limit:]
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
+}
+
+// RuntimeKey identifies a function's warm environment: its name in the
+// default scope, and its name qualified by account and region otherwise, so
+// same-named functions in different accounts never share a container.
+func RuntimeKey(sc scope.Scope, functionName string) string {
+	if sc.IsDefault() {
+		return functionName
+	}
+	return sc.Account + "-" + sc.Region + "-" + functionName
 }

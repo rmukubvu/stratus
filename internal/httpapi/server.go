@@ -17,6 +17,7 @@ import (
 	"github.com/stratus/internal/awscompat"
 	"github.com/stratus/internal/control"
 	"github.com/stratus/internal/operator"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/services/acm"
 	"github.com/stratus/internal/services/apigateway"
 	"github.com/stratus/internal/services/apigatewayv2"
@@ -52,8 +53,8 @@ import (
 	"github.com/stratus/internal/services/sts"
 )
 
-type Options struct {
-	Logger          *slog.Logger
+// Services is the set of AWS service handlers for one account and region.
+type Services struct {
 	STS             *sts.Service
 	S3              *s3.Service
 	Lambda          *lambdasvc.Service
@@ -87,7 +88,24 @@ type Options struct {
 	Route53         *route53.Service
 	CloudMap        *servicediscovery.Directory
 	Scheduler       *scheduler.Service
-	Operator        *operator.Service
+}
+
+// StackResolver returns the services for a scope.
+type StackResolver interface {
+	For(sc scope.Scope) *Services
+}
+
+type Options struct {
+	Logger *slog.Logger
+	// Services serves requests in the default account and region, and every
+	// request when Stacks is nil.
+	Services Services
+	// Stacks, when set, picks the services for each request's account and
+	// region.
+	Stacks StackResolver
+	// Accounts maps an access key to its account. Optional.
+	Accounts AccountResolver
+	Operator *operator.Service
 	// Faults, when set, injects chaos faults into AWS API requests.
 	Faults FaultDecider
 	// ColdStart discards a Lambda function's warm container. Used by the
@@ -101,45 +119,15 @@ type Options struct {
 }
 
 type Server struct {
-	logger          *slog.Logger
-	sts             *sts.Service
-	s3              *s3.Service
-	lambda          *lambdasvc.Service
-	apiGateway      *apigateway.Service
-	dynamodb        *dynamodb.Service
-	cloudformation  *cloudformation.Service
-	iam             *iam.Service
-	ssm             *ssm.Service
-	logs            *logs.Service
-	sns             *sns.Service
-	sqs             *sqs.Service
-	monitoring      *monitoring.Service
-	kms             *kms.Service
-	events          *eventssvc.Service
-	secretsManager  *secretsmanager.Service
-	kinesis         *kinesis.Service
-	cognitoIDP      *cognitoidp.Service
-	stepFunctions   *stepfunctions.Service
-	apiGatewayV2    *apigatewayv2.Service
-	ecr             *ecr.Service
-	ecs             *ecs.Service
-	elbv2           *elbv2.Service
-	acm             *acm.Service
-	rds             *rds.Service
-	elastiCache     *elasticache.Service
-	dynamodbStreams *dynamodbstreams.Service
-	fis             *fis.Service
-	ses             *ses.Service
-	bedrock         *bedrock.Service
-	kafka           *kafka.Service
-	route53         *route53.Service
-	cloudMap        *servicediscovery.Directory
-	scheduler       *scheduler.Service
-	operator        *operator.Service
-	control         http.Handler
-	gate            *control.Gate
-	faults          FaultDecider
-	coldStart       func(ctx context.Context, functionName string) error
+	logger    *slog.Logger
+	services  *Services
+	stacks    StackResolver
+	accounts  AccountResolver
+	operator  *operator.Service
+	control   http.Handler
+	gate      *control.Gate
+	faults    FaultDecider
+	coldStart func(ctx context.Context, functionName string) error
 }
 
 func NewServer(opts Options) *Server {
@@ -148,47 +136,26 @@ func NewServer(opts Options) *Server {
 		logger = slog.Default()
 	}
 
+	services := opts.Services
 	return &Server{
-		logger:          logger,
-		sts:             opts.STS,
-		s3:              opts.S3,
-		lambda:          opts.Lambda,
-		apiGateway:      opts.APIGateway,
-		dynamodb:        opts.DynamoDB,
-		cloudformation:  opts.CloudFormation,
-		iam:             opts.IAM,
-		ssm:             opts.SSM,
-		logs:            opts.Logs,
-		sns:             opts.SNS,
-		sqs:             opts.SQS,
-		monitoring:      opts.Monitoring,
-		kms:             opts.KMS,
-		events:          opts.Events,
-		secretsManager:  opts.SecretsManager,
-		kinesis:         opts.Kinesis,
-		cognitoIDP:      opts.CognitoIDP,
-		stepFunctions:   opts.StepFunctions,
-		apiGatewayV2:    opts.APIGatewayV2,
-		ecr:             opts.ECR,
-		ecs:             opts.ECS,
-		elbv2:           opts.ELBV2,
-		acm:             opts.ACM,
-		rds:             opts.RDS,
-		elastiCache:     opts.ElastiCache,
-		dynamodbStreams: opts.DynamoDBStreams,
-		fis:             opts.FIS,
-		ses:             opts.SES,
-		bedrock:         opts.Bedrock,
-		kafka:           opts.Kafka,
-		route53:         opts.Route53,
-		cloudMap:        opts.CloudMap,
-		scheduler:       opts.Scheduler,
-		operator:        opts.Operator,
-		control:         opts.Control,
-		gate:            opts.Gate,
-		faults:          opts.Faults,
-		coldStart:       opts.ColdStart,
+		logger:    logger,
+		services:  &services,
+		stacks:    opts.Stacks,
+		accounts:  opts.Accounts,
+		operator:  opts.Operator,
+		control:   opts.Control,
+		gate:      opts.Gate,
+		faults:    opts.Faults,
+		coldStart: opts.ColdStart,
 	}
+}
+
+// servicesFor returns the services that serve sc.
+func (s *Server) servicesFor(sc scope.Scope) *Services {
+	if s.stacks == nil || sc.IsDefault() {
+		return s.services
+	}
+	return s.stacks.For(sc)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -216,9 +183,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Classification: classification,
 		SigV4:          awscompat.ParseSigV4Authorization(r.Header.Get("Authorization")),
 	}
+	metadata.Scope = ResolveScope(r, metadata.SigV4, s.accounts)
 
 	recorder.Header().Set("x-amzn-requestid", metadata.RequestID)
-	r = r.WithContext(WithRequestMetadata(r.Context(), metadata))
+	r = r.WithContext(scope.WithScope(WithRequestMetadata(r.Context(), metadata), metadata.Scope))
 	if metadata.Classification.Protocol == ProtocolQuery && metadata.Classification.Service != "" && metadata.Classification.Operation == "" {
 		s.logger.Debug("query request missing action",
 			"service", metadata.Classification.Service,
@@ -371,6 +339,7 @@ func previewRequestBody(r *http.Request) string {
 }
 
 func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	svc := s.servicesFor(metadata.Scope)
 	switch metadata.Classification.Service {
 	case "stratus":
 		WriteJSON(w, http.StatusOK, map[string]string{
@@ -379,89 +348,89 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 		})
 		return nil
 	case "sts":
-		return s.handleSTS(w, metadata)
+		return svc.handleSTS(w, metadata)
 	case "s3":
-		return s.handleS3(w, r, metadata)
+		return svc.handleS3(w, r, metadata)
 	case "lambda":
-		return s.handleLambda(w, r, metadata)
+		return svc.handleLambda(w, r, metadata)
 	case "apigateway":
-		return s.handleAPIGateway(w, r, metadata)
+		return svc.handleAPIGateway(w, r, metadata)
 	case "dynamodb":
-		return s.handleDynamoDB(w, r, metadata)
+		return svc.handleDynamoDB(w, r, metadata)
 	case "cloudformation":
-		return s.handleCloudFormation(w, r, metadata)
+		return svc.handleCloudFormation(w, r, metadata)
 	case "iam":
-		return s.handleIAM(w, r, metadata)
+		return svc.handleIAM(w, r, metadata)
 	case "ssm":
-		return s.handleSSM(w, r, metadata)
+		return svc.handleSSM(w, r, metadata)
 	case "logs":
-		return s.handleLogs(w, r, metadata)
+		return svc.handleLogs(w, r, metadata)
 	case "sns":
-		return s.handleSNS(w, r, metadata)
+		return svc.handleSNS(w, r, metadata)
 	case "sqs":
-		return s.handleSQS(w, r, metadata)
+		return svc.handleSQS(w, r, metadata)
 	case "monitoring":
-		return s.handleMonitoring(w, r, metadata)
+		return svc.handleMonitoring(w, r, metadata)
 	case "kms":
-		return s.handleKMS(w, r, metadata)
+		return svc.handleKMS(w, r, metadata)
 	case "events":
-		return s.handleEvents(w, r, metadata)
+		return svc.handleEvents(w, r, metadata)
 	case "secretsmanager":
-		return s.handleSecretsManager(w, r, metadata)
+		return svc.handleSecretsManager(w, r, metadata)
 	case "kinesis":
-		return s.handleKinesis(w, r, metadata)
+		return svc.handleKinesis(w, r, metadata)
 	case "cognitoidp":
-		return s.handleCognitoIDP(w, r, metadata)
+		return svc.handleCognitoIDP(w, r, metadata)
 	case "stepfunctions":
-		return s.handleStepFunctions(w, r, metadata)
+		return svc.handleStepFunctions(w, r, metadata)
 	case "apigatewayv2":
-		return s.handleAPIGatewayV2(w, r, metadata)
+		return svc.handleAPIGatewayV2(w, r, metadata)
 	case "ecr":
-		return s.handleECR(w, r, metadata)
+		return svc.handleECR(w, r, metadata)
 	case "ecs":
-		return s.handleECS(w, r, metadata)
+		return svc.handleECS(w, r, metadata)
 	case "elbv2":
-		return s.handleELBV2(w, r, metadata)
+		return svc.handleELBV2(w, r, metadata)
 	case "acm":
-		return s.handleACM(w, r, metadata)
+		return svc.handleACM(w, r, metadata)
 	case "rds":
-		return s.handleRDS(w, r, metadata)
+		return svc.handleRDS(w, r, metadata)
 	case "elasticache":
-		return s.handleElastiCache(w, r, metadata)
+		return svc.handleElastiCache(w, r, metadata)
 	case "dynamodbstreams":
-		return s.handleDynamoDBStreams(w, r, metadata)
+		return svc.handleDynamoDBStreams(w, r, metadata)
 	case "fis":
-		if s.fis == nil {
+		if svc.FIS == nil {
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"fis\" is not implemented"}
 		}
-		return s.fis.Handle(w, r)
+		return svc.FIS.Handle(w, r)
 	case "ses":
-		return s.handleSES(w, r, metadata)
+		return svc.handleSES(w, r, metadata)
 	case "scheduler":
-		if s.scheduler == nil {
+		if svc.Scheduler == nil {
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "ResourceNotFoundException", Message: "service \"scheduler\" is not implemented"}
 		}
-		return s.scheduler.Handle(w, r)
+		return svc.Scheduler.Handle(w, r)
 	case "bedrock":
-		if s.bedrock == nil {
+		if svc.Bedrock == nil {
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "UnknownOperationException", Message: "service \"bedrock\" is not implemented"}
 		}
-		return s.bedrock.Handle(w, r)
+		return svc.Bedrock.Handle(w, r)
 	case "kafka":
-		if s.kafka == nil {
+		if svc.Kafka == nil {
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotFoundException", Message: "service \"kafka\" is not implemented"}
 		}
-		return s.kafka.Handle(w, r)
+		return svc.Kafka.Handle(w, r)
 	case "route53":
-		if s.route53 == nil {
+		if svc.Route53 == nil {
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"route53\" is not implemented"}
 		}
-		return s.route53.Handle(w, r)
+		return svc.Route53.Handle(w, r)
 	case "servicediscovery":
-		if s.cloudMap == nil {
+		if svc.CloudMap == nil {
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "UnknownOperationException", Message: "service \"servicediscovery\" is not implemented"}
 		}
-		return s.cloudMap.Handle(w, r, metadata.Classification.Operation)
+		return svc.CloudMap.Handle(w, r, metadata.Classification.Operation)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
@@ -471,11 +440,12 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 	}
 }
 
-func (s *Server) handleSTS(w http.ResponseWriter, metadata RequestMetadata) error {
+func (s *Services) handleSTS(w http.ResponseWriter, metadata RequestMetadata) error {
 	switch metadata.Classification.Operation {
 	case "GetCallerIdentity":
-		output := s.sts.GetCallerIdentity(sts.GetCallerIdentityInput{
+		output := s.STS.GetCallerIdentity(sts.GetCallerIdentityInput{
 			AccessKeyID: accessKeyFromMetadata(metadata),
+			Account:     metadata.Scope.Account,
 		})
 		WriteXML(w, http.StatusOK, sts.NewGetCallerIdentityResponse(output, metadata.RequestID))
 		return nil
@@ -494,199 +464,199 @@ func (s *Server) handleSTS(w http.ResponseWriter, metadata RequestMetadata) erro
 	}
 }
 
-func (s *Server) handleS3(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.s3 == nil {
+func (s *Services) handleS3(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.S3 == nil {
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
 			Code:       "NotImplemented",
 			Message:    "service \"s3\" is not implemented",
 		}
 	}
-	return s.s3.Handle(w, r, metadata.Classification.Bucket, metadata.Classification.Key)
+	return s.S3.Handle(w, r, metadata.Classification.Bucket, metadata.Classification.Key)
 }
 
-func (s *Server) handleLambda(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.lambda == nil {
+func (s *Services) handleLambda(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.Lambda == nil {
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
 			Code:       "NotImplementedException",
 			Message:    "service \"lambda\" is not implemented",
 		}
 	}
-	return s.lambda.Handle(w, r, metadata.Classification.Operation)
+	return s.Lambda.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleAPIGateway(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.apiGateway == nil {
+func (s *Services) handleAPIGateway(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.APIGateway == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"apigateway\" is not implemented"}
 	}
-	return s.apiGateway.Handle(w, r)
+	return s.APIGateway.Handle(w, r)
 }
 
-func (s *Server) handleDynamoDB(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.dynamodb == nil {
+func (s *Services) handleDynamoDB(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.DynamoDB == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"dynamodb\" is not implemented"}
 	}
-	return s.dynamodb.Handle(w, r, metadata.Classification.Operation)
+	return s.DynamoDB.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleCloudFormation(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.cloudformation == nil {
+func (s *Services) handleCloudFormation(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.CloudFormation == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"cloudformation\" is not implemented"}
 	}
-	return s.cloudformation.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
+	return s.CloudFormation.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
 }
 
-func (s *Server) handleIAM(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.iam == nil {
+func (s *Services) handleIAM(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.IAM == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"iam\" is not implemented"}
 	}
-	return s.iam.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
+	return s.IAM.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
 }
 
-func (s *Server) handleSSM(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.ssm == nil {
+func (s *Services) handleSSM(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.SSM == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"ssm\" is not implemented"}
 	}
-	return s.ssm.Handle(w, r, metadata.Classification.Operation)
+	return s.SSM.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.logs == nil {
+func (s *Services) handleLogs(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.Logs == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"logs\" is not implemented"}
 	}
-	return s.logs.Handle(w, r, metadata.Classification.Operation)
+	return s.Logs.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleSNS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.sns == nil {
+func (s *Services) handleSNS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.SNS == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"sns\" is not implemented"}
 	}
-	return s.sns.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
+	return s.SNS.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
 }
 
-func (s *Server) handleSQS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.sqs == nil {
+func (s *Services) handleSQS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.SQS == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"sqs\" is not implemented"}
 	}
-	return s.sqs.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
+	return s.SQS.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
 }
 
-func (s *Server) handleMonitoring(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.monitoring == nil {
+func (s *Services) handleMonitoring(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.Monitoring == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"monitoring\" is not implemented"}
 	}
-	return s.monitoring.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
+	return s.Monitoring.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
 }
 
-func (s *Server) handleKMS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.kms == nil {
+func (s *Services) handleKMS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.KMS == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"kms\" is not implemented"}
 	}
-	return s.kms.Handle(w, r, metadata.Classification.Operation)
+	return s.KMS.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.events == nil {
+func (s *Services) handleEvents(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.Events == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"events\" is not implemented"}
 	}
-	return s.events.Handle(w, r, metadata.Classification.Operation)
+	return s.Events.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleSecretsManager(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.secretsManager == nil {
+func (s *Services) handleSecretsManager(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.SecretsManager == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"secretsmanager\" is not implemented"}
 	}
-	return s.secretsManager.Handle(w, r, metadata.Classification.Operation)
+	return s.SecretsManager.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleKinesis(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.kinesis == nil {
+func (s *Services) handleKinesis(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.Kinesis == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"kinesis\" is not implemented"}
 	}
-	return s.kinesis.Handle(w, r, metadata.Classification.Operation)
+	return s.Kinesis.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleCognitoIDP(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.cognitoIDP == nil {
+func (s *Services) handleCognitoIDP(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.CognitoIDP == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"cognitoidp\" is not implemented"}
 	}
-	return s.cognitoIDP.Handle(w, r, metadata.Classification.Operation)
+	return s.CognitoIDP.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleStepFunctions(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.stepFunctions == nil {
+func (s *Services) handleStepFunctions(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.StepFunctions == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"stepfunctions\" is not implemented"}
 	}
-	return s.stepFunctions.Handle(w, r, metadata.Classification.Operation)
+	return s.StepFunctions.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleAPIGatewayV2(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.apiGatewayV2 == nil {
+func (s *Services) handleAPIGatewayV2(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.APIGatewayV2 == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"apigatewayv2\" is not implemented"}
 	}
-	return s.apiGatewayV2.Handle(w, r)
+	return s.APIGatewayV2.Handle(w, r)
 }
 
-func (s *Server) handleECR(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.ecr == nil {
+func (s *Services) handleECR(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.ECR == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"ecr\" is not implemented"}
 	}
-	return s.ecr.Handle(w, r, metadata.Classification.Operation)
+	return s.ECR.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleECS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.ecs == nil {
+func (s *Services) handleECS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.ECS == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"ecs\" is not implemented"}
 	}
-	return s.ecs.Handle(w, r, metadata.Classification.Operation)
+	return s.ECS.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleELBV2(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.elbv2 == nil {
+func (s *Services) handleELBV2(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.ELBV2 == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"elbv2\" is not implemented"}
 	}
-	return s.elbv2.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
+	return s.ELBV2.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
 }
 
-func (s *Server) handleACM(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.acm == nil {
+func (s *Services) handleACM(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.ACM == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"acm\" is not implemented"}
 	}
-	return s.acm.Handle(w, r, metadata.Classification.Operation)
+	return s.ACM.Handle(w, r, metadata.Classification.Operation)
 }
 
-func (s *Server) handleRDS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.rds == nil {
+func (s *Services) handleRDS(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.RDS == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"rds\" is not implemented"}
 	}
-	return s.rds.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
+	return s.RDS.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
 }
 
 // handleSES serves both SES APIs: v1 is a query API on "/", v2 is REST
 // under /v2/email/.
-func (s *Server) handleSES(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.ses == nil {
+func (s *Services) handleSES(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.SES == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"ses\" is not implemented"}
 	}
 	if metadata.Classification.Protocol == ProtocolQuery {
-		return s.ses.HandleQuery(w, r, metadata.Classification.Operation, metadata.RequestID)
+		return s.SES.HandleQuery(w, r, metadata.Classification.Operation, metadata.RequestID)
 	}
-	return s.ses.HandleV2(w, r)
+	return s.SES.HandleV2(w, r)
 }
 
-func (s *Server) handleElastiCache(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.elastiCache == nil {
+func (s *Services) handleElastiCache(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.ElastiCache == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"elasticache\" is not implemented"}
 	}
-	return s.elastiCache.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
+	return s.ElastiCache.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
 }
 
-func (s *Server) handleDynamoDBStreams(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
-	if s.dynamodbStreams == nil {
+func (s *Services) handleDynamoDBStreams(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.DynamoDBStreams == nil {
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "service \"dynamodbstreams\" is not implemented"}
 	}
-	return s.dynamodbStreams.Handle(w, r, metadata.Classification.Operation)
+	return s.DynamoDBStreams.Handle(w, r, metadata.Classification.Operation)
 }
 
 func accessKeyFromMetadata(metadata RequestMetadata) string {
