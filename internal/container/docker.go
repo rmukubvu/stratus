@@ -1,25 +1,27 @@
 package container
 
 import (
+	"bufio"
 	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
+	"github.com/google/uuid"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/stratus/internal/apierror"
@@ -27,19 +29,29 @@ import (
 )
 
 const (
-	runtimeImagePython311 = "public.ecr.aws/lambda/python:3.11"
-	runtimeImageNodejs20  = "public.ecr.aws/lambda/nodejs:20"
-	runtimePort           = "9001/tcp"
+	// initAllowance is added to the function timeout for the HTTP call to
+	// the emulator, which enforces the timeout itself; it covers cold start.
+	initAllowance = 10 * time.Second
+	// logSettleTimeout is how long to wait for an invocation's REPORT line
+	// to reach the container log after the response.
+	logSettleTimeout = time.Second
 )
 
+// Manager runs Lambda functions in Docker containers built from AWS's Lambda
+// base images (or the function's own image), each fronted by the Runtime
+// Interface Emulator. Containers stay warm between invocations.
 type Manager struct {
 	logger     *slog.Logger
 	client     *dockerclient.Client
 	blobRoot   string
 	runtimeDir string
+	catalog    RuntimeCatalog
 	pool       *WarmPool
 	httpClient *http.Client
 	owner      Owner
+
+	rieMu   sync.Mutex
+	rieHost string
 }
 
 func NewManager(dataDir, blobRoot string, logger *slog.Logger) (*Manager, error) {
@@ -57,23 +69,15 @@ func NewManager(dataDir, blobRoot string, logger *slog.Logger) (*Manager, error)
 		return nil, fmt.Errorf("create runtime dir: %w", err)
 	}
 
-	runtimeScripts := map[string]string{
-		"lambda_runtime_server.py": runtimeServerScriptPython,
-		"lambda_runtime_server.js": runtimeServerScriptNode,
-	}
-	for name, body := range runtimeScripts {
-		if err := os.WriteFile(filepath.Join(runtimeDir, name), []byte(body), 0o644); err != nil {
-			return nil, fmt.Errorf("write runtime server script %s: %w", name, err)
-		}
-	}
-
 	m := &Manager{
 		logger:     logger,
 		client:     client,
 		blobRoot:   blobRoot,
 		runtimeDir: runtimeDir,
+		catalog:    NewRuntimeCatalog(os.LookupEnv),
 		pool:       NewWarmPool(5 * time.Minute),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		// Invocations set their own deadline from the function timeout.
+		httpClient: &http.Client{},
 		owner:      NewOwner(dataDir),
 	}
 	m.reapOrphans()
@@ -118,11 +122,10 @@ func (m *Manager) CleanupFunction(ctx context.Context, functionName string) erro
 }
 
 func (m *Manager) Invoke(ctx context.Context, spec lambdasvc.FunctionSpec, payload []byte) (lambdasvc.InvokeResult, error) {
-	imageName, err := runtimeImageFor(spec.Runtime)
+	rt, imageName, err := m.imageFor(spec)
 	if err != nil {
 		return lambdasvc.InvokeResult{}, err
 	}
-
 	if err := m.ensureImage(ctx, imageName); err != nil {
 		return lambdasvc.InvokeResult{}, err
 	}
@@ -132,7 +135,7 @@ func (m *Manager) Invoke(ctx context.Context, spec lambdasvc.FunctionSpec, paylo
 	}
 
 	warm, err := m.pool.GetOrCreate(ctx, spec.FunctionName, func(ctx context.Context) (*WarmContainer, error) {
-		return m.startContainer(ctx, spec, imageName)
+		return m.startContainer(ctx, spec, rt, imageName)
 	}, func(ctx context.Context, existing *WarmContainer) (bool, error) {
 		return m.isHealthy(ctx, existing)
 	}, m.removeContainer)
@@ -140,175 +143,107 @@ func (m *Manager) Invoke(ctx context.Context, spec lambdasvc.FunctionSpec, paylo
 		return lambdasvc.InvokeResult{}, err
 	}
 
-	result, err := m.invokeHTTP(ctx, warm, spec, payload)
+	result, err := m.invokeRIE(ctx, warm, spec, payload)
 	if err == nil {
 		return result, nil
 	}
 
-	var apiErr *apierror.Error
-	if errors.As(err, &apiErr) {
-		if apiErr.Code == "ServiceException" {
-			_ = m.pool.Remove(context.Background(), spec.FunctionName, m.removeContainer)
-		}
-		return lambdasvc.InvokeResult{}, err
+	var timedOut errRuntimeTimedOut
+	if errors.As(err, &timedOut) {
+		// Lambda discards the execution environment after a timeout.
+		_ = m.pool.Remove(context.Background(), spec.FunctionName, m.removeContainer)
+		return lambdasvc.InvokeResult{Payload: timedOut.payload, FunctionError: functionErrorUnhandled}, nil
 	}
 
 	_ = m.pool.Remove(context.Background(), spec.FunctionName, m.removeContainer)
-	return lambdasvc.InvokeResult{}, &apierror.Error{
-		StatusCode: http.StatusInternalServerError,
-		Code:       "ServiceException",
-		Message:    err.Error(),
+	var apiErr *apierror.Error
+	if errors.As(err, &apiErr) {
+		return lambdasvc.InvokeResult{}, err
 	}
+	return lambdasvc.InvokeResult{}, serviceError(http.StatusInternalServerError, err.Error())
 }
 
+// imageFor resolves the image a function runs in: the runtime's base image
+// for zip functions, the function's own for container-image functions.
+func (m *Manager) imageFor(spec lambdasvc.FunctionSpec) (Runtime, string, error) {
+	if spec.PackageType == lambdasvc.PackageTypeImage {
+		if spec.ImageURI == "" {
+			return Runtime{}, "", serviceError(http.StatusBadRequest, "container-image function has no ImageUri")
+		}
+		return Runtime{}, spec.ImageURI, nil
+	}
+	return m.catalog.Resolve(spec.Runtime)
+}
+
+// ensureImage checks the daemon has imageName. Stratus never pulls, so runs
+// stay deterministic and work offline; the error names the image to pull.
 func (m *Manager) ensureImage(ctx context.Context, imageName string) error {
-	_, _, err := m.client.ImageInspectWithRaw(ctx, imageName)
+	_, err := m.client.ImageInspect(ctx, imageName)
 	if err == nil {
 		return nil
 	}
 	if dockerclient.IsErrNotFound(err) {
-		return &apierror.Error{
-			StatusCode: http.StatusServiceUnavailable,
-			Code:       "ServiceException",
-			Message:    "lambda runtime image is not available locally: " + imageName,
-		}
+		return serviceError(http.StatusServiceUnavailable,
+			"lambda image is not available locally: "+imageName+" (run: docker pull "+imageName+")")
 	}
-	return &apierror.Error{
-		StatusCode: http.StatusServiceUnavailable,
-		Code:       "ServiceException",
-		Message:    "docker image inspection failed: " + err.Error(),
-	}
+	return serviceError(http.StatusServiceUnavailable, "docker image inspection failed: "+err.Error())
 }
 
-func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpec, imageName string) (*WarmContainer, error) {
+func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpec, rt Runtime, imageName string) (*WarmContainer, error) {
 	containerName := m.owner.ContainerName(spec.FunctionName)
 	_ = m.removeNamedContainer(ctx, containerName)
 
-	launchConfig, err := runtimeLaunchConfigFor(spec.Runtime, spec.Handler, spec.FunctionName)
+	in, err := m.launchInput(ctx, spec, rt, imageName)
 	if err != nil {
 		return nil, err
 	}
-
-	codeDir := filepath.Join(m.blobRoot, "lambda", spec.FunctionName, "source")
-	if _, err := os.Stat(codeDir); err != nil {
-		return nil, &apierror.Error{
-			StatusCode: http.StatusInternalServerError,
-			Code:       "ServiceException",
-			Message:    "lambda code directory is missing: " + err.Error(),
+	if needsMountedRIE(in) {
+		if in.RIEHostPath, err = m.ensureRIE(ctx); err != nil {
+			return nil, err
 		}
 	}
-
-	portSet := nat.PortSet{
-		nat.Port(runtimePort): struct{}{},
-	}
-	portMap := nat.PortMap{
-		nat.Port(runtimePort): []nat.PortBinding{{
-			HostIP:   "127.0.0.1",
-			HostPort: "",
-		}},
-	}
-
-	env := append([]string(nil), launchConfig.BaseEnv...)
-	runtimePathEntries := append([]string(nil), launchConfig.PathEntries...)
-	for key, value := range spec.Environment {
-		env = append(env, key+"="+value)
+	plan, err := planLaunch(in)
+	if err != nil {
+		return nil, err
 	}
 
 	labels := m.owner.Labels()
 	labels[LabelKind] = "lambda"
 	labels[LabelResource] = spec.FunctionName
 	cfg := &container.Config{
-		Image:        imageName,
-		Entrypoint:   launchConfig.Entrypoint,
-		Cmd:          launchConfig.Cmd,
-		ExposedPorts: portSet,
-		WorkingDir:   "/var/task",
+		Image:        plan.Image,
+		Entrypoint:   plan.Entrypoint,
+		Cmd:          plan.Cmd,
+		Env:          plan.Env,
+		WorkingDir:   plan.WorkingDir,
+		ExposedPorts: nat.PortSet{nat.Port(rieListenPort): struct{}{}},
 		Labels:       labels,
 	}
-
 	hostCfg := &container.HostConfig{
-		AutoRemove: false,
-		Mounts: []mount.Mount{
-			{
-				Type:     mount.TypeBind,
-				Source:   codeDir,
-				Target:   "/var/task",
-				ReadOnly: true,
-			},
-			{
-				Type:     mount.TypeBind,
-				Source:   m.runtimeDir,
-				Target:   "/opt/stratus",
-				ReadOnly: true,
-			},
+		Mounts: plan.Mounts,
+		PortBindings: nat.PortMap{
+			nat.Port(rieListenPort): []nat.PortBinding{{HostIP: "127.0.0.1"}},
 		},
-		PortBindings: portMap,
+		ExtraHosts: runtimeExtraHosts(spec),
 	}
-	hostCfg.ExtraHosts = runtimeExtraHosts(spec)
-	for idx, layerDir := range spec.LayerDirs {
-		target := fmt.Sprintf("/opt/stratus-layers/%d", idx)
-		hostCfg.Mounts = append(hostCfg.Mounts, mount.Mount{
-			Type:     mount.TypeBind,
-			Source:   layerDir,
-			Target:   target,
-			ReadOnly: true,
-		})
-		runtimePathEntries = appendRuntimeLayerPaths(spec.Runtime, runtimePathEntries, target)
-	}
-	if launchConfig.PathEnvKey != "" {
-		env = append(env, launchConfig.PathEnvKey+"="+strings.Join(runtimePathEntries, ":"))
-	}
-	cfg.Env = env
 	if spec.MemorySize > 0 {
 		hostCfg.Memory = int64(spec.MemorySize) * 1024 * 1024
 	}
 
 	resp, err := m.client.ContainerCreate(ctx, cfg, hostCfg, &network.NetworkingConfig{}, &ocispec.Platform{}, containerName)
 	if err != nil {
-		return nil, &apierror.Error{
-			StatusCode: http.StatusServiceUnavailable,
-			Code:       "ServiceException",
-			Message:    "docker container create failed: " + err.Error(),
-		}
+		return nil, serviceError(http.StatusServiceUnavailable, "docker container create failed: "+err.Error())
 	}
+	discard := func() { _ = m.removeContainer(context.Background(), &WarmContainer{ID: resp.ID, Name: containerName}) }
 
 	if err := m.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
-		_ = m.removeContainer(context.Background(), &WarmContainer{ID: resp.ID, Name: containerName})
-		return nil, &apierror.Error{
-			StatusCode: http.StatusServiceUnavailable,
-			Code:       "ServiceException",
-			Message:    "docker container start failed: " + err.Error(),
-		}
+		discard()
+		return nil, serviceError(http.StatusServiceUnavailable, "docker container start failed: "+err.Error())
 	}
-
-	inspect, err := m.client.ContainerInspect(ctx, resp.ID)
+	hostPort, err := m.publishedPort(ctx, resp.ID)
 	if err != nil {
-		_ = m.removeContainer(context.Background(), &WarmContainer{ID: resp.ID, Name: containerName})
-		return nil, &apierror.Error{
-			StatusCode: http.StatusServiceUnavailable,
-			Code:       "ServiceException",
-			Message:    "docker container inspect failed: " + err.Error(),
-		}
-	}
-
-	portBindings := inspect.NetworkSettings.Ports[nat.Port(runtimePort)]
-	if len(portBindings) == 0 {
-		_ = m.removeContainer(context.Background(), &WarmContainer{ID: resp.ID, Name: containerName})
-		return nil, &apierror.Error{
-			StatusCode: http.StatusServiceUnavailable,
-			Code:       "ServiceException",
-			Message:    "docker container did not expose a host port",
-		}
-	}
-
-	hostPort, err := strconv.Atoi(portBindings[0].HostPort)
-	if err != nil {
-		_ = m.removeContainer(context.Background(), &WarmContainer{ID: resp.ID, Name: containerName})
-		return nil, &apierror.Error{
-			StatusCode: http.StatusServiceUnavailable,
-			Code:       "ServiceException",
-			Message:    "invalid runtime host port: " + err.Error(),
-		}
+		discard()
+		return nil, err
 	}
 
 	warm := &WarmContainer{
@@ -320,33 +255,94 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		CreatedAt: time.Now(),
 	}
 	if err := m.waitReady(ctx, warm); err != nil {
-		_ = m.removeContainer(context.Background(), warm)
+		discard()
 		return nil, err
 	}
 
-	m.logger.Info("lambda runtime started", "function", spec.FunctionName, "container_id", resp.ID, "host_port", hostPort)
+	m.logger.Info("lambda runtime started", "function", spec.FunctionName, "image", plan.Image, "container_id", resp.ID, "host_port", hostPort)
 	return warm, nil
 }
 
-func (m *Manager) waitReady(ctx context.Context, warm *WarmContainer) error {
-	deadline := time.Now().Add(20 * time.Second)
-	url := fmt.Sprintf("http://127.0.0.1:%d/healthz", warm.HostPort)
-	for time.Now().Before(deadline) {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-		resp, err := m.httpClient.Do(req)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return nil
+// launchInput gathers what planLaunch needs from the host and the image.
+func (m *Manager) launchInput(ctx context.Context, spec lambdasvc.FunctionSpec, rt Runtime, imageName string) (launchInput, error) {
+	in := launchInput{Spec: spec, Runtime: rt, Image: imageName}
+
+	if spec.PackageType == lambdasvc.PackageTypeImage {
+		inspect, err := m.client.ImageInspect(ctx, imageName)
+		if err != nil {
+			return launchInput{}, serviceError(http.StatusServiceUnavailable, "docker image inspection failed: "+err.Error())
+		}
+		if inspect.Config != nil {
+			in.Defaults = imageDefaults{
+				Entrypoint: inspect.Config.Entrypoint,
+				Cmd:        inspect.Config.Cmd,
+				WorkingDir: inspect.Config.WorkingDir,
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		return in, nil
 	}
-	return &apierror.Error{
-		StatusCode: http.StatusServiceUnavailable,
-		Code:       "ServiceException",
-		Message:    "lambda runtime did not become ready",
+
+	codeDir := filepath.Join(m.blobRoot, "lambda", spec.FunctionName, "source")
+	if _, err := os.Stat(codeDir); err != nil {
+		return launchInput{}, serviceError(http.StatusInternalServerError, "lambda code directory is missing: "+err.Error())
 	}
+	in.CodeDir = codeDir
+	in.CodeHasBootstrap = isRegularFile(filepath.Join(codeDir, "bootstrap"))
+
+	if len(spec.LayerDirs) > 0 {
+		optDir := filepath.Join(m.runtimeDir, "layers", sanitizeName(spec.FunctionName))
+		if err := mergeLayers(optDir, spec.LayerDirs); err != nil {
+			return launchInput{}, serviceError(http.StatusInternalServerError, err.Error())
+		}
+		in.OptDir = optDir
+	}
+	return in, nil
+}
+
+func (m *Manager) publishedPort(ctx context.Context, id string) (int, error) {
+	inspect, err := m.client.ContainerInspect(ctx, id)
+	if err != nil {
+		return 0, serviceError(http.StatusServiceUnavailable, "docker container inspect failed: "+err.Error())
+	}
+	bindings := inspect.NetworkSettings.Ports[nat.Port(rieListenPort)]
+	if len(bindings) == 0 {
+		return 0, serviceError(http.StatusServiceUnavailable, "docker container did not expose a host port")
+	}
+	port, err := strconv.Atoi(bindings[0].HostPort)
+	if err != nil {
+		return 0, serviceError(http.StatusServiceUnavailable, "invalid runtime host port: "+err.Error())
+	}
+	return port, nil
+}
+
+// waitReady waits for the emulator to answer HTTP. A TCP connect is not
+// enough: Docker's port proxy accepts before the emulator listens.
+func (m *Manager) waitReady(ctx context.Context, warm *WarmContainer) error {
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if m.emulatorAnswers(ctx, warm) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return serviceError(http.StatusServiceUnavailable, "lambda runtime did not become ready: "+m.tailLogs(warm.ID))
+}
+
+// emulatorAnswers reports whether the emulator returned any HTTP response.
+func (m *Manager) emulatorAnswers(ctx context.Context, warm *WarmContainer) bool {
+	probeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(probeCtx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", warm.HostPort), nil)
+	resp, err := m.httpClient.Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
 }
 
 func (m *Manager) isHealthy(ctx context.Context, warm *WarmContainer) (bool, error) {
@@ -360,92 +356,167 @@ func (m *Manager) isHealthy(ctx context.Context, warm *WarmContainer) (bool, err
 	if !inspect.State.Running {
 		return false, nil
 	}
-
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/healthz", warm.HostPort), nil)
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return false, nil
-	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK, nil
+	return m.emulatorAnswers(ctx, warm), nil
 }
 
-func (m *Manager) invokeHTTP(ctx context.Context, warm *WarmContainer, spec lambdasvc.FunctionSpec, payload []byte) (lambdasvc.InvokeResult, error) {
-	requestPayload, err := json.Marshal(map[string]string{
-		"payload_b64": base64.StdEncoding.EncodeToString(payload),
-	})
-	if err != nil {
-		return lambdasvc.InvokeResult{}, err
-	}
+// invokeRIE runs one invocation through the emulator. The emulator handles
+// one invocation at a time, so invocations of a warm container queue.
+func (m *Manager) invokeRIE(ctx context.Context, warm *WarmContainer, spec lambdasvc.FunctionSpec, payload []byte) (lambdasvc.InvokeResult, error) {
+	warm.invokeMu.Lock()
+	defer warm.invokeMu.Unlock()
 
 	timeout := time.Duration(spec.Timeout) * time.Second
 	if timeout <= 0 {
-		timeout = 3 * time.Second
+		timeout = defaultTimeoutS * time.Second
 	}
-	invokeCtx, cancel := context.WithTimeout(ctx, timeout)
+	invokeCtx, cancel := context.WithTimeout(ctx, timeout+initAllowance)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(invokeCtx, http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/invoke", warm.HostPort), bytes.NewReader(requestPayload))
+	requestID := uuid.NewString()
+	started := time.Now()
+	req, err := http.NewRequestWithContext(invokeCtx, http.MethodPost,
+		fmt.Sprintf("http://127.0.0.1:%d%s", warm.HostPort, rieInvokePath), bytes.NewReader(payload))
 	if err != nil {
 		return lambdasvc.InvokeResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Amzn-RequestId", requestID)
 
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		if errors.Is(invokeCtx.Err(), context.DeadlineExceeded) {
-			_ = m.removeContainer(context.Background(), warm)
-			return lambdasvc.InvokeResult{
-				Payload:       timeoutPayload(spec.Timeout),
-				FunctionError: "Unhandled",
-			}, nil
+			return lambdasvc.InvokeResult{}, errRuntimeTimedOut{payload: timeoutPayload(spec.Timeout)}
 		}
-		return lambdasvc.InvokeResult{}, &apierror.Error{
-			StatusCode: http.StatusInternalServerError,
-			Code:       "ServiceException",
-			Message:    "lambda runtime exited unexpectedly",
-		}
+		return lambdasvc.InvokeResult{}, serviceError(http.StatusInternalServerError, "lambda runtime exited unexpectedly: "+err.Error())
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body := new(bytes.Buffer)
-		_, _ = body.ReadFrom(resp.Body)
-		return lambdasvc.InvokeResult{}, &apierror.Error{
-			StatusCode: http.StatusInternalServerError,
-			Code:       "ServiceException",
-			Message:    "lambda runtime returned unexpected status: " + strings.TrimSpace(body.String()),
-		}
-	}
-
-	var envelope struct {
-		OK            bool   `json:"ok"`
-		PayloadBase64 string `json:"payload_base64"`
-		Logs          string `json:"logs"`
-		FunctionError string `json:"function_error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
-		return lambdasvc.InvokeResult{}, &apierror.Error{
-			StatusCode: http.StatusInternalServerError,
-			Code:       "ServiceException",
-			Message:    "lambda runtime returned invalid payload",
-		}
-	}
-
-	resultBytes, err := base64.StdEncoding.DecodeString(envelope.PayloadBase64)
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
 	if err != nil {
-		return lambdasvc.InvokeResult{}, &apierror.Error{
-			StatusCode: http.StatusInternalServerError,
-			Code:       "ServiceException",
-			Message:    "lambda runtime returned invalid base64 payload",
-		}
+		return lambdasvc.InvokeResult{}, serviceError(http.StatusInternalServerError, "read lambda runtime response: "+err.Error())
 	}
 
-	return lambdasvc.InvokeResult{
-		Payload:       resultBytes,
-		Logs:          envelope.Logs,
-		FunctionError: envelope.FunctionError,
-	}, nil
+	result, err := rieOutcome{Status: resp.StatusCode, Body: body}.toInvokeResult(spec.Timeout)
+	if err != nil {
+		return result, err
+	}
+	result.Logs = m.invocationLogs(warm.ID, requestID, started)
+	return result, nil
+}
+
+// invocationLogs returns the container output between the emulator's START
+// and REPORT lines for requestID, which is what Lambda's Tail log holds.
+func (m *Manager) invocationLogs(containerID, requestID string, since time.Time) string {
+	// Docker Desktop's VM clock can lag the host's slightly.
+	since = since.Add(-2 * time.Second)
+	deadline := time.Now().Add(logSettleTimeout)
+	for {
+		out := m.containerOutput(containerID, since)
+		logs, complete := sliceInvocation(out, requestID)
+		if complete || time.Now().After(deadline) {
+			return logs
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (m *Manager) containerOutput(containerID string, since time.Time) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	opts := container.LogsOptions{ShowStdout: true, ShowStderr: true}
+	if !since.IsZero() {
+		opts.Since = fmt.Sprintf("%d.%09d", since.Unix(), since.Nanosecond())
+	}
+	stream, err := m.client.ContainerLogs(ctx, containerID, opts)
+	if err != nil {
+		return ""
+	}
+	defer stream.Close()
+	var out bytes.Buffer
+	if _, err := stdcopy.StdCopy(&out, &out, stream); err != nil {
+		return out.String()
+	}
+	return out.String()
+}
+
+// tailLogs is the last of a container's output, for start-up errors.
+func (m *Manager) tailLogs(containerID string) string {
+	out := strings.TrimSpace(m.containerOutput(containerID, time.Time{}))
+	if len(out) > 2048 {
+		out = out[len(out)-2048:]
+	}
+	if out == "" {
+		return "no container output"
+	}
+	return out
+}
+
+// sliceInvocation cuts one invocation's lines out of container output. It
+// reports complete once the REPORT line for requestID has been seen.
+func sliceInvocation(output, requestID string) (string, bool) {
+	var b strings.Builder
+	inside := false
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !inside {
+			if strings.HasPrefix(line, "START RequestId: "+requestID) {
+				inside = true
+				b.WriteString(line + "\n")
+			}
+			continue
+		}
+		b.WriteString(line + "\n")
+		if strings.HasPrefix(line, "REPORT RequestId: "+requestID) {
+			return b.String(), true
+		}
+	}
+	return b.String(), false
+}
+
+// ensureRIE returns a host copy of the Runtime Interface Emulator, copied
+// once out of the RIE source image, for images that do not bundle one.
+func (m *Manager) ensureRIE(ctx context.Context) (string, error) {
+	m.rieMu.Lock()
+	defer m.rieMu.Unlock()
+	if m.rieHost != "" {
+		return m.rieHost, nil
+	}
+
+	dst := filepath.Join(m.runtimeDir, "rie", "aws-lambda-rie")
+	if isRegularFile(dst) {
+		m.rieHost = dst
+		return dst, nil
+	}
+
+	source := m.catalog.RIEImage()
+	if err := m.ensureImage(ctx, source); err != nil {
+		return "", err
+	}
+	labels := m.owner.Labels()
+	labels[LabelKind] = "lambda-rie"
+	created, err := m.client.ContainerCreate(ctx, &container.Config{Image: source, Labels: labels}, nil, nil, nil, "")
+	if err != nil {
+		return "", serviceError(http.StatusServiceUnavailable, "create emulator source container: "+err.Error())
+	}
+	defer func() {
+		_ = m.client.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
+	}()
+
+	archive, _, err := m.client.CopyFromContainer(ctx, created.ID, imageRIEPath)
+	if err != nil {
+		return "", serviceError(http.StatusServiceUnavailable, "copy emulator out of "+source+": "+err.Error())
+	}
+	defer archive.Close()
+	if err := extractSingleFile(archive, dst); err != nil {
+		return "", serviceError(http.StatusServiceUnavailable, "extract emulator: "+err.Error())
+	}
+	m.rieHost = dst
+	return dst, nil
+}
+
+func serviceError(status int, message string) *apierror.Error {
+	return &apierror.Error{StatusCode: status, Code: "ServiceException", Message: message}
 }
 
 func (m *Manager) removeContainer(ctx context.Context, warm *WarmContainer) error {
@@ -476,74 +547,6 @@ func (m *Manager) removeNamedContainer(ctx context.Context, name string) error {
 		}
 	}
 	return nil
-}
-
-func runtimeImageFor(runtime string) (string, error) {
-	switch runtime {
-	case "python3.11":
-		return runtimeImagePython311, nil
-	case "nodejs20.x":
-		return runtimeImageNodejs20, nil
-	default:
-		return "", &apierror.Error{
-			StatusCode: http.StatusNotImplemented,
-			Code:       "NotImplementedException",
-			Message:    "lambda execution for runtime is not supported yet: " + runtime,
-		}
-	}
-}
-
-type runtimeLaunchConfig struct {
-	Entrypoint  []string
-	Cmd         []string
-	BaseEnv     []string
-	PathEnvKey  string
-	PathEntries []string
-}
-
-func runtimeLaunchConfigFor(runtime, handler, functionName string) (runtimeLaunchConfig, error) {
-	switch runtime {
-	case "python3.11":
-		return runtimeLaunchConfig{
-			Entrypoint:  []string{"python", "/opt/stratus/lambda_runtime_server.py"},
-			Cmd:         []string{"--handler", handler, "--port", "9001", "--function-name", functionName},
-			BaseEnv:     []string{"PYTHONUNBUFFERED=1"},
-			PathEnvKey:  "PYTHONPATH",
-			PathEntries: []string{"/var/task"},
-		}, nil
-	case "nodejs20.x":
-		return runtimeLaunchConfig{
-			Entrypoint:  []string{"node", "/opt/stratus/lambda_runtime_server.js"},
-			Cmd:         []string{"--handler", handler, "--port", "9001", "--function-name", functionName},
-			PathEnvKey:  "NODE_PATH",
-			PathEntries: []string{"/var/task", "/var/task/node_modules"},
-		}, nil
-	default:
-		return runtimeLaunchConfig{}, &apierror.Error{
-			StatusCode: http.StatusNotImplemented,
-			Code:       "NotImplementedException",
-			Message:    "lambda execution for runtime is not supported yet: " + runtime,
-		}
-	}
-}
-
-func appendRuntimeLayerPaths(runtime string, entries []string, target string) []string {
-	switch runtime {
-	case "python3.11":
-		return append(entries, target, filepath.Join(target, "python"))
-	case "nodejs20.x":
-		return append(entries, target, filepath.Join(target, "nodejs"), filepath.Join(target, "nodejs", "node_modules"))
-	default:
-		return entries
-	}
-}
-
-func timeoutPayload(seconds int) []byte {
-	timeoutSeconds := seconds
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = 3
-	}
-	return []byte(fmt.Sprintf(`{"errorMessage":"Task timed out after %d.00 seconds"}`, timeoutSeconds))
 }
 
 func sanitizeName(functionName string) string {
@@ -608,302 +611,3 @@ func defaultDockerHost() string {
 	}
 	return ""
 }
-
-const runtimeServerScriptPython = `#!/usr/bin/env python3
-import argparse
-import asyncio
-import base64
-import contextlib
-import inspect
-import importlib
-import io
-import json
-import sys
-import traceback
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
-def parse_event(payload_b64):
-    raw = base64.b64decode(payload_b64.encode("utf-8")) if payload_b64 else b""
-    if not raw:
-        return None
-    try:
-        return json.loads(raw.decode("utf-8"))
-    except Exception:
-        try:
-            return raw.decode("utf-8")
-        except Exception:
-            return None
-
-def payload_bytes(value):
-    if value is None:
-        return b"null"
-    if isinstance(value, (bytes, bytearray)):
-        return bytes(value)
-    if isinstance(value, str):
-        return value.encode("utf-8")
-    return json.dumps(value).encode("utf-8")
-
-class LambdaContext:
-    def __init__(self, function_name):
-        self.function_name = function_name
-        self.function_version = "$LATEST"
-        self.memory_limit_in_mb = 128
-        self.aws_request_id = "stratus"
-        self.invoked_function_arn = function_name
-        self.log_group_name = "/aws/lambda/" + function_name
-        self.log_stream_name = "stratus"
-
-class HandlerServer(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == "/healthz":
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(b'{"status":"ok"}')
-            return
-        self.send_response(404)
-        self.end_headers()
-
-    def do_POST(self):
-        if self.path != "/invoke":
-            self.send_response(404)
-            self.end_headers()
-            return
-        length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(length)
-        request = json.loads(raw.decode("utf-8")) if raw else {}
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        response = {}
-        with contextlib.redirect_stdout(stdout_buf), contextlib.redirect_stderr(stderr_buf):
-            try:
-                event = parse_event(request.get("payload_b64", ""))
-                result = self.server.lambda_handler(event, LambdaContext(self.server.function_name))
-                if inspect.isawaitable(result):
-                    result = asyncio.run(result)
-                response = {
-                    "ok": True,
-                    "payload_base64": base64.b64encode(payload_bytes(result)).decode("utf-8"),
-                    "logs": stdout_buf.getvalue() + stderr_buf.getvalue(),
-                    "function_error": "",
-                }
-            except BaseException as exc:
-                error_payload = json.dumps({
-                    "errorMessage": str(exc),
-                    "errorType": exc.__class__.__name__,
-                    "stackTrace": traceback.format_exc().splitlines(),
-                }).encode("utf-8")
-                response = {
-                    "ok": False,
-                    "payload_base64": base64.b64encode(error_payload).decode("utf-8"),
-                    "logs": stdout_buf.getvalue() + stderr_buf.getvalue() + traceback.format_exc(),
-                    "function_error": "Handled",
-                }
-        encoded = json.dumps(response).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(encoded)))
-        self.end_headers()
-        self.wfile.write(encoded)
-
-    def log_message(self, format, *args):
-        return
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--handler", required=True)
-    parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--function-name", required=True)
-    args = parser.parse_args()
-    module_name, attr_name = args.handler.rsplit(".", 1)
-    module = importlib.import_module(module_name)
-    handler = getattr(module, attr_name)
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), HandlerServer)
-    server.lambda_handler = handler
-    server.function_name = args.function_name
-    server.serve_forever()
-
-if __name__ == "__main__":
-    main()
-`
-
-const runtimeServerScriptNode = `#!/usr/bin/env node
-const http = require("http");
-const path = require("path");
-
-function parseArgs(argv) {
-  const args = {};
-  for (let i = 0; i < argv.length; i += 1) {
-    const item = argv[i];
-    if (!item.startsWith("--")) {
-      continue;
-    }
-    args[item.slice(2)] = argv[i + 1];
-    i += 1;
-  }
-  return args;
-}
-
-function parseEvent(payloadB64) {
-  if (!payloadB64) {
-    return null;
-  }
-  const raw = Buffer.from(payloadB64, "base64");
-  if (raw.length === 0) {
-    return null;
-  }
-  const text = raw.toString("utf8");
-  try {
-    return JSON.parse(text);
-  } catch (_) {
-    return text;
-  }
-}
-
-function payloadBuffer(value) {
-  if (value === undefined || value === null) {
-    return Buffer.from("null");
-  }
-  if (Buffer.isBuffer(value)) {
-    return value;
-  }
-  if (typeof value === "string") {
-    return Buffer.from(value, "utf8");
-  }
-  return Buffer.from(JSON.stringify(value), "utf8");
-}
-
-function renderConsoleArg(value) {
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    return JSON.stringify(value);
-  } catch (_) {
-    return String(value);
-  }
-}
-
-function splitHandler(handler) {
-  const idx = handler.lastIndexOf(".");
-  if (idx === -1) {
-    throw new Error("handler must look like file.export");
-  }
-  return [handler.slice(0, idx), handler.slice(idx + 1)];
-}
-
-function lambdaContext(functionName) {
-  return {
-    functionName,
-    functionVersion: "$LATEST",
-    memoryLimitInMB: "128",
-    awsRequestId: "stratus",
-    invokedFunctionArn: functionName,
-    logGroupName: "/aws/lambda/" + functionName,
-    logStreamName: "stratus",
-    getRemainingTimeInMillis() {
-      return 30000;
-    },
-  };
-}
-
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const handlerArg = args.handler;
-  const port = Number(args.port);
-  const functionName = args["function-name"];
-
-  const [moduleName, exportName] = splitHandler(handlerArg);
-  const modulePath = path.resolve(process.cwd(), moduleName);
-  const loaded = require(modulePath);
-  const lambdaHandler =
-    loaded[exportName] ||
-    (loaded.default && loaded.default[exportName]);
-  if (typeof lambdaHandler !== "function") {
-    throw new Error("handler export was not found: " + handlerArg);
-  }
-
-  const server = http.createServer(async (req, res) => {
-    if (req.method === "GET" && req.url === "/healthz") {
-      const body = Buffer.from(JSON.stringify({ status: "ok" }));
-      res.writeHead(200, {
-        "Content-Type": "application/json",
-        "Content-Length": String(body.length),
-      });
-      res.end(body);
-      return;
-    }
-
-    if (req.method !== "POST" || req.url !== "/invoke") {
-      res.statusCode = 404;
-      res.end();
-      return;
-    }
-
-    const chunks = [];
-    for await (const chunk of req) {
-      chunks.push(chunk);
-    }
-
-    const raw = Buffer.concat(chunks).toString("utf8");
-    const request = raw ? JSON.parse(raw) : {};
-    const logs = [];
-    const originalConsole = {
-      log: console.log,
-      info: console.info,
-      warn: console.warn,
-      error: console.error,
-    };
-    const capture = (...items) => {
-      logs.push(items.map(renderConsoleArg).join(" "));
-    };
-    console.log = capture;
-    console.info = capture;
-    console.warn = capture;
-    console.error = capture;
-
-    let response;
-    try {
-      const event = parseEvent(request.payload_b64 || "");
-      const result = await Promise.resolve(lambdaHandler(event, lambdaContext(functionName)));
-      response = {
-        ok: true,
-        payload_base64: payloadBuffer(result).toString("base64"),
-        logs: logs.length ? logs.join("\n") + "\n" : "",
-        function_error: "",
-      };
-    } catch (error) {
-      const payload = {
-        errorMessage: error && error.message ? error.message : String(error),
-        errorType: error && error.name ? error.name : "Error",
-        stackTrace: error && error.stack ? String(error.stack).split("\n") : [],
-      };
-      response = {
-        ok: false,
-        payload_base64: Buffer.from(JSON.stringify(payload), "utf8").toString("base64"),
-        logs: (logs.length ? logs.join("\n") + "\n" : "") + (error && error.stack ? String(error.stack) : String(error)),
-        function_error: "Handled",
-      };
-    } finally {
-      console.log = originalConsole.log;
-      console.info = originalConsole.info;
-      console.warn = originalConsole.warn;
-      console.error = originalConsole.error;
-    }
-
-    const body = Buffer.from(JSON.stringify(response), "utf8");
-    res.writeHead(200, {
-      "Content-Type": "application/json",
-      "Content-Length": String(body.length),
-    });
-    res.end(body);
-  });
-
-  server.listen(port, "0.0.0.0");
-}
-
-main().catch((error) => {
-  console.error(error && error.stack ? error.stack : error);
-  process.exit(1);
-});
-`

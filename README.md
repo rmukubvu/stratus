@@ -34,10 +34,10 @@ Current design priorities:
 - permissive local auth handling
 - black-box contract tests over implementation-driven confidence
 
-Current Lambda execution runtimes:
-
-- `python3.11`
-- `nodejs20.x`
+Lambda functions run on AWS's own Lambda base images, so these runtimes all
+work: Python 3.9–3.13, Node.js 18/20/22, Java 8/11/17/21, Ruby 3.2/3.3, .NET 8,
+`provided.al2`/`provided.al2023` (Go, Rust, custom runtimes), and
+container-image functions. See [docs/lambda.md](docs/lambda.md).
 
 ## What Works Today
 

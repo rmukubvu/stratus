@@ -34,25 +34,27 @@ func TestRuntimeExtraHostsSkipsHostGatewayWhenNotNeeded(t *testing.T) {
 	}
 }
 
-func TestRuntimeImageForNodejs20(t *testing.T) {
-	got, err := runtimeImageFor("nodejs20.x")
-	if err != nil {
-		t.Fatalf("runtimeImageFor() error = %v", err)
+func TestSliceInvocationKeepsOnlyTheRequestedInvocation(t *testing.T) {
+	output := "init noise\n" +
+		"START RequestId: aaa Version: $LATEST\nfirst\nEND RequestId: aaa\nREPORT RequestId: aaa\tDuration: 1 ms\n" +
+		"START RequestId: bbb Version: $LATEST\nsecond\nEND RequestId: bbb\nREPORT RequestId: bbb\tDuration: 2 ms\n"
+
+	got, complete := sliceInvocation(output, "bbb")
+	if !complete {
+		t.Fatalf("sliceInvocation() complete = false, want true")
 	}
-	if got != runtimeImageNodejs20 {
-		t.Fatalf("runtimeImageFor() = %q, want %q", got, runtimeImageNodejs20)
+	want := "START RequestId: bbb Version: $LATEST\nsecond\nEND RequestId: bbb\nREPORT RequestId: bbb\tDuration: 2 ms\n"
+	if got != want {
+		t.Fatalf("sliceInvocation() = %q, want %q", got, want)
 	}
 }
 
-func TestRuntimeLaunchConfigForNodejs20(t *testing.T) {
-	got, err := runtimeLaunchConfigFor("nodejs20.x", "index.handler", "demo")
-	if err != nil {
-		t.Fatalf("runtimeLaunchConfigFor() error = %v", err)
+func TestSliceInvocationReportsIncompleteUntilReport(t *testing.T) {
+	got, complete := sliceInvocation("START RequestId: ccc Version: $LATEST\nworking\n", "ccc")
+	if complete {
+		t.Fatalf("sliceInvocation() complete = true before REPORT")
 	}
-	if got.PathEnvKey != "NODE_PATH" {
-		t.Fatalf("runtimeLaunchConfigFor().PathEnvKey = %q, want NODE_PATH", got.PathEnvKey)
-	}
-	if len(got.Entrypoint) != 2 || got.Entrypoint[0] != "node" {
-		t.Fatalf("unexpected entrypoint: %v", got.Entrypoint)
+	if got != "START RequestId: ccc Version: $LATEST\nworking\n" {
+		t.Fatalf("sliceInvocation() = %q", got)
 	}
 }
