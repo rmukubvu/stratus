@@ -41,9 +41,11 @@ import (
 	"github.com/stratus/internal/services/logs"
 	"github.com/stratus/internal/services/monitoring"
 	"github.com/stratus/internal/services/rds"
+	"github.com/stratus/internal/services/route53"
 	"github.com/stratus/internal/services/s3"
 	"github.com/stratus/internal/services/scheduler"
 	"github.com/stratus/internal/services/secretsmanager"
+	"github.com/stratus/internal/services/servicediscovery"
 	"github.com/stratus/internal/services/ses"
 	"github.com/stratus/internal/services/sns"
 	"github.com/stratus/internal/services/sqs"
@@ -164,6 +166,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Engines:  engines,
 		Engine:   kafka.DefaultEngine(os.Getenv),
 	})
+	route53Service := route53.NewService(route53.Options{Metadata: metaStore})
+	cloudMapService := servicediscovery.NewDirectory(servicediscovery.Options{Metadata: metaStore, Zones: route53Service})
 	backends := []control.Backend{rdsService, elastiCacheService, kafkaService}
 	// Records can outlive their containers: a restart reaps the old ones and
 	// a seed brings records with no containers at all. Start what is missing.
@@ -200,6 +204,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	scheduler.RegisterRoutes(controlHandler, schedulerService)
 	bedrock.RegisterRoutes(controlHandler, bedrockService)
 	kafka.RegisterRoutes(controlHandler, kafkaService)
+	route53.RegisterRoutes(controlHandler, route53Service)
 	diagnose.RegisterRoutes(controlHandler, diagnose.NewService(
 		failuresFrom(operatorStore),
 		injectionsFrom(chaosEngine),
@@ -253,6 +258,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Scheduler:       schedulerService,
 		Bedrock:         bedrockService,
 		Kafka:           kafkaService,
+		Route53:         route53Service,
+		CloudMap:        cloudMapService,
 		Operator:        operatorService,
 		Control:         controlHandler,
 		Gate:            controlService.Gate(),

@@ -13,6 +13,7 @@ import type {
   Diagnosis,
   Health,
   KafkaCluster,
+  DnsResolution,
   ResetResult,
   SchedulerAdvance,
   SchedulerClock,
@@ -42,6 +43,8 @@ export interface AwsClientConfig {
   credentials: { accessKeyId: string; secretAccessKey: string };
   /** S3 needs path-style addressing against a local endpoint. */
   forcePathStyle: true;
+  /** Keeps host-prefixed operations (Cloud Map's DiscoverInstances) on the Stratus host. */
+  disableHostPrefix: true;
 }
 
 export interface WaitOptions {
@@ -151,7 +154,6 @@ export class Scheduler {
   }
 }
 
-/** Bedrock fixtures and the log of model calls. */
 /** MSK clusters, each a real Kafka-compatible broker. */
 export class Kafka {
   constructor(private readonly t: Transport) {}
@@ -170,6 +172,19 @@ export class Kafka {
   }
 }
 
+/** DNS lookups against the emulated Route 53 zones, Cloud Map's included. */
+export class Dns {
+  constructor(private readonly t: Transport) {}
+
+  /** Resolves a name the way a client inside the VPC would; type defaults to A. */
+  async resolve(name: string, type = "A"): Promise<DnsResolution> {
+    const q = new URLSearchParams({ name, type });
+    const res = await this.t.request<DnsResolution>("GET", `/dns/resolve?${q.toString()}`);
+    return { ...res, answers: res.answers ?? [] };
+  }
+}
+
+/** Bedrock fixtures and the log of model calls. */
 export class Bedrock {
   constructor(private readonly t: Transport) {}
 
@@ -245,6 +260,7 @@ export class StratusClient {
   readonly scheduler: Scheduler;
   readonly bedrock: Bedrock;
   readonly kafka: Kafka;
+  readonly dns: Dns;
   private readonly t: Transport;
 
   constructor(options: StratusClientOptions = {}) {
@@ -262,6 +278,7 @@ export class StratusClient {
     this.scheduler = new Scheduler(this.t);
     this.bedrock = new Bedrock(this.t);
     this.kafka = new Kafka(this.t);
+    this.dns = new Dns(this.t);
   }
 
   health(): Promise<Health> {
@@ -356,6 +373,7 @@ export class StratusClient {
       region: this.region,
       credentials: { accessKeyId: "test", secretAccessKey: "test" },
       forcePathStyle: true,
+      disableHostPrefix: true,
     };
   }
 }

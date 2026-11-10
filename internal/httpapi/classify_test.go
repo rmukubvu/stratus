@@ -496,3 +496,24 @@ func TestClassifyMSKBySigningNameAndHost(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyRoute53AsRESTXML(t *testing.T) {
+	signed, _ := http.NewRequest(http.MethodGet, "http://localhost:4566/2013-04-01/hostedzone", nil)
+	signed.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20261110/us-east-1/route53/aws4_request, SignedHeaders=host, Signature=x")
+	unsigned, _ := http.NewRequest(http.MethodPost, "http://localhost:4566/2013-04-01/hostedzone/Z1/rrset/", nil)
+	for req, op := range map[*http.Request]string{signed: "ListHostedZones", unsigned: "ChangeResourceRecordSets"} {
+		got, err := Classify(req)
+		if err != nil || got.Service != "route53" || got.Protocol != ProtocolRESTXML || got.Operation != op {
+			t.Fatalf("unexpected classification: %+v %v", got, err)
+		}
+	}
+}
+
+func TestClassifyCloudMapByTarget(t *testing.T) {
+	req, _ := http.NewRequest(http.MethodPost, "http://localhost:4566/", nil)
+	req.Header.Set("X-Amz-Target", "Route53AutoNaming_v20170314.DiscoverInstances")
+	got, err := Classify(req)
+	if err != nil || got.Service != "servicediscovery" || got.Protocol != ProtocolJSON || got.Operation != "DiscoverInstances" {
+		t.Fatalf("unexpected classification: %+v %v", got, err)
+	}
+}

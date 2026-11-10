@@ -70,6 +70,8 @@ Current Lambda execution runtimes:
 - RDS (real PostgreSQL, MySQL and MariaDB in Docker)
 - ElastiCache (real Valkey/Redis and Memcached in Docker)
 - MSK (a real Kafka-compatible Redpanda broker in Docker)
+- Route 53 (hosted zones and record sets, with a DNS resolver you can query)
+- Cloud Map (namespaces, services and instances, published as Route 53 records)
 - SES v1 and v2 (sends land in a captured inbox)
 - EventBridge Scheduler (with a clock you can fast-forward)
 - Bedrock Runtime (record real model answers once, replay them offline)
@@ -85,6 +87,12 @@ the engine accepts connections. The images must be present locally
 [docs/engines.md](docs/engines.md). MSK clusters work the same way: each
 one is a Redpanda broker, so any Kafka client produces and consumes through
 the bootstrap address the API returns. See [docs/msk.md](docs/msk.md).
+
+Route 53 and Cloud Map share one set of hosted zones. Registering a Cloud Map
+instance writes its A, AAAA, CNAME or SRV records into the namespace's zone,
+and the control API resolves any name the way a client in the VPC would, so a
+test can check service discovery without a DNS server. See
+[docs/route53.md](docs/route53.md) and [docs/cloudmap.md](docs/cloudmap.md).
 
 Emails sent through SES are never delivered; they land in an inbox the
 control API, MCP server and SDKs can read and filter, so a test asserts on

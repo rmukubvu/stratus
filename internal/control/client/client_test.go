@@ -82,6 +82,7 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 	_, _ = c.BedrockAddFixture(ctx, json.RawMessage(`{"text":"hi"}`))
 	_, _ = c.BedrockInvocations(ctx, url.Values{"outcome": {"missed"}})
 	_, _ = c.KafkaClusters(ctx)
+	_, _ = c.DNSResolve(ctx, "api.corp.local", "SRV")
 
 	want := []string{
 		"POST /_stratus/control/v1/reset",
@@ -99,6 +100,7 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 		"POST /_stratus/control/v1/bedrock/fixtures",
 		"GET /_stratus/control/v1/bedrock/invocations",
 		"GET /_stratus/control/v1/kafka/clusters",
+		"GET /_stratus/control/v1/dns/resolve",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)
@@ -139,5 +141,22 @@ func TestWaitReadyTimesOutWhenServerIsDown(t *testing.T) {
 	defer cancel()
 	if err := c.WaitReady(ctx, 10*time.Millisecond); err == nil {
 		t.Fatal("expected timeout")
+	}
+}
+
+func TestDNSResolveSendsNameAndOptionalType(t *testing.T) {
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		queries = append(queries, r.URL.RawQuery)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	c, _ := New(srv.URL, nil)
+	_, _ = c.DNSResolve(context.Background(), "api.corp.local", "SRV")
+	_, _ = c.DNSResolve(context.Background(), "api.corp.local", "")
+	want := []string{"name=api.corp.local&type=SRV", "name=api.corp.local"}
+	if len(queries) != 2 || queries[0] != want[0] || queries[1] != want[1] {
+		t.Fatalf("queries = %v, want %v", queries, want)
 	}
 }

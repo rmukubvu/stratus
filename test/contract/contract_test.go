@@ -3865,6 +3865,7 @@ func awsEnv() []string {
 		"AWS_SECRET_ACCESS_KEY=test",
 		"AWS_DEFAULT_REGION=us-east-1",
 		"AWS_EC2_METADATA_DISABLED=true",
+		"AWS_DISABLE_HOST_PREFIX_INJECTION=true",
 		"AWS_PAGER=",
 	)
 }

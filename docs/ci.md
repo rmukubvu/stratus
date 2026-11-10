@@ -18,6 +18,9 @@ stratus ci -- go test ./...
    - `STRATUS_DOCKER_ENDPOINT`: the same instance as seen from Lambda
      containers (`http://host.docker.internal:<port>`)
    - `STRATUS_PORT`
+   - `AWS_DISABLE_HOST_PREFIX_INJECTION=true`, so operations that prefix the
+     host (Cloud Map's `DiscoverInstances` calls `data-<host>`) still reach
+     Stratus
    - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` and
      `AWS_DEFAULT_REGION`, set to harmless defaults only if you haven't set them
 5. shuts Stratus down, stops its Lambda, database and cache containers and

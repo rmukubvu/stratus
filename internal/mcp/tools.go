@@ -29,6 +29,7 @@ type ControlAPI interface {
 	BedrockAddFixture(ctx context.Context, fixture json.RawMessage) (json.RawMessage, error)
 	BedrockInvocations(ctx context.Context, query url.Values) (json.RawMessage, error)
 	KafkaClusters(ctx context.Context) (json.RawMessage, error)
+	DNSResolve(ctx context.Context, name, rtype string) (json.RawMessage, error)
 }
 
 // Instructions are sent to the client at initialization.
@@ -42,7 +43,8 @@ to inject seeded, reproducible faults. Emails sent through SES land in a capture
 stratus_scheduler_advance, so tests never wait for real time. Bedrock model calls are
 answered from fixtures: add one with stratus_bedrock_fixture_add, and see every prompt
 the application sent (and which calls had no fixture) with stratus_bedrock_invocations.
-MSK clusters are real Kafka brokers: stratus_kafka_clusters gives each one's bootstrap address.`
+MSK clusters are real Kafka brokers: stratus_kafka_clusters gives each one's bootstrap address.
+Route 53 zones and the records Cloud Map registers can be looked up with stratus_dns_resolve.`
 
 func schema(props map[string]any, required ...string) map[string]any {
 	s := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
@@ -97,6 +99,9 @@ func Tools(api ControlAPI) []Tool {
 						"AWS_SECRET_ACCESS_KEY": "test",
 						"AWS_REGION":            "us-east-1",
 						"AWS_DEFAULT_REGION":    "us-east-1",
+						// Keeps host-prefixed operations (Cloud Map's
+						// DiscoverInstances) on the Stratus host.
+						"AWS_DISABLE_HOST_PREFIX_INJECTION": "true",
 					},
 					"note": "Stratus accepts any credentials. Lambda functions reach Stratus at http://host.docker.internal:<port>.",
 				}, nil
@@ -426,6 +431,25 @@ func Tools(api ControlAPI) []Tool {
 			InputSchema: schema(map[string]any{}),
 			Handler: func(ctx context.Context, _ json.RawMessage) (any, error) {
 				return api.KafkaClusters(ctx)
+			},
+		},
+		{
+			Name: "stratus_dns_resolve",
+			Description: "Resolve a DNS name against the emulated Route 53 hosted zones, including the zones and records Cloud Map creates " +
+				"for registered instances. Follows CNAMEs and alias records; found=false means NXDOMAIN or no records of that type.",
+			InputSchema: schema(map[string]any{
+				"name": map[string]any{"type": "string", "description": "DNS name, e.g. api.corp.local"},
+				"type": map[string]any{"type": "string", "description": "Record type: A (default), AAAA, CNAME, SRV, TXT, MX, NS, SOA..."},
+			}, "name"),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var a struct {
+					Name string `json:"name"`
+					Type string `json:"type"`
+				}
+				if err := json.Unmarshal(raw, &a); err != nil {
+					return nil, err
+				}
+				return api.DNSResolve(ctx, a.Name, a.Type)
 			},
 		},
 	}

@@ -314,3 +314,22 @@ export interface KafkaCluster {
   /** host:port to pass to a Kafka client; empty while no broker runs. */
   bootstrap_brokers: string;
 }
+
+/** One record in a DNS answer. */
+export interface DnsAnswer {
+  name: string;
+  type: string;
+  value: string;
+  ttl: number;
+  zone_id: string;
+}
+
+/** What a lookup against the emulated hosted zones returns. */
+export interface DnsResolution {
+  name: string;
+  type: string;
+  /** CNAME steps first, then the records of the requested type. */
+  answers: DnsAnswer[];
+  /** False for NXDOMAIN or when the name has no records of that type. */
+  found: boolean;
+}

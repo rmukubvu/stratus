@@ -39,9 +39,11 @@ import (
 	"github.com/stratus/internal/services/logs"
 	"github.com/stratus/internal/services/monitoring"
 	"github.com/stratus/internal/services/rds"
+	"github.com/stratus/internal/services/route53"
 	"github.com/stratus/internal/services/s3"
 	"github.com/stratus/internal/services/scheduler"
 	"github.com/stratus/internal/services/secretsmanager"
+	"github.com/stratus/internal/services/servicediscovery"
 	"github.com/stratus/internal/services/ses"
 	"github.com/stratus/internal/services/sns"
 	"github.com/stratus/internal/services/sqs"
@@ -82,6 +84,8 @@ type Options struct {
 	SES             *ses.Service
 	Bedrock         *bedrock.Service
 	Kafka           *kafka.Service
+	Route53         *route53.Service
+	CloudMap        *servicediscovery.Directory
 	Scheduler       *scheduler.Service
 	Operator        *operator.Service
 	// Faults, when set, injects chaos faults into AWS API requests.
@@ -128,6 +132,8 @@ type Server struct {
 	ses             *ses.Service
 	bedrock         *bedrock.Service
 	kafka           *kafka.Service
+	route53         *route53.Service
+	cloudMap        *servicediscovery.Directory
 	scheduler       *scheduler.Service
 	operator        *operator.Service
 	control         http.Handler
@@ -174,6 +180,8 @@ func NewServer(opts Options) *Server {
 		ses:             opts.SES,
 		bedrock:         opts.Bedrock,
 		kafka:           opts.Kafka,
+		route53:         opts.Route53,
+		cloudMap:        opts.CloudMap,
 		scheduler:       opts.Scheduler,
 		operator:        opts.Operator,
 		control:         opts.Control,
@@ -444,6 +452,16 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotFoundException", Message: "service \"kafka\" is not implemented"}
 		}
 		return s.kafka.Handle(w, r)
+	case "route53":
+		if s.route53 == nil {
+			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"route53\" is not implemented"}
+		}
+		return s.route53.Handle(w, r)
+	case "servicediscovery":
+		if s.cloudMap == nil {
+			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "UnknownOperationException", Message: "service \"servicediscovery\" is not implemented"}
+		}
+		return s.cloudMap.Handle(w, r, metadata.Classification.Operation)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,

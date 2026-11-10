@@ -202,6 +202,16 @@ func (c *Client) KafkaClusters(ctx context.Context) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodGet, "/kafka/clusters", nil)
 }
 
+// DNSResolve looks a name up in the emulated Route 53 zones, including the
+// records Cloud Map publishes. rtype defaults to A.
+func (c *Client) DNSResolve(ctx context.Context, name, rtype string) (json.RawMessage, error) {
+	q := url.Values{"name": {name}}
+	if rtype != "" {
+		q.Set("type", rtype)
+	}
+	return c.Do(ctx, http.MethodGet, "/dns/resolve?"+q.Encode(), nil)
+}
+
 // Endpoint returns the base URL the client talks to.
 func (c *Client) Endpoint() string { return c.base.String() }
 

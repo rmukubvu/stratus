@@ -141,6 +141,9 @@ func CommandEnv(base []string, endpoint string, port int) []string {
 		"STRATUS_ENDPOINT":        endpoint,
 		"STRATUS_DOCKER_ENDPOINT": fmt.Sprintf("http://host.docker.internal:%d", port),
 		"STRATUS_PORT":            fmt.Sprintf("%d", port),
+		// Some operations (Cloud Map's DiscoverInstances) prefix the host,
+		// which turns 127.0.0.1 into an unresolvable name.
+		"AWS_DISABLE_HOST_PREFIX_INJECTION": "true",
 	}
 	defaults := map[string]string{
 		"AWS_ACCESS_KEY_ID":     "test",
