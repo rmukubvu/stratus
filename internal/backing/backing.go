@@ -37,6 +37,26 @@ type Spec struct {
 	Probe Probe
 	// ReadyTimeout bounds the wait for readiness. Zero means DefaultReadyTimeout.
 	ReadyTimeout time.Duration
+	// Data says where the engine keeps its state. Nil means the engine holds
+	// nothing worth keeping, like Memcached, so it is never exported.
+	Data *Data
+	// Seed is an archive written by Runner.Export. When set, the engine starts
+	// from that data instead of an empty data directory. It requires Data.
+	Seed string
+}
+
+// Data describes the state an engine keeps on disk.
+type Data struct {
+	// Path is the directory inside the container that holds the state, for
+	// example PostgreSQL's PGDATA.
+	Path string
+	// Flush makes the engine write in-memory state to Path before an export,
+	// for engines such as Valkey that keep their data in memory. Nil means
+	// everything is already on disk.
+	Flush func(ctx context.Context, address string) error
+	// Exclude names entries directly under Path that must not be exported,
+	// such as a lock file that only means something to the running process.
+	Exclude []string
 }
 
 // Endpoint is where clients reach a running engine.
@@ -61,7 +81,27 @@ type Runner interface {
 	Running(ctx context.Context, kind, name string) (bool, error)
 	// StopAll removes every engine of a kind.
 	StopAll(ctx context.Context, kind string) error
+	// Export writes a running engine's data to the archive file dst, as a
+	// consistent point-in-time copy. An engine that is not running fails
+	// with ErrNotRunning.
+	Export(ctx context.Context, kind, name string, data Data, dst string) error
 }
+
+// ReconcileOptions say how a backend brings engines back for resources that
+// exist in state but have none running.
+type ReconcileOptions struct {
+	// DataDir holds the archives a backend captured into a snapshot. An
+	// engine with an archive there starts from it; one without starts empty.
+	// Empty means every engine starts empty.
+	DataDir string
+	// FreshEndpoints publishes every engine on a new port instead of the one
+	// recorded in state. A data directory seeded from a snapshot needs it,
+	// because sibling seeds of the same snapshot run side by side.
+	FreshEndpoints bool
+}
+
+// ErrNotRunning means the engine has no running container to export from.
+var ErrNotRunning = errors.New("engine is not running")
 
 // ErrUnavailable means no container engine can be reached, so no engine can
 // be started or inspected.
@@ -101,3 +141,32 @@ func (Unavailable) Start(context.Context, Spec) (Endpoint, error)         { retu
 func (Unavailable) Stop(context.Context, string, string) error            { return nil }
 func (Unavailable) Running(context.Context, string, string) (bool, error) { return false, nil }
 func (Unavailable) StopAll(context.Context, string) error                 { return nil }
+func (Unavailable) Export(context.Context, string, string, Data, string) error {
+	return ErrUnavailable
+}
+
+// Exportable is one engine whose data a backend wants in a snapshot.
+type Exportable struct {
+	Name string
+	Data Data
+}
+
+// ExportAll exports each engine of kind into dir, one archive per engine, and
+// returns the names it captured. An engine that is not running, or a runner
+// without a container engine, holds no data to capture, so it is skipped and
+// comes back empty on restore.
+func ExportAll(ctx context.Context, runner Runner, kind, dir string, engines []Exportable) ([]string, error) {
+	var captured []string
+	for _, e := range engines {
+		err := runner.Export(ctx, kind, e.Name, e.Data, ArchivePath(dir, e.Name))
+		switch {
+		case err == nil:
+			captured = append(captured, e.Name)
+		case errors.Is(err, ErrNotRunning), errors.Is(err, ErrUnavailable):
+			continue
+		default:
+			return nil, fmt.Errorf("export %s %s: %w", kind, e.Name, err)
+		}
+	}
+	return captured, nil
+}

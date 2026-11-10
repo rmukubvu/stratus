@@ -2,7 +2,10 @@ package control
 
 import (
 	"context"
+	"path/filepath"
 	"time"
+
+	"github.com/stratus/internal/backing"
 )
 
 // StateStore is the metadata database every service writes to.
@@ -38,14 +41,25 @@ type Backend interface {
 	// Reset stops every engine. It runs after the service's state is dropped.
 	Reset(ctx context.Context) error
 	// Reconcile starts engines for resources that exist in state but have
-	// none running. It runs after a snapshot restore.
-	Reconcile(ctx context.Context) error
+	// none running. It runs after a snapshot restore and at startup.
+	Reconcile(ctx context.Context, opts backing.ReconcileOptions) error
+	// Capture writes the data held by each running engine into dir and
+	// returns the names of the resources it captured. Reconcile reads the
+	// same directory back through ReconcileOptions.DataDir.
+	Capture(ctx context.Context, dir string) ([]string, error)
 }
 
 // SnapshotPaths is where a snapshot's data lives on disk.
 type SnapshotPaths struct {
 	MetaDB  string
 	BlobDir string
+	// EngineDir holds engine data, one subdirectory per backend service.
+	EngineDir string
+}
+
+// EngineDirFor is where a backend's engine data lives inside EngineDir.
+func (p SnapshotPaths) EngineDirFor(service string) string {
+	return filepath.Join(p.EngineDir, service)
 }
 
 // SnapshotStaging is a snapshot being written. It becomes visible only once

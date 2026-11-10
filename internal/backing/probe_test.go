@@ -235,3 +235,24 @@ func acceptAndClose(ln net.Listener) {
 		conn.Close()
 	}
 }
+
+func TestRedisSaveAcceptsOK(t *testing.T) {
+	ln := listen(t)
+	defer ln.Close()
+	go serveLine(ln, "+OK\r\n")
+
+	if err := RedisSave(context.Background(), ln.Addr().String()); err != nil {
+		t.Fatalf("RedisSave should accept +OK: %v", err)
+	}
+}
+
+func TestRedisSaveReportsEngineError(t *testing.T) {
+	ln := listen(t)
+	defer ln.Close()
+	go serveLine(ln, "-ERR Background save already in progress\r\n")
+
+	err := RedisSave(context.Background(), ln.Addr().String())
+	if err == nil || !strings.Contains(err.Error(), "Background save") {
+		t.Fatalf("RedisSave should surface the engine's error, got %v", err)
+	}
+}

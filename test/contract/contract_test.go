@@ -3763,6 +3763,13 @@ func startHarnessWithDataDir(t *testing.T, dataDir string) *harness {
 // variables, for settings only the environment configures.
 func startHarnessWithEnv(t *testing.T, dataDir string, env ...string) *harness {
 	t.Helper()
+	return startHarnessWithArgs(t, dataDir, nil, env...)
+}
+
+// startHarnessWithArgs starts Stratus with extra command-line flags, such as
+// --seed, and extra environment variables.
+func startHarnessWithArgs(t *testing.T, dataDir string, args []string, env ...string) *harness {
+	t.Helper()
 
 	if _, err := exec.LookPath("aws"); err != nil {
 		t.Skip("aws cli not installed")
@@ -3777,7 +3784,8 @@ func startHarnessWithEnv(t *testing.T, dataDir string, env ...string) *harness {
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 
-		cmd := exec.CommandContext(ctx, bin, "--port", fmt.Sprintf("%d", port), "--data-dir", dataDir, "--log-level", "debug")
+		flags := append([]string{"--port", fmt.Sprintf("%d", port), "--data-dir", dataDir, "--log-level", "debug"}, args...)
+		cmd := exec.CommandContext(ctx, bin, flags...)
 		cmd.Dir = moduleRoot(t)
 		cmd.Env = append(serverEnv(), env...)
 		cmd.Stdout = output

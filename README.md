@@ -368,7 +368,8 @@ stratus reset s3 sqs               # clear selected services (or all)
 ```
 
 Snapshots hard-link blobs, so they are fast and cheap even with large S3
-objects. See [docs/control-api.md](docs/control-api.md) for endpoints,
+objects, and they include the rows and keys inside RDS and ElastiCache
+engines. See [docs/control-api.md](docs/control-api.md) for endpoints,
 error codes and consistency guarantees.
 
 ## Running in CI

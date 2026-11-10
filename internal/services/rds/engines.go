@@ -46,8 +46,17 @@ type Credentials struct {
 // cold CI runner.
 const readyTimeout = 90 * time.Second
 
-// Spec builds the engine's container spec for an instance.
-func (e Engine) Spec(identifier string, creds Credentials, hostPort int) backing.Spec {
+// Data directories inside the engine images. PostgreSQL's is set explicitly
+// through PGDATA, because newer images moved the default.
+const (
+	postgresDataDir = "/var/lib/postgresql/data"
+	mysqlDataDir    = "/var/lib/mysql"
+)
+
+// Spec builds the engine's container spec for an instance. A non-empty seed
+// is an archive of the instance's data to start from.
+func (e Engine) Spec(identifier string, creds Credentials, hostPort int, seed string) backing.Spec {
+	data := e.Data()
 	return backing.Spec{
 		Kind:         kind,
 		Name:         identifier,
@@ -57,6 +66,21 @@ func (e Engine) Spec(identifier string, creds Credentials, hostPort int) backing
 		HostPort:     hostPort,
 		Probe:        e.probe(creds),
 		ReadyTimeout: readyTimeout,
+		Data:         &data,
+		Seed:         seed,
+	}
+}
+
+// Data is where the engine keeps its databases. Every RDS engine writes to
+// disk, so a paused copy of the directory is a crash-consistent backup that
+// the engine recovers on its next start.
+func (e Engine) Data() backing.Data {
+	switch e.family {
+	case familyPostgres:
+		// postmaster.pid belongs to the process that wrote it.
+		return backing.Data{Path: postgresDataDir, Exclude: []string{"postmaster.pid"}}
+	default:
+		return backing.Data{Path: mysqlDataDir}
 	}
 }
 
@@ -89,6 +113,7 @@ func (e Engine) env(creds Credentials) []string {
 			"POSTGRES_USER=" + creds.Username,
 			"POSTGRES_PASSWORD=" + creds.Password,
 			"POSTGRES_DB=" + database,
+			"PGDATA=" + postgresDataDir,
 		}
 	case familyMySQL:
 		return sqlFamilyEnv("MYSQL", creds, database)

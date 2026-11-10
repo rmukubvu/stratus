@@ -44,8 +44,13 @@ type Snapshot struct {
 	CreatedAt time.Time  `json:"created_at"`
 	// Services lists the services that held state when the snapshot was taken.
 	Services []string `json:"services"`
-	// SizeBytes is the logical size of the snapshot. Blobs are hard-linked
-	// where possible, so the real disk cost is usually much lower.
+	// Engines lists the engines whose data the snapshot holds, as
+	// "<service>/<resource>", for example "rds/orders-db". Engines that keep
+	// no data, such as Memcached, are not listed and restore empty.
+	Engines []string `json:"engines,omitempty"`
+	// SizeBytes is the logical size of the snapshot, engine data included.
+	// Blobs are hard-linked where possible, so the real disk cost of those
+	// is usually much lower.
 	SizeBytes int64 `json:"size_bytes"`
 }
 

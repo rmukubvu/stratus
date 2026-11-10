@@ -119,7 +119,7 @@ func ReapOrphans(ctx context.Context, api containerAPI, self Owner, alive Proces
 		if !IsOrphan(c.Labels, self, alive) {
 			continue
 		}
-		if err := api.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true}); err != nil {
+		if err := api.ContainerRemove(ctx, c.ID, container.RemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("remove orphan container %s: %w", c.ID, err)
 			}

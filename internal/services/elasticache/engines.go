@@ -21,15 +21,20 @@ type Engine struct {
 	DefaultVersion string
 	// probe decides when the engine is ready.
 	probe backing.Probe
+	// data is where the engine keeps state worth snapshotting. Nil means it
+	// keeps none: Memcached is memory only, as it is on AWS.
+	data *backing.Data
 }
 
 // readyTimeout bounds how long CreateCacheCluster waits for an engine. Cache
 // engines start in well under a second; the margin covers slow CI disks.
 const readyTimeout = 30 * time.Second
 
-// Spec builds the engine's container spec for a cluster.
-func (e Engine) Spec(clusterID string, hostPort int) backing.Spec {
-	return backing.Spec{
+// Spec builds the engine's container spec for a cluster. A non-empty seed is
+// an archive of the cluster's data to start from; engines that keep no data
+// ignore it.
+func (e Engine) Spec(clusterID string, hostPort int, seed string) backing.Spec {
+	spec := backing.Spec{
 		Kind:         kind,
 		Name:         clusterID,
 		Image:        e.Image,
@@ -37,8 +42,26 @@ func (e Engine) Spec(clusterID string, hostPort int) backing.Spec {
 		HostPort:     hostPort,
 		Probe:        e.probe,
 		ReadyTimeout: readyTimeout,
+		Data:         e.data,
 	}
+	if e.data != nil {
+		spec.Seed = seed
+	}
+	return spec
 }
+
+// Data reports where the engine keeps state worth snapshotting, and false
+// for engines that keep none.
+func (e Engine) Data() (backing.Data, bool) {
+	if e.data == nil {
+		return backing.Data{}, false
+	}
+	return *e.data, true
+}
+
+// redisData snapshots a Valkey server: SAVE writes dump.rdb into the working
+// directory, /data in the image, and the server loads it on start.
+var redisData = &backing.Data{Path: "/data", Flush: backing.RedisSave}
 
 // Engines is the set of engines an ElastiCache service can run.
 type Engines struct {
@@ -65,8 +88,8 @@ func DefaultEngines(getenv func(string) string) Engines {
 	redis := imageOr(getenv(EnvRedisImage), defaultRedisImage)
 	memcached := imageOr(getenv(EnvMemcachedImage), defaultMemcachedImage)
 	return NewEngines(
-		Engine{Name: "redis", Image: redis, Port: 6379, DefaultVersion: "7.1", probe: backing.RedisPing},
-		Engine{Name: "valkey", Image: redis, Port: 6379, DefaultVersion: "8.0", probe: backing.RedisPing},
+		Engine{Name: "redis", Image: redis, Port: 6379, DefaultVersion: "7.1", probe: backing.RedisPing, data: redisData},
+		Engine{Name: "valkey", Image: redis, Port: 6379, DefaultVersion: "8.0", probe: backing.RedisPing, data: redisData},
 		Engine{Name: "memcached", Image: memcached, Port: 11211, DefaultVersion: "1.6.22", probe: backing.MemcachedVersion},
 	)
 }

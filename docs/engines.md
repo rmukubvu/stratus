@@ -69,12 +69,15 @@ An engine lives exactly as long as its record:
   reset) stops the service's engines along with its state. The response lists
   them under `engines_stopped`.
 - A snapshot restore stops every engine and starts one for each instance and
-  cluster in the restored state, on the port it had when the snapshot was
-  taken. Endpoints are stable across restores.
-- Shutdown removes every engine the process started, and the next start
-  removes anything a crashed process left behind, the same way Lambda
-  containers are reaped. A persistent `stratus serve` restarts the engines
-  for its recorded instances on boot.
+  cluster in the restored state, from the data captured in the snapshot, on
+  the port it had when the snapshot was taken. Endpoints are stable across
+  restores.
+- Shutdown removes every engine the process started, with its data volume,
+  and the next start removes anything a crashed process left behind, the
+  same way Lambda containers are reaped. A persistent `stratus serve`
+  restarts the engines for its recorded instances on boot; they start empty
+  unless the data directory was just seeded, so take a snapshot to keep
+  data across restarts.
 
 Containers carry the `io.stratus.kind` (`rds`, `elasticache`) and
 `io.stratus.resource` labels, so `docker ps --filter label=io.stratus.kind=rds`
@@ -82,12 +85,48 @@ shows what is running.
 
 ## What a snapshot captures
 
-A snapshot captures the control plane: which instances and clusters exist,
-their engines, credentials and endpoints. It does not capture the data inside
-the engines. A restored instance comes back empty, with the same endpoint and
-credentials, so seed scripts that create schema and rows must run after a
-restore, not before the snapshot. Capturing engine data in snapshots is a
-planned follow-up.
+A snapshot captures both the control plane (which instances and clusters
+exist, their engines, credentials and endpoints) and the data inside the
+engines. Seed your schema and rows once, snapshot, and every restore or
+seeded job starts with them:
+
+```sh
+psql -h 127.0.0.1 -p 49312 -U app orders -f schema.sql -f fixtures.sql
+redis-cli -p 49313 set feature:checkout on
+stratus snapshot save seeded
+# ... tests write, drop and flush whatever they like ...
+stratus snapshot restore seeded    # rows and keys are back, same ports
+```
+
+How each engine is captured:
+
+| Engine | What is copied | How it is made consistent |
+| --- | --- | --- |
+| PostgreSQL | `PGDATA` (`/var/lib/postgresql/data`) | container paused during the copy; crash recovery on start |
+| MySQL, MariaDB | `/var/lib/mysql` | container paused during the copy; InnoDB crash recovery on start |
+| Valkey | `/data` | `SAVE` writes `dump.rdb`, then the container is paused during the copy |
+| Memcached | nothing | memory only, as on AWS; restores empty |
+
+The copy is taken while the engine is paused, so it is the same image the
+disk would hold after a sudden power loss. Committed transactions are
+durable and the engine recovers on its next start, which is how restores
+stay fast: no SQL is replayed. Clients are not disconnected; queries simply
+wait for the moment the pause lasts.
+
+Each engine is stored as `engines/<service>/<resource>.tar.gz` inside the
+snapshot directory and counts toward `size_bytes`. The snapshot lists what it
+captured under `engines`. An engine that was not running when the snapshot
+was taken (for example because Docker was down) is left out and restores
+empty. Snapshots taken before engine data was captured still restore; their
+engines start empty.
+
+### Seeded jobs
+
+`stratus ci --seed <snapshot>` and `stratus serve --seed <snapshot>` start
+every engine from the snapshot's data too. Each seeded Stratus publishes its
+engines on new ports, so many jobs seeded from one snapshot run side by side;
+read the endpoints from the API as usual. The seeded data is used on the
+first boot and then dropped from the data directory.
 
 ## Not covered yet
 

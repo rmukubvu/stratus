@@ -109,6 +109,9 @@ func (f *fakeDocker) ContainerRemove(_ context.Context, id string, opts containe
 	if !opts.Force {
 		return errors.New("expected forced removal")
 	}
+	if !opts.RemoveVolumes {
+		return errors.New("expected the container's volumes to be removed with it")
+	}
 	if err := f.removeErr[id]; err != nil {
 		return err
 	}

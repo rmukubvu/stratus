@@ -53,6 +53,27 @@ func RedisPing(ctx context.Context, address string) error {
 	return nil
 }
 
+// RedisSave makes a Redis-protocol engine write its dataset to disk with a
+// blocking SAVE, so that an export of its data directory holds every key.
+func RedisSave(ctx context.Context, address string) error {
+	conn, err := open(ctx, address)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte("*1\r\n$4\r\nSAVE\r\n")); err != nil {
+		return err
+	}
+	line, err := bufio.NewReader(conn).ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("read SAVE reply: %w", err)
+	}
+	if strings.TrimSpace(line) != "+OK" {
+		return fmt.Errorf("SAVE failed: %s", strings.TrimSpace(line))
+	}
+	return nil
+}
+
 // MemcachedVersion is ready when the engine answers the version command.
 func MemcachedVersion(ctx context.Context, address string) error {
 	conn, err := open(ctx, address)

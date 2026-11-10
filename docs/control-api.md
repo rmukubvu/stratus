@@ -42,11 +42,14 @@ snapshot can be restored any number of times.
 
 Names are 1-63 characters of lowercase letters, digits, `.`, `_` and `-`.
 
-A snapshot records which RDS instances and ElastiCache clusters exist, with
-their endpoints and credentials, but not the data inside their engines. A
-restore stops every engine and starts a fresh one for each recorded instance
-on the same port, so endpoints stay stable while the databases come back
-empty. See [engines.md](engines.md).
+A snapshot also holds the data inside RDS instances and ElastiCache
+clusters: each PostgreSQL, MySQL, MariaDB and Valkey engine is paused for a
+moment while its data directory is copied into the snapshot. A restore
+stops every engine and starts each one from that copy on the same port, so
+endpoints stay stable and the rows and keys are back. The response lists
+captured engines under `engines`, for example `["rds/orders-db",
+"elasticache/sessions"]`. Memcached keeps no data, as on AWS, and comes back
+empty. See [engines.md](engines.md#what-a-snapshot-captures).
 
 ## Consistency
 

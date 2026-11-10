@@ -13,6 +13,7 @@ const (
 	manifestFile   = "manifest.json"
 	metaDBFile     = "meta.db"
 	blobDirName    = "blobs"
+	engineDirName  = "engines"
 	stagingPrefix  = ".staging-"
 	manifestFormat = 1
 )
@@ -27,6 +28,7 @@ type manifest struct {
 //	<root>/<id>/manifest.json
 //	<root>/<id>/meta.db
 //	<root>/<id>/blobs/...
+//	<root>/<id>/engines/<service>/<resource>.tar.gz
 //
 // A snapshot is written to a hidden staging directory and renamed into place
 // on commit, so readers never see a partial snapshot.
@@ -53,7 +55,11 @@ func NewFSSnapshotRepository(root string) (*FSSnapshotRepository, error) {
 }
 
 func pathsIn(dir string) SnapshotPaths {
-	return SnapshotPaths{MetaDB: filepath.Join(dir, metaDBFile), BlobDir: filepath.Join(dir, blobDirName)}
+	return SnapshotPaths{
+		MetaDB:    filepath.Join(dir, metaDBFile),
+		BlobDir:   filepath.Join(dir, blobDirName),
+		EngineDir: filepath.Join(dir, engineDirName),
+	}
 }
 
 func (r *FSSnapshotRepository) dir(id SnapshotID) string {

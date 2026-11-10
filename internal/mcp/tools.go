@@ -163,7 +163,7 @@ func Tools(api ControlAPI) []Tool {
 		},
 		{
 			Name:        "stratus_snapshot_save",
-			Description: "Capture all current emulated state under a name, so it can be restored later. Fast and cheap; take one after seeding test data.",
+			Description: "Capture all current emulated state under a name, so it can be restored later, including the rows and keys inside RDS and ElastiCache engines. Fast and cheap; take one after seeding test data.",
 			InputSchema: schema(map[string]any{"name": str("Lowercase name such as \"seeded\"; omit to generate one.")}),
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 				a, err := decode[nameArg](raw)
