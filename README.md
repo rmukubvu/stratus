@@ -69,6 +69,7 @@ Current Lambda execution runtimes:
 - ELBv2
 - RDS (real PostgreSQL, MySQL and MariaDB in Docker)
 - ElastiCache (real Valkey/Redis and Memcached in Docker)
+- MSK (a real Kafka-compatible Redpanda broker in Docker)
 - SES v1 and v2 (sends land in a captured inbox)
 - EventBridge Scheduler (with a clock you can fast-forward)
 - Bedrock Runtime (record real model answers once, replay them offline)
@@ -81,7 +82,9 @@ RDS instances and ElastiCache clusters are real engines: the endpoint the
 API returns speaks the real wire protocol, and the create call returns once
 the engine accepts connections. The images must be present locally
 (`docker pull postgres:16-alpine valkey/valkey:8`). See
-[docs/engines.md](docs/engines.md).
+[docs/engines.md](docs/engines.md). MSK clusters work the same way: each
+one is a Redpanda broker, so any Kafka client produces and consumes through
+the bootstrap address the API returns. See [docs/msk.md](docs/msk.md).
 
 Emails sent through SES are never delivered; they land in an inbox the
 control API, MCP server and SDKs can read and filter, so a test asserts on

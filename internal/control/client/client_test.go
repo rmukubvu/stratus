@@ -81,6 +81,7 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 	_, _ = c.SchedulerRun(ctx, "", "nightly")
 	_, _ = c.BedrockAddFixture(ctx, json.RawMessage(`{"text":"hi"}`))
 	_, _ = c.BedrockInvocations(ctx, url.Values{"outcome": {"missed"}})
+	_, _ = c.KafkaClusters(ctx)
 
 	want := []string{
 		"POST /_stratus/control/v1/reset",
@@ -97,6 +98,7 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 		"POST /_stratus/control/v1/scheduler/run",
 		"POST /_stratus/control/v1/bedrock/fixtures",
 		"GET /_stratus/control/v1/bedrock/invocations",
+		"GET /_stratus/control/v1/kafka/clusters",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)

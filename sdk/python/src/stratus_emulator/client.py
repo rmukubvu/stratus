@@ -20,6 +20,7 @@ from .types import (
     ChaosReport,
     Diagnosis,
     Health,
+    KafkaCluster,
     ResetResult,
     SchedulerAdvance,
     SchedulerClock,
@@ -145,6 +146,25 @@ class Scheduler:
         return cast(SchedulerInvocation, self._t.request("POST", "/scheduler/run", body))
 
 
+class Kafka:
+    """MSK clusters, each a real Kafka-compatible broker."""
+
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def clusters(self) -> List[KafkaCluster]:
+        """Every cluster with the bootstrap address to hand to a Kafka client."""
+        res = self._t.request("GET", "/kafka/clusters") or {}
+        return cast(List[KafkaCluster], res.get("items") or [])
+
+    def bootstrap_brokers(self, name: str) -> str:
+        """The bootstrap brokers (host:port) of the named cluster."""
+        for cluster in self.clusters():
+            if cluster["name"] == name:
+                return cluster["bootstrap_brokers"]
+        raise StratusError("KafkaClusterNotFound", f'MSK cluster "{name}" does not exist', "list clusters with kafka.clusters()", 404)
+
+
 class Bedrock:
     """Bedrock fixtures and the log of model calls."""
 
@@ -254,6 +274,7 @@ class StratusClient:
         self.ses = Ses(self._t)
         self.scheduler = Scheduler(self._t)
         self.bedrock = Bedrock(self._t)
+        self.kafka = Kafka(self._t)
 
     def health(self) -> Health:
         return cast(Health, self._t.request("GET", "/health"))

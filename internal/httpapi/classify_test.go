@@ -483,3 +483,16 @@ func TestClassifyBedrockRuntimeBySigningNameAndHost(t *testing.T) {
 		t.Fatalf("unsigned /model/... is still an S3 bucket: %+v", got)
 	}
 }
+
+func TestClassifyMSKBySigningNameAndHost(t *testing.T) {
+	arn := "arn%3Aaws%3Akafka%3Aus-east-1%3A000000000000%3Acluster%2Forders%2Fabc-1"
+	signed, _ := http.NewRequest(http.MethodGet, "http://localhost:4566/v1/clusters/"+arn+"/bootstrap-brokers", nil)
+	signed.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20261110/us-east-1/kafka/aws4_request, SignedHeaders=host, Signature=x")
+	byHost, _ := http.NewRequest(http.MethodPost, "http://kafka.us-east-1.localhost:4566/api/v2/clusters", nil)
+	for req, op := range map[*http.Request]string{signed: "GetBootstrapBrokers", byHost: "CreateClusterV2"} {
+		got, err := Classify(req)
+		if err != nil || got.Service != "kafka" || got.Protocol != ProtocolREST || got.Operation != op {
+			t.Fatalf("unexpected classification: %+v %v", got, err)
+		}
+	}
+}

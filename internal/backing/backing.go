@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 )
 
@@ -169,4 +170,16 @@ func ExportAll(ctx context.Context, runner Runner, kind, dir string, engines []E
 		}
 	}
 	return captured, nil
+}
+
+// FreeLoopbackPort finds a loopback port nothing listens on. Engines that
+// must know their published port before they start, such as a Kafka broker
+// that advertises its own address to clients, reserve one with it.
+func FreeLoopbackPort() (int, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("find a free port: %w", err)
+	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port, nil
 }

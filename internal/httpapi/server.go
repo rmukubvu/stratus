@@ -32,6 +32,7 @@ import (
 	eventssvc "github.com/stratus/internal/services/events"
 	"github.com/stratus/internal/services/fis"
 	"github.com/stratus/internal/services/iam"
+	"github.com/stratus/internal/services/kafka"
 	"github.com/stratus/internal/services/kinesis"
 	"github.com/stratus/internal/services/kms"
 	lambdasvc "github.com/stratus/internal/services/lambda"
@@ -80,6 +81,7 @@ type Options struct {
 	FIS             *fis.Service
 	SES             *ses.Service
 	Bedrock         *bedrock.Service
+	Kafka           *kafka.Service
 	Scheduler       *scheduler.Service
 	Operator        *operator.Service
 	// Faults, when set, injects chaos faults into AWS API requests.
@@ -125,6 +127,7 @@ type Server struct {
 	fis             *fis.Service
 	ses             *ses.Service
 	bedrock         *bedrock.Service
+	kafka           *kafka.Service
 	scheduler       *scheduler.Service
 	operator        *operator.Service
 	control         http.Handler
@@ -170,6 +173,7 @@ func NewServer(opts Options) *Server {
 		fis:             opts.FIS,
 		ses:             opts.SES,
 		bedrock:         opts.Bedrock,
+		kafka:           opts.Kafka,
 		scheduler:       opts.Scheduler,
 		operator:        opts.Operator,
 		control:         opts.Control,
@@ -435,6 +439,11 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "UnknownOperationException", Message: "service \"bedrock\" is not implemented"}
 		}
 		return s.bedrock.Handle(w, r)
+	case "kafka":
+		if s.kafka == nil {
+			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotFoundException", Message: "service \"kafka\" is not implemented"}
+		}
+		return s.kafka.Handle(w, r)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,

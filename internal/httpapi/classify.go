@@ -7,6 +7,7 @@ import (
 	"github.com/stratus/internal/awscompat"
 	"github.com/stratus/internal/services/bedrock"
 	"github.com/stratus/internal/services/fis"
+	"github.com/stratus/internal/services/kafka"
 	"github.com/stratus/internal/services/scheduler"
 	"github.com/stratus/internal/services/ses"
 )
@@ -133,10 +134,10 @@ func init() {
 // /v2/email/..., /model/...) would otherwise read as path-style S3 buckets.
 // They are recognised by their SigV4 signing name, or by their host prefix
 // when a client sends unsigned requests. Bedrock Runtime signs as
-// "bedrock".
-var signedRESTServices = map[string]string{"fis": "fis", "scheduler": "scheduler", "ses": "ses", "bedrock": "bedrock"}
+// "bedrock"; MSK signs as "kafka".
+var signedRESTServices = map[string]string{"fis": "fis", "scheduler": "scheduler", "ses": "ses", "bedrock": "bedrock", "kafka": "kafka"}
 
-var restHostPrefixes = map[string]string{"fis.": "fis", "scheduler.": "scheduler", "email.": "ses", "bedrock-runtime.": "bedrock"}
+var restHostPrefixes = map[string]string{"fis.": "fis", "scheduler.": "scheduler", "email.": "ses", "bedrock-runtime.": "bedrock", "kafka.": "kafka"}
 
 var restPrefixToService = map[string]string{
 	"/2015-03-31/functions":             "lambda",
@@ -255,6 +256,8 @@ func restOperation(service string, r *http.Request) string {
 		return ses.OperationV2(r.Method, r.URL.Path)
 	case "bedrock":
 		return bedrock.Operation(r.Method, r.URL.EscapedPath())
+	case "kafka":
+		return kafka.Operation(r.Method, r.URL.EscapedPath())
 	}
 	return ""
 }

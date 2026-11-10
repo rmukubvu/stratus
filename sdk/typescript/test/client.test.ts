@@ -258,3 +258,17 @@ describe("bedrock", () => {
     assert.deepEqual(calls[0]!.body, { kind: "converse", response, request_hash: "sha256:abc" });
   });
 });
+
+describe("kafka", () => {
+  test("clusters and bootstrap brokers come from the control API", async () => {
+    const cluster = { name: "orders", arn: "arn:aws:kafka:us-east-1:000000000000:cluster/orders/x", type: "PROVISIONED", state: "ACTIVE", kafka_version: "3.6.0", bootstrap_brokers: "127.0.0.1:41001" };
+    const { fetch, calls } = fakeFetch({ body: { items: [cluster], count: 1 } }, { body: { items: [cluster], count: 1 } }, { body: { items: null, count: 0 } });
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch });
+
+    assert.deepEqual(await c.kafka.clusters(), [cluster]);
+    assert.equal(await c.kafka.bootstrapBrokers("orders"), "127.0.0.1:41001");
+    await assert.rejects(c.kafka.bootstrapBrokers("missing"), (err: unknown) => err instanceof StratusError && err.code === "KafkaClusterNotFound");
+
+    assert.deepEqual(calls.map((x) => `${x.method} ${x.url.slice(base.length)}`), ["GET /kafka/clusters", "GET /kafka/clusters", "GET /kafka/clusters"]);
+  });
+});

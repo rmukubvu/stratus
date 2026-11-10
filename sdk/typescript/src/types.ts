@@ -303,3 +303,14 @@ export interface BedrockInvocationFilter {
   /** Only the newest N calls. */
   limit?: number;
 }
+
+/** An MSK cluster as the control API lists it. */
+export interface KafkaCluster {
+  name: string;
+  arn: string;
+  type: "PROVISIONED" | "SERVERLESS";
+  state: string;
+  kafka_version: string;
+  /** host:port to pass to a Kafka client; empty while no broker runs. */
+  bootstrap_brokers: string;
+}

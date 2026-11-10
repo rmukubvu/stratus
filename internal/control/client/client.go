@@ -197,6 +197,11 @@ func (c *Client) BedrockInvocations(ctx context.Context, query url.Values) (json
 	return c.Do(ctx, http.MethodGet, path, nil)
 }
 
+// KafkaClusters lists MSK clusters with the bootstrap address of each.
+func (c *Client) KafkaClusters(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/kafka/clusters", nil)
+}
+
 // Endpoint returns the base URL the client talks to.
 func (c *Client) Endpoint() string { return c.base.String() }
 

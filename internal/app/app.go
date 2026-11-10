@@ -34,6 +34,7 @@ import (
 	eventssvc "github.com/stratus/internal/services/events"
 	"github.com/stratus/internal/services/fis"
 	"github.com/stratus/internal/services/iam"
+	"github.com/stratus/internal/services/kafka"
 	"github.com/stratus/internal/services/kinesis"
 	"github.com/stratus/internal/services/kms"
 	lambdasvc "github.com/stratus/internal/services/lambda"
@@ -158,7 +159,12 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Engines:  engines,
 		Catalog:  elasticache.DefaultEngines(os.Getenv),
 	})
-	backends := []control.Backend{rdsService, elastiCacheService}
+	kafkaService := kafka.NewService(kafka.Options{
+		Metadata: metaStore,
+		Engines:  engines,
+		Engine:   kafka.DefaultEngine(os.Getenv),
+	})
+	backends := []control.Backend{rdsService, elastiCacheService, kafkaService}
 	// Records can outlive their containers: a restart reaps the old ones and
 	// a seed brings records with no containers at all. Start what is missing.
 	startEngines(backends, cfg.DataDir, cfg.Seed != "", logger)
@@ -193,6 +199,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	ses.RegisterRoutes(controlHandler, sesService)
 	scheduler.RegisterRoutes(controlHandler, schedulerService)
 	bedrock.RegisterRoutes(controlHandler, bedrockService)
+	kafka.RegisterRoutes(controlHandler, kafkaService)
 	diagnose.RegisterRoutes(controlHandler, diagnose.NewService(
 		failuresFrom(operatorStore),
 		injectionsFrom(chaosEngine),
@@ -245,6 +252,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		SES:             sesService,
 		Scheduler:       schedulerService,
 		Bedrock:         bedrockService,
+		Kafka:           kafkaService,
 		Operator:        operatorService,
 		Control:         controlHandler,
 		Gate:            controlService.Gate(),
