@@ -13,6 +13,9 @@ from typing import Any, Dict, Iterator, List, Optional, Union, cast
 from .errors import StratusError
 from .transport import Transport, UrllibTransport
 from .types import (
+    BedrockFixture,
+    BedrockInvocation,
+    BedrockStatus,
     ChaosExperiment,
     ChaosReport,
     Diagnosis,
@@ -142,6 +145,80 @@ class Scheduler:
         return cast(SchedulerInvocation, self._t.request("POST", "/scheduler/run", body))
 
 
+class Bedrock:
+    """Bedrock fixtures and the log of model calls."""
+
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def status(self) -> BedrockStatus:
+        return cast(BedrockStatus, self._t.request("GET", "/bedrock"))
+
+    def set_mode(self, mode: str) -> BedrockStatus:
+        """Switch between ``"replay"`` and ``"record"`` until the next reset."""
+        return cast(BedrockStatus, self._t.request("PUT", "/bedrock/mode", {"mode": mode}))
+
+    def fixtures(self) -> List[BedrockFixture]:
+        """Every fixture in match order: runtime fixtures, then fixture files."""
+        res = self._t.request("GET", "/bedrock/fixtures") or {}
+        return cast(List[BedrockFixture], res.get("items") or [])
+
+    def add_fixture(
+        self,
+        text: Optional[str] = None,
+        *,
+        model: Optional[str] = None,
+        contains: Optional[str] = None,
+        kind: Optional[str] = None,
+        response: Any = None,
+        request_hash: Optional[str] = None,
+        fixture_id: Optional[str] = None,
+    ) -> BedrockFixture:
+        """Answer matching model calls with ``text``, or with an exact ``response`` body and ``kind``.
+
+        ``model`` is a model id, inference profile or pattern with ``*``;
+        ``contains`` limits the fixture to prompts containing that text.
+        The fixture lasts until reset and comes before fixture files.
+        """
+        body: Dict[str, Any] = {}
+        for key, value in (("id", fixture_id), ("model", model), ("kind", kind), ("text", text), ("request_hash", request_hash)):
+            if value is not None:
+                body[key] = value
+        if contains is not None:
+            body["match"] = {"contains": contains}
+        if response is not None:
+            body["response"] = response
+        return cast(BedrockFixture, self._t.request("POST", "/bedrock/fixtures", body))
+
+    def delete_fixture(self, fixture_id: str) -> None:
+        self._t.request("DELETE", f"/bedrock/fixtures/{_quote(fixture_id)}")
+
+    def clear_fixtures(self) -> int:
+        """Remove every runtime fixture and return how many there were. Fixture files stay."""
+        return int(self._t.request("DELETE", "/bedrock/fixtures")["cleared"])
+
+    def invocations(
+        self,
+        model: Optional[str] = None,
+        contains: Optional[str] = None,
+        outcome: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[BedrockInvocation]:
+        """Model calls so far, oldest first."""
+        query: Dict[str, str] = {}
+        for key, value in (("model", model), ("contains", contains), ("outcome", outcome)):
+            if value:
+                query[key] = value
+        if limit is not None:
+            query["limit"] = str(limit)
+        path = "/bedrock/invocations" + ("?" + urllib.parse.urlencode(query) if query else "")
+        res = self._t.request("GET", path) or {}
+        return cast(List[BedrockInvocation], res.get("items") or [])
+
+    def clear_invocations(self) -> int:
+        return int(self._t.request("DELETE", "/bedrock/invocations")["cleared"])
+
+
 class ChaosRun:
     """Handle yielded by :meth:`StratusClient.chaos_experiment`; ``report`` is set on exit."""
 
@@ -176,6 +253,7 @@ class StratusClient:
         self.chaos = Chaos(self._t)
         self.ses = Ses(self._t)
         self.scheduler = Scheduler(self._t)
+        self.bedrock = Bedrock(self._t)
 
     def health(self) -> Health:
         return cast(Health, self._t.request("GET", "/health"))

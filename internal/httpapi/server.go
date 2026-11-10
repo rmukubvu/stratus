@@ -20,6 +20,7 @@ import (
 	"github.com/stratus/internal/services/acm"
 	"github.com/stratus/internal/services/apigateway"
 	"github.com/stratus/internal/services/apigatewayv2"
+	"github.com/stratus/internal/services/bedrock"
 	"github.com/stratus/internal/services/cloudformation"
 	"github.com/stratus/internal/services/cognitoidp"
 	"github.com/stratus/internal/services/dynamodb"
@@ -78,6 +79,7 @@ type Options struct {
 	DynamoDBStreams *dynamodbstreams.Service
 	FIS             *fis.Service
 	SES             *ses.Service
+	Bedrock         *bedrock.Service
 	Scheduler       *scheduler.Service
 	Operator        *operator.Service
 	// Faults, when set, injects chaos faults into AWS API requests.
@@ -122,6 +124,7 @@ type Server struct {
 	dynamodbStreams *dynamodbstreams.Service
 	fis             *fis.Service
 	ses             *ses.Service
+	bedrock         *bedrock.Service
 	scheduler       *scheduler.Service
 	operator        *operator.Service
 	control         http.Handler
@@ -166,6 +169,7 @@ func NewServer(opts Options) *Server {
 		dynamodbStreams: opts.DynamoDBStreams,
 		fis:             opts.FIS,
 		ses:             opts.SES,
+		bedrock:         opts.Bedrock,
 		scheduler:       opts.Scheduler,
 		operator:        opts.Operator,
 		control:         opts.Control,
@@ -426,6 +430,11 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "ResourceNotFoundException", Message: "service \"scheduler\" is not implemented"}
 		}
 		return s.scheduler.Handle(w, r)
+	case "bedrock":
+		if s.bedrock == nil {
+			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "UnknownOperationException", Message: "service \"bedrock\" is not implemented"}
+		}
+		return s.bedrock.Handle(w, r)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
@@ -668,4 +677,10 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(statusCode int) {
 	r.statusCode = statusCode
 	r.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer, so
+// streaming responses can flush.
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }

@@ -26,6 +26,8 @@ type ControlAPI interface {
 	SESMessages(ctx context.Context, query url.Values) (json.RawMessage, error)
 	SchedulerAdvance(ctx context.Context, by, to string) (json.RawMessage, error)
 	SchedulerRun(ctx context.Context, group, name string) (json.RawMessage, error)
+	BedrockAddFixture(ctx context.Context, fixture json.RawMessage) (json.RawMessage, error)
+	BedrockInvocations(ctx context.Context, query url.Values) (json.RawMessage, error)
 }
 
 // Instructions are sent to the client at initialization.
@@ -36,7 +38,9 @@ fails (it says whether a failure is your bug, an injected chaos fault, or an emu
 gap), stratus_snapshot_restore to get back to the seeded state. Use stratus_chaos_start
 to inject seeded, reproducible faults. Emails sent through SES land in a captured inbox
 (stratus_ses_inbox); EventBridge Scheduler runs on a clock you can fast-forward with
-stratus_scheduler_advance, so tests never wait for real time.`
+stratus_scheduler_advance, so tests never wait for real time. Bedrock model calls are
+answered from fixtures: add one with stratus_bedrock_fixture_add, and see every prompt
+the application sent (and which calls had no fixture) with stratus_bedrock_invocations.`
 
 func schema(props map[string]any, required ...string) map[string]any {
 	s := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
@@ -333,6 +337,84 @@ func Tools(api ControlAPI) []Tool {
 					return nil, err
 				}
 				return api.SchedulerRun(ctx, a.Group, a.Name)
+			},
+		},
+		{
+			Name: "stratus_bedrock_fixture_add",
+			Description: "Make Bedrock answer the application's model calls with a fixed reply, so code that calls an LLM runs offline and " +
+				"deterministically. The fixture answers Converse, ConverseStream, InvokeModel and InvokeModelWithResponseStream calls whose " +
+				"model and prompt match, in the model's own response format (Anthropic, Nova, Titan, Llama, Mistral). Fixtures added here " +
+				"come before fixture files and last until reset.",
+			InputSchema: schema(map[string]any{
+				"text":     str("The model's reply."),
+				"model":    str("Model id, inference profile or pattern with * (e.g. \"anthropic.claude-*\"). Omit to answer every model."),
+				"contains": str("Only answer prompts containing this text (system prompt, messages and tool results). Omit to answer every prompt."),
+				"kind":     map[string]any{"type": "string", "enum": []string{"converse", "invoke"}, "description": "Only answer Converse or only InvokeModel calls. Required with response."},
+				"response": map[string]any{"type": "object", "description": "An exact response body instead of text: a Converse response (e.g. with a toolUse block) for kind converse, the provider's body for kind invoke."},
+				"id":       str("Optional id, to delete the fixture later."),
+			}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					Text     string          `json:"text"`
+					Model    string          `json:"model"`
+					Contains string          `json:"contains"`
+					Kind     string          `json:"kind"`
+					Response json.RawMessage `json:"response"`
+					ID       string          `json:"id"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				fixture := map[string]any{}
+				for key, value := range map[string]string{"text": a.Text, "model": a.Model, "kind": a.Kind, "id": a.ID} {
+					if value != "" {
+						fixture[key] = value
+					}
+				}
+				if a.Contains != "" {
+					fixture["match"] = map[string]string{"contains": a.Contains}
+				}
+				if len(a.Response) > 0 {
+					fixture["response"] = a.Response
+				}
+				body, err := json.Marshal(fixture)
+				if err != nil {
+					return nil, err
+				}
+				return api.BedrockAddFixture(ctx, body)
+			},
+		},
+		{
+			Name: "stratus_bedrock_invocations",
+			Description: "List the Bedrock model calls the application made, oldest first: the prompt it sent, the reply, the fixture that " +
+				"answered and the outcome (replayed, recorded, synthesized for embeddings, missed when no fixture matched, failed). Use it to " +
+				"check what your code actually asked the model, and to find calls that need a fixture.",
+			InputSchema: schema(map[string]any{
+				"model":    str("Only calls to this model id or pattern with *."),
+				"contains": str("Only calls whose prompt contains this text."),
+				"outcome":  map[string]any{"type": "string", "enum": []string{"replayed", "recorded", "synthesized", "missed", "failed"}, "description": "Only calls with this outcome."},
+				"limit":    map[string]any{"type": "integer", "minimum": 1, "description": "Return only the newest N calls."},
+			}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					Model    string `json:"model"`
+					Contains string `json:"contains"`
+					Outcome  string `json:"outcome"`
+					Limit    int    `json:"limit"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				q := url.Values{}
+				for key, value := range map[string]string{"model": a.Model, "contains": a.Contains, "outcome": a.Outcome} {
+					if value != "" {
+						q.Set(key, value)
+					}
+				}
+				if a.Limit > 0 {
+					q.Set("limit", fmt.Sprint(a.Limit))
+				}
+				return api.BedrockInvocations(ctx, q)
 			},
 		},
 	}

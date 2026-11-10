@@ -21,6 +21,7 @@ import (
 	"github.com/stratus/internal/services/acm"
 	"github.com/stratus/internal/services/apigateway"
 	"github.com/stratus/internal/services/apigatewayv2"
+	"github.com/stratus/internal/services/bedrock"
 	"github.com/stratus/internal/services/cloudformation"
 	"github.com/stratus/internal/services/cognitoidp"
 	"github.com/stratus/internal/services/dynamodb"
@@ -127,6 +128,16 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	stepFunctionsService := stepfunctions.NewService(metaStore, lambdaService)
 	eventsService.SetStepFunctions(stepFunctionsService)
 	sesService := ses.NewService(ses.Options{Metadata: metaStore})
+	bedrockConfig, err := bedrock.ConfigFromEnv(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	bedrockService := bedrock.NewService(bedrock.Options{
+		Metadata:   metaStore,
+		FixtureDir: bedrockConfig.FixtureDir,
+		Mode:       bedrockConfig.Mode,
+		Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
+	})
 	schedulerService := scheduler.NewService(scheduler.Options{Metadata: metaStore, Logger: logger})
 	schedulerService.SetLambda(lambdaService)
 	schedulerService.SetSQS(sqsService)
@@ -180,6 +191,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	chaos.RegisterRoutes(controlHandler, chaosEngine)
 	ses.RegisterRoutes(controlHandler, sesService)
 	scheduler.RegisterRoutes(controlHandler, schedulerService)
+	bedrock.RegisterRoutes(controlHandler, bedrockService)
 	diagnose.RegisterRoutes(controlHandler, diagnose.NewService(
 		failuresFrom(operatorStore),
 		injectionsFrom(chaosEngine),
@@ -231,6 +243,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		FIS:             fis.NewService(metaStore, chaosEngine),
 		SES:             sesService,
 		Scheduler:       schedulerService,
+		Bedrock:         bedrockService,
 		Operator:        operatorService,
 		Control:         controlHandler,
 		Gate:            controlService.Gate(),
