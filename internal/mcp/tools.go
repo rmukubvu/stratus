@@ -28,6 +28,7 @@ type ControlAPI interface {
 	SchedulerRun(ctx context.Context, group, name string) (json.RawMessage, error)
 	BedrockAddFixture(ctx context.Context, fixture json.RawMessage) (json.RawMessage, error)
 	BedrockInvocations(ctx context.Context, query url.Values) (json.RawMessage, error)
+	KafkaClusters(ctx context.Context) (json.RawMessage, error)
 }
 
 // Instructions are sent to the client at initialization.
@@ -40,7 +41,8 @@ to inject seeded, reproducible faults. Emails sent through SES land in a capture
 (stratus_ses_inbox); EventBridge Scheduler runs on a clock you can fast-forward with
 stratus_scheduler_advance, so tests never wait for real time. Bedrock model calls are
 answered from fixtures: add one with stratus_bedrock_fixture_add, and see every prompt
-the application sent (and which calls had no fixture) with stratus_bedrock_invocations.`
+the application sent (and which calls had no fixture) with stratus_bedrock_invocations.
+MSK clusters are real Kafka brokers: stratus_kafka_clusters gives each one's bootstrap address.`
 
 func schema(props map[string]any, required ...string) map[string]any {
 	s := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
@@ -415,6 +417,15 @@ func Tools(api ControlAPI) []Tool {
 					q.Set("limit", fmt.Sprint(a.Limit))
 				}
 				return api.BedrockInvocations(ctx, q)
+			},
+		},
+		{
+			Name: "stratus_kafka_clusters",
+			Description: "List MSK clusters with the bootstrap broker address of each (host:port). Every cluster is a real Kafka-compatible broker, " +
+				"so pass the address to any Kafka client or CLI to create topics, produce and consume.",
+			InputSchema: schema(map[string]any{}),
+			Handler: func(ctx context.Context, _ json.RawMessage) (any, error) {
+				return api.KafkaClusters(ctx)
 			},
 		},
 	}

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -184,4 +185,104 @@ func open(ctx context.Context, address string) (net.Conn, error) {
 func dial(ctx context.Context, address string) (net.Conn, error) {
 	dialer := net.Dialer{Timeout: probeDialTimeout}
 	return dialer.DialContext(ctx, "tcp", address)
+}
+
+// KafkaController is ready when a Kafka-compatible broker such as Redpanda
+// answers a Metadata request with at least one broker and an elected
+// controller. A broker that answers before its controller is elected would
+// still refuse to create topics.
+func KafkaController(ctx context.Context, address string) error {
+	conn, err := open(ctx, address)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	const (
+		metadataKey   = 3
+		version       = 1
+		correlationID = 0x5354 // "ST"
+		clientID      = "stratus-probe"
+	)
+	body := binary.BigEndian.AppendUint16(nil, metadataKey)
+	body = binary.BigEndian.AppendUint16(body, version)
+	body = binary.BigEndian.AppendUint32(body, correlationID)
+	body = binary.BigEndian.AppendUint16(body, uint16(len(clientID)))
+	body = append(body, clientID...)
+	body = binary.BigEndian.AppendUint32(body, 0) // no topics
+	if _, err := conn.Write(append(binary.BigEndian.AppendUint32(nil, uint32(len(body))), body...)); err != nil {
+		return err
+	}
+
+	size := make([]byte, 4)
+	if _, err := io.ReadFull(conn, size); err != nil {
+		return fmt.Errorf("read Metadata reply: %w", err)
+	}
+	n := binary.BigEndian.Uint32(size)
+	if n > 1<<20 {
+		return fmt.Errorf("metadata reply of %d bytes is not from a Kafka broker", n)
+	}
+	reply := kafkaReader{buf: make([]byte, n)}
+	if _, err := io.ReadFull(conn, reply.buf); err != nil {
+		return fmt.Errorf("read Metadata reply: %w", err)
+	}
+	if got := reply.int32(); got != correlationID {
+		return fmt.Errorf("metadata reply has correlation id %d, want %d", got, correlationID)
+	}
+	brokers := reply.int32()
+	for i := int32(0); i < brokers && reply.err == nil; i++ {
+		reply.int32()  // node id
+		reply.string() // host
+		reply.int32()  // port
+		reply.string() // rack, nullable
+	}
+	controller := reply.int32()
+	switch {
+	case reply.err != nil:
+		return fmt.Errorf("decode Metadata reply: %w", reply.err)
+	case brokers < 1:
+		return errors.New("broker reports no brokers yet")
+	case controller < 0:
+		return errors.New("broker has no controller yet")
+	}
+	return nil
+}
+
+// kafkaReader decodes big-endian Kafka protocol fields, remembering the first
+// short read so callers check once at the end.
+type kafkaReader struct {
+	buf []byte
+	err error
+}
+
+func (r *kafkaReader) take(n int) []byte {
+	if r.err != nil {
+		return nil
+	}
+	if n < 0 || n > len(r.buf) {
+		r.err = io.ErrUnexpectedEOF
+		return nil
+	}
+	out := r.buf[:n]
+	r.buf = r.buf[n:]
+	return out
+}
+
+func (r *kafkaReader) int32() int32 {
+	b := r.take(4)
+	if b == nil {
+		return -1
+	}
+	return int32(binary.BigEndian.Uint32(b))
+}
+
+// string skips a (nullable) int16-length string.
+func (r *kafkaReader) string() {
+	b := r.take(2)
+	if b == nil {
+		return
+	}
+	if n := int16(binary.BigEndian.Uint16(b)); n > 0 {
+		r.take(int(n))
+	}
 }

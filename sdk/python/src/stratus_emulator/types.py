@@ -284,3 +284,16 @@ class BedrockInvocation(_BedrockInvocationBase, total=False):
     input_tokens: int
     output_tokens: int
     error: str
+
+
+class KafkaCluster(TypedDict):
+    """An MSK cluster as the control API lists it."""
+
+    name: str
+    arn: str
+    #: PROVISIONED or SERVERLESS.
+    type: str
+    state: str
+    kafka_version: str
+    #: host:port to pass to a Kafka client; empty while no broker runs.
+    bootstrap_brokers: str

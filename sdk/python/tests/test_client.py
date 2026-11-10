@@ -268,3 +268,24 @@ class BedrockTest(unittest.TestCase):
         response = {"output": {"message": {"role": "assistant", "content": [{"text": "hi"}]}}}
         c.bedrock.add_fixture(kind="converse", response=response, request_hash="sha256:abc")
         self.assertEqual(t.calls, [("POST", "/bedrock/fixtures", {"kind": "converse", "request_hash": "sha256:abc", "response": response})])
+
+
+class KafkaTest(unittest.TestCase):
+    def test_clusters_and_bootstrap_brokers_come_from_the_control_api(self) -> None:
+        cluster = {
+            "name": "orders",
+            "arn": "arn:aws:kafka:us-east-1:000000000000:cluster/orders/x",
+            "type": "PROVISIONED",
+            "state": "ACTIVE",
+            "kafka_version": "3.6.0",
+            "bootstrap_brokers": "127.0.0.1:41001",
+        }
+        listing = {"items": [cluster], "count": 1}
+        c, t = client(listing, listing, {"items": None, "count": 0})
+
+        self.assertEqual(c.kafka.clusters(), [cluster])
+        self.assertEqual(c.kafka.bootstrap_brokers("orders"), "127.0.0.1:41001")
+        with self.assertRaises(StratusError) as caught:
+            c.kafka.bootstrap_brokers("missing")
+        self.assertEqual(caught.exception.code, "KafkaClusterNotFound")
+        self.assertEqual(t.calls, [("GET", "/kafka/clusters", None)] * 3)

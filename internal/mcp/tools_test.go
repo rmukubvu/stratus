@@ -48,6 +48,10 @@ func (f *fakeAPI) SchedulerRun(_ context.Context, group, name string) (json.RawM
 	return f.rec("scheduler-run group=" + group + " name=" + name)
 }
 
+func (f *fakeAPI) KafkaClusters(context.Context) (json.RawMessage, error) {
+	return f.rec("kafka-clusters")
+}
+
 func (f *fakeAPI) BedrockAddFixture(_ context.Context, fixture json.RawMessage) (json.RawMessage, error) {
 	return f.rec("bedrock-fixture " + string(fixture))
 }
@@ -95,6 +99,7 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_bedrock_fixture_add", `{"kind":"converse","response":{"output":{"message":{"role":"assistant","content":[]}}}}`,
 			`bedrock-fixture {"kind":"converse","response":{"output":{"message":{"role":"assistant","content":[]}}}}`},
 		{"stratus_bedrock_invocations", `{}`, "bedrock-invocations "},
+		{"stratus_kafka_clusters", `{}`, "kafka-clusters"},
 		{"stratus_bedrock_invocations", `{"model":"anthropic.*","contains":"refund","outcome":"missed","limit":3}`, "bedrock-invocations contains=refund&limit=3&model=anthropic.%2A&outcome=missed"},
 	}
 	for _, tc := range cases {

@@ -37,6 +37,9 @@ jobs:
           docker pull postgres:16-alpine
           docker pull valkey/valkey:8
 
+      - name: Pre-pull the MSK broker image
+        run: docker pull redpandadata/redpanda:v24.2.7
+
       - name: Run test suite
         run: go test ./...
 

@@ -1,6 +1,6 @@
 """Control a local Stratus AWS emulator from tests and agents."""
 
-from .client import DEFAULT_ENDPOINT, Bedrock, Chaos, ChaosRun, Scheduler, Ses, Snapshots, StratusClient
+from .client import DEFAULT_ENDPOINT, Bedrock, Chaos, ChaosRun, Kafka, Scheduler, Ses, Snapshots, StratusClient
 from .errors import StratusError
 from .transport import CONTROL_PREFIX, Transport, UrllibTransport
 
@@ -10,6 +10,7 @@ __all__ = [
     "Bedrock",
     "Chaos",
     "ChaosRun",
+    "Kafka",
     "Scheduler",
     "Ses",
     "Snapshots",

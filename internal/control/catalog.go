@@ -59,6 +59,7 @@ func DefaultCatalog() Catalog {
 		ServiceState{Name: "events", BucketPrefixes: []string{"events-"}},
 		ServiceState{Name: "fis", BucketPrefixes: []string{"fis-"}},
 		ServiceState{Name: "iam", BucketPrefixes: []string{"iam-"}},
+		ServiceState{Name: "kafka", BucketPrefixes: []string{"kafka-"}},
 		ServiceState{Name: "kinesis", BucketPrefixes: []string{"kinesis-"}},
 		ServiceState{Name: "kms", BucketPrefixes: []string{"kms-"}},
 		ServiceState{Name: "lambda", BucketPrefixes: []string{"lambda-"}, BlobNamespaces: []string{"lambda", "lambda-layers"}, UsesRuntime: true},

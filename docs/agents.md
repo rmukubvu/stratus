@@ -50,6 +50,7 @@ Logs go to stderr; stdout carries only protocol messages.
 | `stratus_scheduler_advance` / `_run` | Fast-forward the EventBridge Scheduler clock, or fire one schedule now (see [scheduler.md](scheduler.md)) |
 | `stratus_bedrock_fixture_add` | Make Bedrock answer matching model calls with a fixed reply (see [bedrock.md](bedrock.md)) |
 | `stratus_bedrock_invocations` | The prompts the application sent to Bedrock, the replies, and which calls had no fixture |
+| `stratus_kafka_clusters` | MSK clusters with the bootstrap broker address of each (see [msk.md](msk.md)) |
 
 A failing tool returns `isError: true` with the control API's error code and a
 hint, so the agent can correct itself instead of guessing.

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -255,4 +256,86 @@ func TestRedisSaveReportsEngineError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "Background save") {
 		t.Fatalf("RedisSave should surface the engine's error, got %v", err)
 	}
+}
+
+// serveKafka reads one length-prefixed request and answers with a Metadata
+// v1 reply built by reply from the request's correlation id.
+func serveKafka(ln net.Listener, reply func(correlation uint32) []byte) {
+	conn, err := ln.Accept()
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	size := make([]byte, 4)
+	if _, err := io.ReadFull(conn, size); err != nil {
+		return
+	}
+	req := make([]byte, binary.BigEndian.Uint32(size))
+	if _, err := io.ReadFull(conn, req); err != nil {
+		return
+	}
+	resp := reply(binary.BigEndian.Uint32(req[4:8]))
+	_, _ = conn.Write(append(binary.BigEndian.AppendUint32(nil, uint32(len(resp))), resp...))
+}
+
+// metadataReply encodes a Metadata v1 response with one broker per entry of
+// brokers and the given controller.
+func metadataReply(correlation uint32, brokers int, controller int32) []byte {
+	out := binary.BigEndian.AppendUint32(nil, correlation)
+	out = binary.BigEndian.AppendUint32(out, uint32(brokers))
+	for i := 0; i < brokers; i++ {
+		out = binary.BigEndian.AppendUint32(out, uint32(i))
+		out = binary.BigEndian.AppendUint16(out, 9)
+		out = append(out, "127.0.0.1"...)
+		out = binary.BigEndian.AppendUint32(out, 9092)
+		out = binary.BigEndian.AppendUint16(out, 0xFFFF) // null rack
+	}
+	out = binary.BigEndian.AppendUint32(out, uint32(controller))
+	return binary.BigEndian.AppendUint32(out, 0) // no topics
+}
+
+func TestKafkaControllerAcceptsBrokerWithController(t *testing.T) {
+	ln := listen(t)
+	defer ln.Close()
+	go serveKafka(ln, func(c uint32) []byte { return metadataReply(c, 1, 0) })
+
+	if err := KafkaController(context.Background(), ln.Addr().String()); err != nil {
+		t.Fatalf("a broker with a controller is ready: %v", err)
+	}
+}
+
+func TestKafkaControllerRejectsUnreadyOrForeignReplies(t *testing.T) {
+	cases := map[string]struct {
+		reply func(uint32) []byte
+		want  string
+	}{
+		"no controller":    {func(c uint32) []byte { return metadataReply(c, 1, -1) }, "controller"},
+		"no brokers":       {func(c uint32) []byte { return metadataReply(c, 0, 0) }, "no brokers"},
+		"wrong request id": {func(uint32) []byte { return metadataReply(99, 1, 0) }, "correlation"},
+		"truncated":        {func(c uint32) []byte { return metadataReply(c, 1, 0)[:10] }, "decode"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ln := listen(t)
+			defer ln.Close()
+			go serveKafka(ln, tc.reply)
+
+			err := KafkaController(context.Background(), ln.Addr().String())
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected an error mentioning %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestFreeLoopbackPortCanBeBound(t *testing.T) {
+	port, err := FreeLoopbackPort()
+	if err != nil {
+		t.Fatalf("free port: %v", err)
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		t.Fatalf("port %d should be free: %v", port, err)
+	}
+	ln.Close()
 }

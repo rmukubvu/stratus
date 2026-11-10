@@ -12,6 +12,7 @@ import type {
   DiagnoseOptions,
   Diagnosis,
   Health,
+  KafkaCluster,
   ResetResult,
   SchedulerAdvance,
   SchedulerClock,
@@ -151,6 +152,24 @@ export class Scheduler {
 }
 
 /** Bedrock fixtures and the log of model calls. */
+/** MSK clusters, each a real Kafka-compatible broker. */
+export class Kafka {
+  constructor(private readonly t: Transport) {}
+
+  /** Every cluster with the bootstrap address to hand to a Kafka client. */
+  async clusters(): Promise<KafkaCluster[]> {
+    const res = await this.t.request<{ items: KafkaCluster[] | null }>("GET", "/kafka/clusters");
+    return res.items ?? [];
+  }
+
+  /** The bootstrap brokers (host:port) of the named cluster. */
+  async bootstrapBrokers(name: string): Promise<string> {
+    const cluster = (await this.clusters()).find((c) => c.name === name);
+    if (!cluster) throw new StratusError("KafkaClusterNotFound", `MSK cluster "${name}" does not exist`, "list clusters with kafka.clusters()", 404);
+    return cluster.bootstrap_brokers;
+  }
+}
+
 export class Bedrock {
   constructor(private readonly t: Transport) {}
 
@@ -225,6 +244,7 @@ export class StratusClient {
   readonly ses: Ses;
   readonly scheduler: Scheduler;
   readonly bedrock: Bedrock;
+  readonly kafka: Kafka;
   private readonly t: Transport;
 
   constructor(options: StratusClientOptions = {}) {
@@ -241,6 +261,7 @@ export class StratusClient {
     this.ses = new Ses(this.t);
     this.scheduler = new Scheduler(this.t);
     this.bedrock = new Bedrock(this.t);
+    this.kafka = new Kafka(this.t);
   }
 
   health(): Promise<Health> {
