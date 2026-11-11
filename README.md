@@ -43,6 +43,9 @@ Every AWS account and region gets its own resources: the account comes from
 a twelve-digit access key and the region from the request signature. See
 [docs/accounts.md](docs/accounts.md).
 
+IAM users, access keys, managed policies and STS `AssumeRole` work the
+way they do in AWS; see [docs/iam.md](docs/iam.md).
+
 ## What Works Today
 
 `stratus` currently includes first-class support for 29 service families:

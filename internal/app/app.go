@@ -20,6 +20,7 @@ import (
 	"github.com/stratus/internal/httpapi"
 	"github.com/stratus/internal/operator"
 	"github.com/stratus/internal/services/bedrock"
+	"github.com/stratus/internal/services/iam"
 	"github.com/stratus/internal/services/kafka"
 	"github.com/stratus/internal/services/route53"
 	"github.com/stratus/internal/services/scheduler"
@@ -73,7 +74,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}
 	chaosEngine := chaos.NewEngine(control.DefaultCatalog().Names(), nil)
 	blobStore := fsblob.New(blobRoot)
-	stsService := sts.NewService(metaStore)
+	iamKeys := iam.NewKeyDirectory(metaStore)
+	stsService := sts.NewService(metaStore, iamKeys)
 	stacks := newStacks(platform{
 		meta:    metaStore,
 		blobs:   blobStore,
@@ -87,9 +89,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 			Mode:       bedrockConfig.Mode,
 			Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
 		}),
-		sts:    stsService,
-		getenv: os.Getenv,
-		logger: logger,
+		sts:     stsService,
+		iamKeys: iamKeys,
+		getenv:  os.Getenv,
+		logger:  logger,
 	})
 	defaults := stacks.Default()
 	if err := stacks.Restore(); err != nil {
@@ -135,7 +138,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Logger:    logger,
 		Services:  defaults.services,
 		Stacks:    stacks,
-		Accounts:  stsService,
+		Accounts:  httpapi.AccountResolvers{stsService, iamKeys},
 		Operator:  operatorService,
 		Control:   controlHandler,
 		Gate:      controlService.Gate(),

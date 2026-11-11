@@ -63,6 +63,7 @@ type platform struct {
 	chaos   *chaos.Engine
 	bedrock *bedrock.Service
 	sts     *sts.Service
+	iamKeys *iam.KeyDirectory
 	getenv  func(string) string
 	logger  *slog.Logger
 }
@@ -199,7 +200,7 @@ func (s *Stacks) account(id string) *accountServices {
 	sc := scope.Scope{Account: id, Region: scope.DefaultRegion}
 	meta := store.Scoped(s.platform.meta, scope.Prefix(sc))
 	acct := &accountServices{
-		iam:     iam.NewService(meta),
+		iam:     iam.NewService(meta, s.platform.iamKeys),
 		s3:      s3.NewService(s3.Options{Metadata: meta, Blobs: s.platform.blobs.Scoped(scope.Prefix(sc))}),
 		route53: route53.NewService(route53.Options{Metadata: meta}),
 	}
