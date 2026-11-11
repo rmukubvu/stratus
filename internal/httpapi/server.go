@@ -105,7 +105,10 @@ type Options struct {
 	Stacks StackResolver
 	// Accounts maps an access key to its account. Optional.
 	Accounts AccountResolver
-	Operator *operator.Service
+	// Authorizer, when set, decides whether the caller may make each AWS
+	// API request, after faults and before dispatch.
+	Authorizer Authorizer
+	Operator   *operator.Service
 	// Faults, when set, injects chaos faults into AWS API requests.
 	Faults FaultDecider
 	// ColdStart discards a Lambda function's warm container. Used by the
@@ -119,15 +122,16 @@ type Options struct {
 }
 
 type Server struct {
-	logger    *slog.Logger
-	services  *Services
-	stacks    StackResolver
-	accounts  AccountResolver
-	operator  *operator.Service
-	control   http.Handler
-	gate      *control.Gate
-	faults    FaultDecider
-	coldStart func(ctx context.Context, functionName string) error
+	logger     *slog.Logger
+	services   *Services
+	stacks     StackResolver
+	accounts   AccountResolver
+	operator   *operator.Service
+	control    http.Handler
+	gate       *control.Gate
+	faults     FaultDecider
+	coldStart  func(ctx context.Context, functionName string) error
+	authorizer Authorizer
 }
 
 func NewServer(opts Options) *Server {
@@ -138,15 +142,16 @@ func NewServer(opts Options) *Server {
 
 	services := opts.Services
 	return &Server{
-		logger:    logger,
-		services:  &services,
-		stacks:    opts.Stacks,
-		accounts:  opts.Accounts,
-		operator:  opts.Operator,
-		control:   opts.Control,
-		gate:      opts.Gate,
-		faults:    opts.Faults,
-		coldStart: opts.ColdStart,
+		logger:     logger,
+		services:   &services,
+		stacks:     opts.Stacks,
+		accounts:   opts.Accounts,
+		authorizer: opts.Authorizer,
+		operator:   opts.Operator,
+		control:    opts.Control,
+		gate:       opts.Gate,
+		faults:     opts.Faults,
+		coldStart:  opts.ColdStart,
 	}
 }
 
@@ -218,6 +223,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// Abort without a response: the client sees a reset connection.
 			panic(http.ErrAbortHandler)
 		}
+	}
+	if err == nil && outcome == faultProceed && s.authorizer != nil {
+		err = s.authorizer.Authorize(r, metadata)
 	}
 	if err == nil && outcome == faultProceed {
 		err = s.dispatch(recorder, r, metadata)
