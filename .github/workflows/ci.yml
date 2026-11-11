@@ -83,6 +83,10 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Unit-test the action
+        shell: bash
+        run: node --test action/*.test.js
+
       - name: Run a command against a throwaway Stratus
         uses: ./
         with:
@@ -92,17 +96,26 @@ jobs:
             echo hello | curl -fsS -X PUT --data-binary @- "$AWS_ENDPOINT_URL/action-demo/hello.txt" -o /dev/null
             test "$(curl -fsS "$AWS_ENDPOINT_URL/action-demo/hello.txt")" = "hello"
 
-      - name: Start a background Stratus
-        id: stratus
+      - name: Start a background Stratus on a fixed port
+        id: fixed
         uses: ./
         with:
           version: source
           port: "4577"
 
+      - name: Start a second background Stratus on a free port
+        id: stratus
+        uses: ./
+        with:
+          version: source
+
       - name: Use the background Stratus from a later step
         shell: bash
         run: |
+          test "${{ steps.fixed.outputs.endpoint }}" = "http://127.0.0.1:4577"
           test "$AWS_ENDPOINT_URL" = "${{ steps.stratus.outputs.endpoint }}"
+          test "$AWS_ENDPOINT_URL" != "${{ steps.fixed.outputs.endpoint }}"
+          curl -fsS "${{ steps.fixed.outputs.endpoint }}/_stratus/control/v1/ready"
           curl -fsS "$STRATUS_ENDPOINT/_stratus/control/v1/ready"
           stratus snapshot save from-action
 

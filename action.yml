@@ -16,14 +16,18 @@ inputs:
       Command to run against a throwaway Stratus via `stratus ci`. Stratus is
       started on a free port with a fresh data dir, AWS_ENDPOINT_URL is set
       for the command, and everything is removed afterwards. Leave empty to
-      start a background instance for later steps instead.
+      start a background instance for later steps instead; it is stopped,
+      and its containers removed, when the job ends.
     default: ""
   seed:
     description: Snapshot directory to start from, e.g. ./fixtures/snapshots/seeded.
     default: ""
   port:
-    description: Port for the background instance (only used when `run` is empty).
-    default: "4566"
+    description: >-
+      Port for the background instance (only used when `run` is empty).
+      Empty picks a free port, so concurrent jobs on one runner host never
+      clash; read it from the `endpoint` output or AWS_ENDPOINT_URL.
+    default: ""
   log-level:
     description: Stratus log level.
     default: warn
@@ -34,99 +38,8 @@ inputs:
 outputs:
   endpoint:
     description: Endpoint of the background instance (only set when `run` is empty).
-    value: ${{ steps.serve.outputs.endpoint }}
 
 runs:
-  using: composite
-  steps:
-    - name: Install stratus
-      shell: bash
-      env:
-        STRATUS_VERSION: ${{ inputs.version }}
-        GH_TOKEN: ${{ inputs.token }}
-        ACTION_PATH: ${{ github.action_path }}
-      run: |
-        set -euo pipefail
-        install_dir="${RUNNER_TEMP}/stratus-bin"
-        mkdir -p "$install_dir"
-
-        if [ "$STRATUS_VERSION" = "source" ]; then
-          (cd "$ACTION_PATH" && go build -o "$install_dir/" ./cmd/stratus)
-        else
-          case "${RUNNER_OS}" in
-            Linux) os=Linux; ext=tar.gz ;;
-            macOS) os=Darwin; ext=tar.gz ;;
-            Windows) os=Windows; ext=zip ;;
-            *) echo "unsupported runner OS: ${RUNNER_OS}" >&2; exit 1 ;;
-          esac
-          case "${RUNNER_ARCH}" in
-            X64) arch=x86_64 ;;
-            ARM64) arch=arm64 ;;
-            *) echo "unsupported runner arch: ${RUNNER_ARCH}" >&2; exit 1 ;;
-          esac
-
-          tag="$STRATUS_VERSION"
-          if [ "$tag" = "latest" ]; then
-            tag=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
-              https://api.github.com/repos/rmukubvu/stratus/releases/latest \
-              | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)
-            [ -n "$tag" ] || { echo "could not resolve the latest stratus release" >&2; exit 1; }
-          fi
-          version="${tag#v}"
-          asset="stratus_${version}_${os}_${arch}.${ext}"
-          url="https://github.com/rmukubvu/stratus/releases/download/${tag}/${asset}"
-          echo "Downloading ${url}"
-          curl -fsSL -o "${RUNNER_TEMP}/${asset}" "$url"
-          if [ "$ext" = "zip" ]; then
-            unzip -o -q "${RUNNER_TEMP}/${asset}" -d "$install_dir"
-          else
-            tar -xzf "${RUNNER_TEMP}/${asset}" -C "$install_dir"
-          fi
-        fi
-
-        echo "$install_dir" >> "$GITHUB_PATH"
-        "$install_dir/stratus" --help | head -n1
-
-    - name: Run command against a throwaway Stratus
-      if: inputs.run != ''
-      shell: bash
-      env:
-        STRATUS_RUN: ${{ inputs.run }}
-        STRATUS_SEED: ${{ inputs.seed }}
-        STRATUS_LOG_LEVEL: ${{ inputs.log-level }}
-      run: |
-        set -euo pipefail
-        args=(--log-level "$STRATUS_LOG_LEVEL")
-        if [ -n "$STRATUS_SEED" ]; then args+=(--seed "$STRATUS_SEED"); fi
-        stratus ci "${args[@]}" -- bash -c "$STRATUS_RUN"
-
-    - name: Start background Stratus
-      id: serve
-      if: inputs.run == ''
-      shell: bash
-      env:
-        STRATUS_SEED: ${{ inputs.seed }}
-        STRATUS_LOG_LEVEL: ${{ inputs.log-level }}
-        STRATUS_PORT: ${{ inputs.port }}
-      run: |
-        set -euo pipefail
-        data_dir="${RUNNER_TEMP}/stratus-data"
-        args=(serve --port "$STRATUS_PORT" --data-dir "$data_dir" --log-level "$STRATUS_LOG_LEVEL")
-        if [ -n "$STRATUS_SEED" ]; then args+=(--seed "$STRATUS_SEED"); fi
-        nohup stratus "${args[@]}" > "${RUNNER_TEMP}/stratus.log" 2>&1 &
-        endpoint="http://127.0.0.1:${STRATUS_PORT}"
-        if ! STRATUS_ENDPOINT="$endpoint" stratus wait --timeout 60s; then
-          cat "${RUNNER_TEMP}/stratus.log" >&2
-          exit 1
-        fi
-        {
-          echo "AWS_ENDPOINT_URL=$endpoint"
-          echo "STRATUS_ENDPOINT=$endpoint"
-          echo "AWS_DISABLE_HOST_PREFIX_INJECTION=true"
-          echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}"
-          echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}"
-          echo "AWS_REGION=${AWS_REGION:-us-east-1}"
-          echo "AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}"
-        } >> "$GITHUB_ENV"
-        echo "endpoint=$endpoint" >> "$GITHUB_OUTPUT"
-        echo "Stratus is ready at $endpoint (logs: ${RUNNER_TEMP}/stratus.log)"
+  using: node24
+  main: action/main.js
+  post: action/post.js
