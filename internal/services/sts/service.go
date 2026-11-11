@@ -24,13 +24,19 @@ const (
 // between accounts.
 type Service struct {
 	sessions store.Store
+	users    UserKeys
 	now      func() time.Time
 }
 
+// UserKeys finds the IAM user a long-term access key belongs to.
+type UserKeys interface {
+	UserFor(accessKeyID string) (account, userARN, userID string, ok bool)
+}
+
 // NewService returns an STS service that keeps issued sessions in metadata,
-// so credentials survive restarts and snapshots.
-func NewService(metadata store.Store) *Service {
-	return &Service{sessions: metadata, now: time.Now}
+// so credentials survive restarts and snapshots. users may be nil.
+func NewService(metadata store.Store, users UserKeys) *Service {
+	return &Service{sessions: metadata, users: users, now: time.Now}
 }
 
 // Caller identifies who sent a request.
@@ -55,6 +61,11 @@ func (s *Service) GetCallerIdentity(caller Caller) (GetCallerIdentityOutput, err
 	}
 	if ok {
 		return GetCallerIdentityOutput{Account: session.Account, ARN: session.AssumedRoleARN(), UserID: session.AssumedRoleID()}, nil
+	}
+	if s.users != nil {
+		if account, arn, userID, ok := s.users.UserFor(caller.AccessKeyID); ok {
+			return GetCallerIdentityOutput{Account: account, ARN: arn, UserID: userID}, nil
+		}
 	}
 	account := caller.Account
 	if account == "" {

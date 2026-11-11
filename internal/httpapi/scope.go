@@ -13,6 +13,18 @@ type AccountResolver interface {
 	AccountFor(accessKeyID string) (string, bool)
 }
 
+// AccountResolvers asks each resolver in turn.
+type AccountResolvers []AccountResolver
+
+func (rs AccountResolvers) AccountFor(accessKeyID string) (string, bool) {
+	for _, r := range rs {
+		if account, ok := r.AccountFor(accessKeyID); ok {
+			return account, true
+		}
+	}
+	return "", false
+}
+
 // ResolveScope works out the account and region a request acts in.
 //
 // The region is the one the request was signed for. The account is the

@@ -11,6 +11,7 @@ import (
 	"github.com/stratus/internal/control"
 	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/services/bedrock"
+	"github.com/stratus/internal/services/iam"
 	"github.com/stratus/internal/services/sts"
 	"github.com/stratus/internal/store/bbolt"
 	"github.com/stratus/internal/store/fsblob"
@@ -33,7 +34,8 @@ func newTestStacks(t *testing.T) *Stacks {
 		faults:  chaos.NewInjector(engine, nil, logger),
 		chaos:   engine,
 		bedrock: bedrock.NewService(bedrock.Options{Metadata: meta}),
-		sts:     sts.NewService(meta),
+		sts:     sts.NewService(meta, nil),
+		iamKeys: iam.NewKeyDirectory(meta),
 		getenv:  func(string) string { return "" },
 		logger:  logger,
 	})

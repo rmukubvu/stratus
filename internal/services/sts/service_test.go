@@ -20,7 +20,7 @@ func newTestService(t *testing.T) *Service {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	svc := NewService(meta)
+	svc := NewService(meta, nil)
 	svc.now = func() time.Time { return time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC) }
 	return svc
 }

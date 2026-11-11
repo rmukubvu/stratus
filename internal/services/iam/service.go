@@ -37,6 +37,7 @@ var (
 type Service struct {
 	scope    scope.Scope
 	metadata store.Store
+	keys     *KeyDirectory
 	now      func() time.Time
 	rand     *rand.Rand
 	mu       sync.Mutex
@@ -109,13 +110,6 @@ type listRolePoliciesResponse struct {
 	ResponseMetadata responseMetadata       `xml:"ResponseMetadata"`
 }
 
-type listAttachedRolePoliciesResponse struct {
-	XMLName          xml.Name                       `xml:"ListAttachedRolePoliciesResponse"`
-	XMLNS            string                         `xml:"xmlns,attr"`
-	Result           listAttachedRolePoliciesResult `xml:"ListAttachedRolePoliciesResult"`
-	ResponseMetadata responseMetadata               `xml:"ResponseMetadata"`
-}
-
 type deleteRolePolicyResponse struct {
 	XMLName          xml.Name         `xml:"DeleteRolePolicyResponse"`
 	XMLNS            string           `xml:"xmlns,attr"`
@@ -142,11 +136,6 @@ type listRolePoliciesResult struct {
 	PolicyNames []string `xml:"PolicyNames>member"`
 }
 
-type listAttachedRolePoliciesResult struct {
-	AttachedPolicies []attachedPolicyXML `xml:"AttachedPolicies>member"`
-	IsTruncated      bool                `xml:"IsTruncated"`
-}
-
 type attachedPolicyXML struct {
 	PolicyArn  string `xml:"PolicyArn"`
 	PolicyName string `xml:"PolicyName"`
@@ -163,10 +152,13 @@ type roleXML struct {
 	MaxSessionDuration       int    `xml:"MaxSessionDuration,omitempty"`
 }
 
-func NewService(metadata store.Store) *Service {
+// NewService returns the IAM service of one account. keys is the access-key
+// index shared by every account.
+func NewService(metadata store.Store, keys *KeyDirectory) *Service {
 	return &Service{
 		scope:    scope.Default(),
 		metadata: metadata,
+		keys:     keys,
 		now:      time.Now,
 		rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
@@ -191,16 +183,24 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requ
 		return s.getRolePolicy(w, r, requestID)
 	case "ListRolePolicies":
 		return s.listRolePolicies(w, r, requestID)
-	case "ListAttachedRolePolicies":
-		return s.listAttachedRolePolicies(w, r, requestID)
 	case "DeleteRolePolicy":
 		return s.deleteRolePolicy(w, r, requestID)
-	default:
-		return &apierror.Error{
-			StatusCode: http.StatusNotImplemented,
-			Code:       "NotImplemented",
-			Message:    "iam operation is not implemented",
-		}
+	}
+
+	form, err := parseForm(r)
+	if err != nil {
+		return err
+	}
+	if handled, err := s.handleUser(w, form, operation, requestID); handled {
+		return err
+	}
+	if handled, err := s.handlePolicy(w, form, operation, requestID); handled {
+		return err
+	}
+	return &apierror.Error{
+		StatusCode: http.StatusNotImplemented,
+		Code:       "NotImplemented",
+		Message:    "iam operation is not implemented",
 	}
 }
 
@@ -336,7 +336,11 @@ func (s *Service) deleteRole(w http.ResponseWriter, r *http.Request, requestID s
 	if err != nil {
 		return err
 	}
-	if len(policyNames) > 0 {
+	attached, err := s.attachedTo(principalRole, role.RoleName)
+	if err != nil {
+		return err
+	}
+	if len(policyNames) > 0 || len(attached) > 0 {
 		return &apierror.Error{
 			StatusCode: http.StatusConflict,
 			Code:       "DeleteConflict",
@@ -439,26 +443,6 @@ func (s *Service) listRolePolicies(w http.ResponseWriter, r *http.Request, reque
 		Result: listRolePoliciesResult{
 			IsTruncated: false,
 			PolicyNames: policyNames,
-		},
-		ResponseMetadata: responseMetadata{RequestID: requestID},
-	})
-	return nil
-}
-
-func (s *Service) listAttachedRolePolicies(w http.ResponseWriter, r *http.Request, requestID string) error {
-	form, err := parseForm(r)
-	if err != nil {
-		return err
-	}
-	if _, err := s.loadRoleByForm(form); err != nil {
-		return err
-	}
-
-	writeXML(w, http.StatusOK, listAttachedRolePoliciesResponse{
-		XMLNS: namespace,
-		Result: listAttachedRolePoliciesResult{
-			AttachedPolicies: []attachedPolicyXML{},
-			IsTruncated:      false,
 		},
 		ResponseMetadata: responseMetadata{RequestID: requestID},
 	})
