@@ -907,3 +907,14 @@ func writeXML(w http.ResponseWriter, status int, payload any) {
 func (s *Service) SetScope(sc scope.Scope) {
 	s.scope = sc
 }
+
+// TopicPolicy returns a topic's resource policy, set with the Policy
+// attribute.
+func (s *Service) TopicPolicy(topicARN string) (string, bool, error) {
+	record, err := s.loadTopicByARN(topicARN)
+	if err != nil {
+		return "", false, nil
+	}
+	policy := record.Attributes["Policy"]
+	return policy, policy != "", nil
+}

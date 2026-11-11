@@ -73,6 +73,18 @@ What is checked:
   `InvalidClientTokenId` and an expired session with `ExpiredToken`.
   `sts:GetCallerIdentity` needs no permission, as in AWS.
 
+- **Trust policies.** With `audit` or `enforce`, `sts:AssumeRole` needs
+  the role to exist and its trust policy to allow the caller (this applies
+  to an account root too), on top of the caller's own permission to call
+  `sts:AssumeRole`. A trust policy can name a user or role ARN, an account
+  ID or `arn:aws:iam::<account>:root`, and use conditions.
+- **Resource policies.** S3 bucket policies (`put-bucket-policy`,
+  `get-bucket-policy`, `delete-bucket-policy`), SQS and SNS `Policy`
+  attributes, and Lambda permissions (`add-permission`) are evaluated with
+  the caller's identity policies: within an account either one can allow a
+  request, and an explicit `Deny` in either refuses it. `Principal` and
+  `NotPrincipal` are matched against the caller.
+
 Resources are named from the request for S3, SQS, SNS, DynamoDB, Lambda,
 SSM, KMS (key IDs and ARNs), Secrets Manager (ARNs), Kinesis, CloudWatch
 Logs, Step Functions, EventBridge rules, IAM and STS. For other requests

@@ -2122,7 +2122,7 @@ func (s *Service) permissionPolicyJSON(records []permissionRecord) string {
 		statement := map[string]any{
 			"Action":    record.Action,
 			"Effect":    "Allow",
-			"Principal": map[string]string{"Service": record.Principal},
+			"Principal": permissionPrincipal(record.Principal),
 			"Resource":  s.qualifiedFunctionARN(record.FunctionName, record.Qualifier),
 			"Sid":       record.StatementID,
 		}
@@ -2397,4 +2397,30 @@ func RuntimeKey(sc scope.Scope, functionName string) string {
 		return functionName
 	}
 	return sc.Account + "-" + sc.Region + "-" + functionName
+}
+
+// permissionPrincipal renders an AddPermission principal the way Lambda's
+// GetPolicy does: services under "Service", accounts and ARNs under "AWS".
+func permissionPrincipal(principal string) any {
+	switch {
+	case principal == "*":
+		return "*"
+	case scope.ValidAccount(principal) || strings.HasPrefix(principal, "arn:"):
+		return map[string]string{"AWS": principal}
+	default:
+		return map[string]string{"Service": principal}
+	}
+}
+
+// FunctionPolicy returns the resource policy AddPermission built for a
+// function's unqualified ARN.
+func (s *Service) FunctionPolicy(name string) (string, bool, error) {
+	records, err := s.listPermissionRecords(name, "")
+	if err != nil {
+		return "", false, err
+	}
+	if len(records) == 0 {
+		return "", false, nil
+	}
+	return s.permissionPolicyJSON(records), true, nil
 }
