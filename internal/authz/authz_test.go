@@ -111,13 +111,36 @@ type fakeKeys map[string]iam.AccessKey
 
 func (f fakeKeys) Lookup(k string) (iam.AccessKey, bool) { a, ok := f[k]; return a, ok }
 
-type fakePolicies struct{ users, roles map[string][]string }
+type fakePolicies struct {
+	users, roles map[string][]string
+	trust        map[string]string
+}
 
 func (f fakePolicies) UserPolicies(account, name string) ([]string, error) {
 	return f.users[account+"/"+name], nil
 }
 func (f fakePolicies) RolePolicies(account, name string) ([]string, error) {
 	return f.roles[account+"/"+name], nil
+}
+
+func (f fakePolicies) TrustPolicy(account, name string) (string, bool, error) {
+	doc, ok := f.trust[account+"/"+name]
+	return doc, ok, nil
+}
+
+// fakeResources keys resource policies by bucket ARN.
+type fakeResources map[string]string
+
+func (f fakeResources) ResourcePolicy(_ scope.Scope, service, arn string) (string, bool, error) {
+	if service != "s3" {
+		return "", false, nil
+	}
+	bucket := arn
+	if i := strings.Index(strings.TrimPrefix(arn, "arn:aws:s3:::"), "/"); i >= 0 {
+		bucket = arn[:len("arn:aws:s3:::")+i]
+	}
+	doc, ok := f[bucket]
+	return doc, ok, nil
 }
 
 func newAuthorizer(mode Mode) *Authorizer {
@@ -133,18 +156,30 @@ func newAuthorizer(mode Mode) *Authorizer {
 			`{"Statement":[{"Effect":"Allow","Action":"sqs:*","Resource":"arn:aws:sqs:*:111111111111:app-*"},{"Effect":"Deny","Action":"sqs:DeleteQueue","Resource":"*"}]}`,
 		}},
 		roles: map[string][]string{"111111111111/reader": {`{"Statement":[{"Effect":"Allow","Action":"s3:Get*","Resource":"*"}]}`}},
+		trust: map[string]string{
+			"111111111111/reader":   `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::111111111111:user/dev"},"Action":"sts:AssumeRole"}]}`,
+			"222222222222/deployer": `{"Statement":[{"Effect":"Allow","Principal":{"AWS":"111111111111"},"Action":"sts:AssumeRole","Condition":{"StringEquals":{"aws:RequestedRegion":"eu-west-1"}}}]}`,
+		},
 	}
-	a := New(mode, callers, policies, nil)
+	a := New(mode, callers, policies, fakeResources{
+		"arn:aws:s3:::shared": `{"Statement":[
+			{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::111111111111:user/dev"},"Action":"s3:GetObject","Resource":"arn:aws:s3:::shared/*"},
+			{"Effect":"Deny","Principal":"*","Action":"s3:DeleteObject","Resource":"arn:aws:s3:::shared/*"}]}`,
+	}, nil)
 	a.now = func() time.Time { return time.Date(2026, 11, 11, 0, 30, 0, 0, time.UTC) }
 	return a
 }
 
 func call(a *Authorizer, key, service, operation string, protocol httpapi.Protocol, body string) error {
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	sc := acct
+	if scope.ValidAccount(key) {
+		sc.Account = key // the router acts in a twelve-digit key's account
+	}
 	md := httpapi.RequestMetadata{
 		Classification: httpapi.Classification{Protocol: protocol, Service: service, Operation: operation},
 		SigV4:          &awscompat.SigV4Identity{AccessKeyID: key, Region: acct.Region},
-		Scope:          acct,
+		Scope:          sc,
 	}
 	return a.Authorize(r, md)
 }
@@ -209,6 +244,64 @@ func TestAuditAndOffNeverRefuse(t *testing.T) {
 	for _, mode := range []Mode{Audit, Off} {
 		if err := call(newAuthorizer(mode), "AKIADEV", "sqs", "DeleteQueue", httpapi.ProtocolJSON, `{}`); err != nil {
 			t.Errorf("%s refused: %v", mode, err)
+		}
+	}
+}
+
+func s3call(a *Authorizer, key, operation, method, path, bucket, objectKey string) error {
+	r := httptest.NewRequest(method, path, nil)
+	md := httpapi.RequestMetadata{
+		Classification: httpapi.Classification{Protocol: httpapi.ProtocolS3, Service: "s3", Operation: operation, Bucket: bucket, Key: objectKey},
+		SigV4:          &awscompat.SigV4Identity{AccessKeyID: key, Region: acct.Region},
+		Scope:          acct,
+	}
+	return a.Authorize(r, md)
+}
+
+func TestResourcePoliciesGrantAndDeny(t *testing.T) {
+	a := newAuthorizer(Enforce)
+	// dev has no S3 permissions of its own: the bucket policy grants reads.
+	if got := code(s3call(a, "AKIADEV", "GetObject", http.MethodGet, "/shared/a", "shared", "a")); got != "" {
+		t.Errorf("bucket policy grant: %q", got)
+	}
+	if got := code(s3call(a, "AKIADEV", "PutObject", http.MethodPut, "/shared/a", "shared", "a")); got != "AccessDenied" {
+		t.Errorf("not granted by either policy: %q", got)
+	}
+	if got := code(s3call(a, "AKIADEV", "GetObject", http.MethodGet, "/other/a", "other", "a")); got != "AccessDenied" {
+		t.Errorf("a bucket without a policy: %q", got)
+	}
+	// The reader role may read any object, but the bucket policy denies deletes to everyone.
+	if got := code(s3call(a, "ASIAREADER", "GetObject", http.MethodGet, "/shared/a", "shared", "a")); got != "" {
+		t.Errorf("identity grant: %q", got)
+	}
+	err := s3call(a, "ASIAREADER", "DeleteObject", http.MethodDelete, "/shared/a", "shared", "a")
+	if code(err) != "AccessDenied" || !strings.Contains(err.Error(), "resource-based policy") {
+		t.Errorf("resource policy deny: %v", err)
+	}
+	// The root is never refused.
+	if got := code(s3call(a, "111111111111", "DeleteObject", http.MethodDelete, "/shared/a", "shared", "a")); got != "" {
+		t.Errorf("root: %q", got)
+	}
+}
+
+func assumeRoleCall(a *Authorizer, key, roleARN string) error {
+	return call(a, key, "sts", "AssumeRole", httpapi.ProtocolQuery, "Action=AssumeRole&RoleSessionName=s&RoleArn="+roleARN)
+}
+
+func TestTrustPolicies(t *testing.T) {
+	a := newAuthorizer(Enforce)
+	cases := []struct {
+		name, key, role, want string
+	}{
+		{"trusted user", "AKIADEV", "arn:aws:iam::111111111111:role/reader", "AccessDenied"},
+		{"untrusted root", "111111111111", "arn:aws:iam::111111111111:role/reader", "AccessDenied"},
+		{"account trust with a condition", "111111111111", "arn:aws:iam::222222222222:role/deployer", ""},
+		{"another account", "333333333333", "arn:aws:iam::222222222222:role/deployer", "AccessDenied"},
+		{"missing role", "111111111111", "arn:aws:iam::222222222222:role/missing", "AccessDenied"},
+	}
+	for _, tc := range cases {
+		if got := code(assumeRoleCall(a, tc.key, tc.role)); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
 	}
 }

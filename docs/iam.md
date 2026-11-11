@@ -73,6 +73,27 @@ What is checked:
   `InvalidClientTokenId` and an expired session with `ExpiredToken`.
   `sts:GetCallerIdentity` needs no permission, as in AWS.
 
+- **Trust policies.** With `audit` or `enforce`, `sts:AssumeRole` needs
+  the role to exist and its trust policy to allow the caller (this applies
+  to an account root too), on top of the caller's own permission to call
+  `sts:AssumeRole`. A trust policy can name a user or role ARN, an account
+  ID or `arn:aws:iam::<account>:root`, and use conditions.
+- **Resource policies.** S3 bucket policies (`put-bucket-policy`,
+  `get-bucket-policy`, `delete-bucket-policy`), SQS and SNS `Policy`
+  attributes, and Lambda permissions (`add-permission`) are evaluated with
+  the caller's identity policies: within an account either one can allow a
+  request, and an explicit `Deny` in either refuses it. `Principal` and
+  `NotPrincipal` are matched against the caller.
+
+- **Lambda execution roles.** A function's container starts with session
+  credentials for its execution role (`AWS_ACCESS_KEY_ID`,
+  `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`), as in Lambda, so the
+  function's own AWS calls are made as `assumed-role/<role>/<function>` and
+  checked against the role's policies. The session acts in the function's
+  own account even when the role ARN names another one. Credentials the
+  function sets in its environment win. This happens in every mode, so
+  functions in other accounts call back into their own account.
+
 Resources are named from the request for S3, SQS, SNS, DynamoDB, Lambda,
 SSM, KMS (key IDs and ARNs), Secrets Manager (ARNs), Kinesis, CloudWatch
 Logs, Step Functions, EventBridge rules, IAM and STS. For other requests

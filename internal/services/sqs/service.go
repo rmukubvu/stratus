@@ -1144,6 +1144,13 @@ func normalizeAttributes(input map[string]string) (map[string]string, error) {
 				return nil, badRequest("InvalidAttributeValue", name+" must be an integer.")
 			}
 			attrs[name] = value
+		case "Policy":
+			if value != "" && !json.Valid([]byte(value)) {
+				return nil, badRequest("InvalidAttributeValue", "Policy is not valid JSON.")
+			}
+			if value != "" {
+				attrs[name] = value
+			}
 		case "RedrivePolicy":
 			if _, err := decodeRedrivePolicy(value); err != nil {
 				return nil, badRequest("InvalidAttributeValue", "RedrivePolicy is not valid JSON.")
@@ -1384,4 +1391,15 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 // SetScope sets the account and region this service instance serves.
 func (s *Service) SetScope(sc scope.Scope) {
 	s.scope = sc
+}
+
+// QueuePolicy returns a queue's resource policy, set with the Policy
+// attribute.
+func (s *Service) QueuePolicy(name string) (string, bool, error) {
+	queue, err := s.loadQueue(name)
+	if err != nil {
+		return "", false, nil
+	}
+	policy := queue.Attributes["Policy"]
+	return policy, policy != "", nil
 }

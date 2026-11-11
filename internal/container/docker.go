@@ -52,6 +52,19 @@ type Manager struct {
 
 	rieMu   sync.Mutex
 	rieHost string
+
+	credentials RoleCredentialIssuer
+}
+
+// RoleCredentialIssuer issues a function's execution role credentials.
+type RoleCredentialIssuer interface {
+	RoleCredentials(account, roleARN, sessionName string) (accessKeyID, secretAccessKey, sessionToken string, err error)
+}
+
+// SetCredentialIssuer makes new containers start with their execution
+// role's session credentials, as in Lambda.
+func (m *Manager) SetCredentialIssuer(issuer RoleCredentialIssuer) {
+	m.credentials = issuer
 }
 
 func NewManager(dataDir, blobRoot string, logger *slog.Logger) (*Manager, error) {
@@ -193,6 +206,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 	containerName := m.owner.ContainerName(runtimeKey(spec))
 	_ = m.removeNamedContainer(ctx, containerName)
 
+	spec.Credentials = m.roleCredentials(spec)
 	in, err := m.launchInput(ctx, spec, rt, imageName)
 	if err != nil {
 		return nil, err
@@ -378,7 +392,7 @@ func (m *Manager) invokeRIE(ctx context.Context, warm *WarmContainer, spec lambd
 	requestID := uuid.NewString()
 	started := time.Now()
 	req, err := http.NewRequestWithContext(invokeCtx, http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d%s", warm.HostPort, rieInvokePath), bytes.NewReader(payload))
+		fmt.Sprintf("http://127.0.0.1:%d%s", warm.HostPort, rieInvokePath), bytes.NewReader(invokePayload(payload)))
 	if err != nil {
 		return lambdasvc.InvokeResult{}, err
 	}
@@ -622,4 +636,27 @@ func runtimeKey(spec lambdasvc.FunctionSpec) string {
 		return spec.Key
 	}
 	return spec.FunctionName
+}
+
+// roleCredentials issues the execution role's credentials for a new
+// container. A function still starts without them if they cannot be issued.
+func (m *Manager) roleCredentials(spec lambdasvc.FunctionSpec) lambdasvc.Credentials {
+	if m.credentials == nil || spec.Role == "" {
+		return lambdasvc.Credentials{}
+	}
+	key, secret, token, err := m.credentials.RoleCredentials(spec.Account, spec.Role, spec.FunctionName)
+	if err != nil {
+		m.logger.Warn("lambda execution role credentials not issued", "function", spec.FunctionName, "role", spec.Role, "error", err)
+		return lambdasvc.Credentials{}
+	}
+	return lambdasvc.Credentials{AccessKeyID: key, SecretAccessKey: secret, SessionToken: token}
+}
+
+// invokePayload is the event a function receives: an invoke with no payload
+// delivers "{}", as Lambda does, so runtimes that parse JSON don't fail.
+func invokePayload(payload []byte) []byte {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return []byte("{}")
+	}
+	return payload
 }

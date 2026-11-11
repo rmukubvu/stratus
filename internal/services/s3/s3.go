@@ -26,6 +26,7 @@ const (
 	bucketMetadataBucket = "s3-buckets"
 	objectMetadataBucket = "s3-objects"
 	multipartBucket      = "s3-multipart"
+	bucketPolicyBucket   = "s3-bucket-policies"
 	documentNamespace    = "s3"
 	xmlNamespace         = "http://s3.amazonaws.com/doc/2006-03-01/"
 )
@@ -175,6 +176,9 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, bucket, key str
 		return s.listBuckets(w)
 	}
 
+	if key == "" && r.URL.Query().Has("policy") {
+		return s.handleBucketPolicy(w, r, bucket)
+	}
 	if key == "" {
 		switch r.Method {
 		case http.MethodPut:
@@ -308,6 +312,9 @@ func (s *Service) deleteBucket(w http.ResponseWriter, bucket string) error {
 	}
 
 	if err := s.metadata.Delete(bucketMetadataBucket, bucket); err != nil {
+		return internalError(err, "/"+bucket)
+	}
+	if err := s.metadata.Delete(bucketPolicyBucket, bucket); err != nil {
 		return internalError(err, "/"+bucket)
 	}
 	if err := s.blobs.DeleteNamespace(documentNamespace + "/" + bucket); err != nil {

@@ -171,6 +171,11 @@ func lambdaEnv(spec lambdasvc.FunctionSpec) []string {
 		vars["AWS_REGION"] = spec.Region
 		vars["AWS_DEFAULT_REGION"] = spec.Region
 	}
+	if c := spec.Credentials; c.AccessKeyID != "" {
+		vars["AWS_ACCESS_KEY_ID"] = c.AccessKeyID
+		vars["AWS_SECRET_ACCESS_KEY"] = c.SecretAccessKey
+		vars["AWS_SESSION_TOKEN"] = c.SessionToken
+	}
 	for key, value := range spec.Environment {
 		vars[key] = value
 	}

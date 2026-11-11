@@ -156,3 +156,24 @@ func TestHandleAssumeRoleWritesCredentials(t *testing.T) {
 		}
 	}
 }
+
+func TestRoleCredentialsActInTheFunctionAccount(t *testing.T) {
+	svc := newTestService(t)
+	key, secret, token, err := svc.RoleCredentials("111111111111", "arn:aws:iam::123456789012:role/service-role/fn-role", "f")
+	if err != nil || key == "" || secret == "" || token == "" {
+		t.Fatalf("RoleCredentials = %q %q %q %v", key, secret, token, err)
+	}
+	session, ok := svc.Session(key)
+	if !ok {
+		t.Fatal("the session is not stored")
+	}
+	if session.Account != "111111111111" || session.RoleName != "fn-role" || session.SessionName != "f-" {
+		t.Fatalf("session = %+v", session)
+	}
+	if got := session.Expiration.Sub(svc.now()); got != 12*time.Hour {
+		t.Fatalf("lifetime = %v", got)
+	}
+	if _, _, _, err := svc.RoleCredentials("", "lambda-role", "my-function"); err != nil {
+		t.Fatalf("a bare role name should still work: %v", err)
+	}
+}

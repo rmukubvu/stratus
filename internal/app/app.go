@@ -81,6 +81,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	blobStore := fsblob.New(blobRoot)
 	iamKeys := iam.NewKeyDirectory(metaStore)
 	stsService := sts.NewService(metaStore, iamKeys)
+	lambdaRuntime.SetCredentialIssuer(stsService)
 	stacks := newStacks(platform{
 		meta:    metaStore,
 		blobs:   blobStore,
@@ -144,7 +145,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Services:   defaults.services,
 		Stacks:     stacks,
 		Accounts:   httpapi.AccountResolvers{stsService, iamKeys},
-		Authorizer: authz.New(iamMode, authz.Callers{Sessions: stsService, Keys: iamKeys}, stacks, logger),
+		Authorizer: authz.New(iamMode, authz.Callers{Sessions: stsService, Keys: iamKeys}, stacks, stacks, logger),
 		Operator:   operatorService,
 		Control:    controlHandler,
 		Gate:       controlService.Gate(),

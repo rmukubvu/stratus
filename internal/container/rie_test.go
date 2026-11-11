@@ -78,3 +78,11 @@ func TestRIEOutcomeUnexpectedStatusIsServiceException(t *testing.T) {
 		t.Fatalf("error = %v, want ServiceException", err)
 	}
 }
+
+func TestInvokePayloadDefaultsToAnEmptyObject(t *testing.T) {
+	for in, want := range map[string]string{"": "{}", "  \n": "{}", `{"a":1}`: `{"a":1}`, `"text"`: `"text"`} {
+		if got := string(invokePayload([]byte(in))); got != want {
+			t.Errorf("invokePayload(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

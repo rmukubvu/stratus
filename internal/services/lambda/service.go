@@ -97,6 +97,19 @@ type FunctionSpec struct {
 	PackageType string
 	ImageURI    string
 	ImageConfig ImageConfig
+	// Role is the function's execution role ARN.
+	Role string
+	// Credentials are the execution role's session credentials, issued when
+	// the container starts. Empty when none were issued.
+	Credentials Credentials
+}
+
+// Credentials are temporary AWS credentials given to a function, as Lambda
+// gives it its execution role's.
+type Credentials struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
 }
 
 // ImageConfig overrides the container image's own entrypoint, command and
@@ -1769,6 +1782,7 @@ func (s *Service) specFromRecord(record functionRecord) FunctionSpec {
 		PackageType:  defaultString(record.PackageType, PackageTypeZip),
 		ImageURI:     record.ImageURI,
 		ImageConfig:  record.ImageConfig,
+		Role:         record.Role,
 	}
 }
 
@@ -2122,7 +2136,7 @@ func (s *Service) permissionPolicyJSON(records []permissionRecord) string {
 		statement := map[string]any{
 			"Action":    record.Action,
 			"Effect":    "Allow",
-			"Principal": map[string]string{"Service": record.Principal},
+			"Principal": permissionPrincipal(record.Principal),
 			"Resource":  s.qualifiedFunctionARN(record.FunctionName, record.Qualifier),
 			"Sid":       record.StatementID,
 		}
@@ -2397,4 +2411,30 @@ func RuntimeKey(sc scope.Scope, functionName string) string {
 		return functionName
 	}
 	return sc.Account + "-" + sc.Region + "-" + functionName
+}
+
+// permissionPrincipal renders an AddPermission principal the way Lambda's
+// GetPolicy does: services under "Service", accounts and ARNs under "AWS".
+func permissionPrincipal(principal string) any {
+	switch {
+	case principal == "*":
+		return "*"
+	case scope.ValidAccount(principal) || strings.HasPrefix(principal, "arn:"):
+		return map[string]string{"AWS": principal}
+	default:
+		return map[string]string{"Service": principal}
+	}
+}
+
+// FunctionPolicy returns the resource policy AddPermission built for a
+// function's unqualified ARN.
+func (s *Service) FunctionPolicy(name string) (string, bool, error) {
+	records, err := s.listPermissionRecords(name, "")
+	if err != nil {
+		return "", false, err
+	}
+	if len(records) == 0 {
+		return "", false, nil
+	}
+	return s.permissionPolicyJSON(records), true, nil
 }

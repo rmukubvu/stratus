@@ -14,6 +14,8 @@ import (
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/httpapi"
 	"github.com/stratus/internal/iampolicy"
+	"github.com/stratus/internal/scope"
+	"github.com/stratus/internal/services/sts"
 )
 
 // Mode selects what the authorizer does with a request policies refuse.
@@ -41,24 +43,34 @@ func ParseMode(raw string) (Mode, error) {
 	return Off, fmt.Errorf("STRATUS_IAM must be off, audit or enforce, got %q", raw)
 }
 
-// PolicySource returns the identity-based policies of IAM principals.
+// PolicySource returns the policies of IAM principals.
 type PolicySource interface {
 	UserPolicies(account, userName string) ([]string, error)
 	RolePolicies(account, roleName string) ([]string, error)
+	// TrustPolicy returns a role's trust policy; ok is false when the role
+	// does not exist.
+	TrustPolicy(account, roleName string) (doc string, ok bool, err error)
+}
+
+// ResourcePolicySource returns the resource-based policy attached to a
+// resource, such as a bucket policy or a queue's Policy attribute.
+type ResourcePolicySource interface {
+	ResourcePolicy(sc scope.Scope, service, resourceARN string) (doc string, ok bool, err error)
 }
 
 // Authorizer evaluates each request against its caller's policies.
 type Authorizer struct {
-	mode     Mode
-	callers  Callers
-	policies PolicySource
-	logger   *slog.Logger
-	now      func() time.Time
+	mode      Mode
+	callers   Callers
+	policies  PolicySource
+	resources ResourcePolicySource
+	logger    *slog.Logger
+	now       func() time.Time
 }
 
-// New returns an authorizer in the given mode.
-func New(mode Mode, callers Callers, policies PolicySource, logger *slog.Logger) *Authorizer {
-	return &Authorizer{mode: mode, callers: callers, policies: policies, logger: logger, now: time.Now}
+// New returns an authorizer in the given mode. resources may be nil.
+func New(mode Mode, callers Callers, policies PolicySource, resources ResourcePolicySource, logger *slog.Logger) *Authorizer {
+	return &Authorizer{mode: mode, callers: callers, policies: policies, resources: resources, logger: logger, now: time.Now}
 }
 
 var _ httpapi.Authorizer = (*Authorizer)(nil)
@@ -74,35 +86,98 @@ func (a *Authorizer) Authorize(r *http.Request, md httpapi.RequestMetadata) erro
 		accessKey = md.SigV4.AccessKeyID
 	}
 	caller := a.callers.Resolve(accessKey, md.Scope)
-	if caller.Kind == Root {
-		return nil
-	}
-	if err := a.checkCredentials(caller); err != nil {
-		return a.refuse(err, caller, "", "")
+	if caller.Kind != Root {
+		if err := a.checkCredentials(caller); err != nil {
+			return a.refuse(err, caller, "", "")
+		}
 	}
 
 	action := Action(service, md.Classification.Operation, r, md.Classification.Key)
-	if isUnauthenticated(action) {
+	assumeRole := strings.EqualFold(action, "sts:AssumeRole")
+	if (caller.Kind == Root || isUnauthenticated(action)) && !assumeRole {
 		return nil
 	}
 	p := readParams(r, md.Classification.Protocol == httpapi.ProtocolJSON || md.Classification.Protocol == httpapi.ProtocolREST)
 	resource := Resource(service, md.Classification.Operation, r, md.Scope, md.Classification.Bucket, md.Classification.Key, p)
-
-	docs, err := a.identityPolicies(caller)
-	if err != nil {
-		return err
-	}
 	req := iampolicy.Request{
 		Action:    action,
 		Resource:  resource,
 		Principal: iampolicy.PrincipalInfo{ARN: caller.ARN, RoleARN: caller.RoleARN, Account: caller.Account},
 		Context:   a.context(r, md, caller),
 	}
-	decision := iampolicy.Evaluate(docs, req, false)
-	if decision.Outcome == iampolicy.Allowed {
+
+	// A role's trust policy decides who may assume it, root included.
+	if assumeRole {
+		if err := a.checkTrust(md.Classification.Protocol, caller, req); err != nil {
+			return a.refuse(err, caller, action, resource)
+		}
+	}
+	if caller.Kind == Root || isUnauthenticated(action) {
 		return nil
 	}
-	return a.refuse(accessDenied(md.Classification.Protocol, caller, action, resource, decision), caller, action, resource)
+
+	docs, err := a.identityPolicies(caller)
+	if err != nil {
+		return err
+	}
+	identity := iampolicy.Evaluate(docs, req, false)
+	resourceDecision, err := a.resourceDecision(md.Scope, service, req)
+	if err != nil {
+		return err
+	}
+	switch {
+	case identity.Outcome == iampolicy.ExplicitDeny:
+		return a.refuse(accessDenied(md.Classification.Protocol, caller, action, resource, "with an explicit deny in an identity-based policy"), caller, action, resource)
+	case resourceDecision.Outcome == iampolicy.ExplicitDeny:
+		return a.refuse(accessDenied(md.Classification.Protocol, caller, action, resource, "with an explicit deny in a resource-based policy"), caller, action, resource)
+	case identity.Outcome == iampolicy.Allowed, resourceDecision.Outcome == iampolicy.Allowed:
+		// Within an account, either kind of policy can grant access.
+		return nil
+	}
+	return a.refuse(accessDenied(md.Classification.Protocol, caller, action, resource, "because no identity-based policy allows the "+action+" action"), caller, action, resource)
+}
+
+// resourceDecision evaluates the policy attached to the request's resource,
+// if it has one.
+func (a *Authorizer) resourceDecision(sc scope.Scope, service string, req iampolicy.Request) (iampolicy.Decision, error) {
+	none := iampolicy.Decision{Outcome: iampolicy.ImplicitDeny}
+	if a.resources == nil || req.Resource == iampolicy.AnyResource {
+		return none, nil
+	}
+	raw, ok, err := a.resources.ResourcePolicy(sc, service, req.Resource)
+	if err != nil || !ok {
+		return none, err
+	}
+	doc, err := iampolicy.Parse(raw)
+	if err != nil {
+		return none, nil
+	}
+	return iampolicy.Evaluate([]iampolicy.Document{doc}, req, true), nil
+}
+
+// checkTrust requires the role to exist and its trust policy to allow the
+// caller to assume it.
+func (a *Authorizer) checkTrust(protocol httpapi.Protocol, caller Caller, req iampolicy.Request) error {
+	denied := accessDenied(protocol, caller, req.Action, req.Resource, "because the role's trust policy does not allow it")
+	role, ok := sts.ParseRoleARN(req.Resource)
+	if !ok {
+		return nil // AssumeRole itself reports the malformed ARN
+	}
+	raw, exists, err := a.policies.TrustPolicy(role.Account, role.Name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return denied
+	}
+	doc, err := iampolicy.Parse(raw)
+	if err != nil {
+		return denied
+	}
+	if iampolicy.Evaluate([]iampolicy.Document{doc}, req, true).Outcome != iampolicy.Allowed {
+		return denied
+	}
+	return nil
 }
 
 func (a *Authorizer) checkCredentials(c Caller) error {
@@ -175,17 +250,13 @@ func (a *Authorizer) context(r *http.Request, md httpapi.RequestMetadata, c Call
 	return ctx
 }
 
-func accessDenied(protocol httpapi.Protocol, c Caller, action, resource string, d iampolicy.Decision) error {
+func accessDenied(protocol httpapi.Protocol, c Caller, action, resource, reason string) error {
 	code := "AccessDenied"
 	if protocol == httpapi.ProtocolJSON || protocol == httpapi.ProtocolREST {
 		code = "AccessDeniedException"
 	}
 	if resource == iampolicy.AnyResource {
 		resource = "*"
-	}
-	reason := "because no identity-based policy allows the " + action + " action"
-	if d.Outcome == iampolicy.ExplicitDeny {
-		reason = "with an explicit deny in an identity-based policy"
 	}
 	return &apierror.Error{
 		StatusCode: http.StatusForbidden,
