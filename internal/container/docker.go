@@ -392,7 +392,7 @@ func (m *Manager) invokeRIE(ctx context.Context, warm *WarmContainer, spec lambd
 	requestID := uuid.NewString()
 	started := time.Now()
 	req, err := http.NewRequestWithContext(invokeCtx, http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d%s", warm.HostPort, rieInvokePath), bytes.NewReader(payload))
+		fmt.Sprintf("http://127.0.0.1:%d%s", warm.HostPort, rieInvokePath), bytes.NewReader(invokePayload(payload)))
 	if err != nil {
 		return lambdasvc.InvokeResult{}, err
 	}
@@ -650,4 +650,13 @@ func (m *Manager) roleCredentials(spec lambdasvc.FunctionSpec) lambdasvc.Credent
 		return lambdasvc.Credentials{}
 	}
 	return lambdasvc.Credentials{AccessKeyID: key, SecretAccessKey: secret, SessionToken: token}
+}
+
+// invokePayload is the event a function receives: an invoke with no payload
+// delivers "{}", as Lambda does, so runtimes that parse JSON don't fail.
+func invokePayload(payload []byte) []byte {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return []byte("{}")
+	}
+	return payload
 }
