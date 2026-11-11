@@ -92,9 +92,10 @@ Run a command against a throwaway instance:
     run: go test ./...
 ```
 
-Or start a background instance for later steps. `AWS_ENDPOINT_URL`,
-`STRATUS_ENDPOINT` and default credentials are exported for every
-following step:
+Or start a background instance for later steps. It listens on a free port
+unless you set `port`, and `AWS_ENDPOINT_URL`, `STRATUS_ENDPOINT` and default
+credentials are exported for every following step. When the job ends, a post
+step stops it so it removes its containers before the runner moves on:
 
 ```yaml
 - uses: rmukubvu/stratus@main
@@ -108,9 +109,44 @@ following step:
 | `version` | `latest` | Release tag, `latest`, or `source` to build from the action's checkout |
 | `run` | empty | Command for `stratus ci`; empty starts a background instance |
 | `seed` | empty | Snapshot directory to start from |
-| `port` | `4566` | Port for the background instance |
+| `port` | free port | Port for the background instance |
 | `log-level` | `warn` | Stratus log level |
 
 The action works on Linux, macOS and Windows runners. Lambda execution needs
 Docker with Linux containers, which GitHub's Windows runners don't provide;
 everything else works without it.
+
+## Self-hosted runners
+
+Both modes are safe on persistent runners and on hosts running several
+runners at once: each instance gets its own port, data directory and
+container names, and its containers are removed when it stops. If a job is
+killed outright, the next Stratus start on that host reaps what it left.
+
+The runner needs:
+
+- Linux or macOS (x64 or arm64), or Windows with Docker Desktop using Linux
+  containers, and a runner version that supports `node24` actions.
+- `bash` and `curl` on the `PATH` (Git Bash on Windows).
+- For Lambda, RDS, ElastiCache and MSK: a Docker daemon in the same network
+  namespace as the runner, because Stratus reaches its containers on
+  `127.0.0.1`. A runner on a VM or bare metal with local Docker works, as does
+  an actions-runner-controller pod with a Docker-in-Docker sidecar. A runner
+  container that mounts the host's `docker.sock` does not.
+- Permission to use Docker (the `docker` group, or `DOCKER_HOST` for rootless
+  Docker).
+
+Images such as `public.ecr.aws/lambda/python:3.11` and `postgres:16-alpine`
+are pulled on first use; a persistent runner keeps them cached.
+
+```yaml
+jobs:
+  integration:
+    runs-on: [self-hosted, linux, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rmukubvu/stratus@main
+        with:
+          seed: ./fixtures/snapshots/seeded   # optional
+          run: go test ./...
+```
