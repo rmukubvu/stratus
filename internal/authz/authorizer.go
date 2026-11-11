@@ -93,6 +93,10 @@ func (a *Authorizer) Authorize(r *http.Request, md httpapi.RequestMetadata) erro
 	}
 
 	action := Action(service, md.Classification.Operation, r, md.Classification.Key)
+	assumeRole := strings.EqualFold(action, "sts:AssumeRole")
+	if (caller.Kind == Root || isUnauthenticated(action)) && !assumeRole {
+		return nil
+	}
 	p := readParams(r, md.Classification.Protocol == httpapi.ProtocolJSON || md.Classification.Protocol == httpapi.ProtocolREST)
 	resource := Resource(service, md.Classification.Operation, r, md.Scope, md.Classification.Bucket, md.Classification.Key, p)
 	req := iampolicy.Request{
@@ -103,7 +107,7 @@ func (a *Authorizer) Authorize(r *http.Request, md httpapi.RequestMetadata) erro
 	}
 
 	// A role's trust policy decides who may assume it, root included.
-	if strings.EqualFold(action, "sts:AssumeRole") {
+	if assumeRole {
 		if err := a.checkTrust(md.Classification.Protocol, caller, req); err != nil {
 			return a.refuse(err, caller, action, resource)
 		}
