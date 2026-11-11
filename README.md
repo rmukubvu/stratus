@@ -39,6 +39,10 @@ work: Python 3.9–3.13, Node.js 18/20/22, Java 8/11/17/21, Ruby 3.2/3.3, .NET 8
 `provided.al2`/`provided.al2023` (Go, Rust, custom runtimes), and
 container-image functions. See [docs/lambda.md](docs/lambda.md).
 
+Every AWS account and region gets its own resources: the account comes from
+a twelve-digit access key and the region from the request signature. See
+[docs/accounts.md](docs/accounts.md).
+
 ## What Works Today
 
 `stratus` currently includes first-class support for 29 service families:

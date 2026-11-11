@@ -18,12 +18,12 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
 const (
 	namespace          = "https://iam.amazonaws.com/doc/2010-05-08/"
-	accountID          = "000000000000"
 	rolesBucket        = "iam-roles"
 	rolePoliciesBucket = "iam-role-policies"
 )
@@ -35,6 +35,7 @@ var (
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 	rand     *rand.Rand
@@ -164,6 +165,7 @@ type roleXML struct {
 
 func NewService(metadata store.Store) *Service {
 	return &Service{
+		scope:    scope.Default(),
 		metadata: metadata,
 		now:      time.Now,
 		rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
@@ -255,7 +257,7 @@ func (s *Service) createRole(w http.ResponseWriter, r *http.Request, requestID s
 	writeXML(w, http.StatusOK, createRoleResponse{
 		XMLNS: namespace,
 		Result: roleResult{
-			Role: roleToXML(record),
+			Role: s.roleToXML(record),
 		},
 		ResponseMetadata: responseMetadata{RequestID: requestID},
 	})
@@ -275,7 +277,7 @@ func (s *Service) getRole(w http.ResponseWriter, r *http.Request, requestID stri
 	writeXML(w, http.StatusOK, getRoleResponse{
 		XMLNS: namespace,
 		Result: roleResult{
-			Role: roleToXML(role),
+			Role: s.roleToXML(role),
 		},
 		ResponseMetadata: responseMetadata{RequestID: requestID},
 	})
@@ -299,7 +301,7 @@ func (s *Service) listRoles(w http.ResponseWriter, r *http.Request, requestID st
 			return nil
 		}
 		if strings.HasPrefix(record.Path, pathPrefix) {
-			roles = append(roles, roleToXML(record))
+			roles = append(roles, s.roleToXML(record))
 		}
 		return nil
 	}); err != nil {
@@ -568,10 +570,10 @@ func (s *Service) rolePolicyNames(roleName string) ([]string, error) {
 	return names, nil
 }
 
-func roleToXML(record roleRecord) roleXML {
+func (s *Service) roleToXML(record roleRecord) roleXML {
 	return roleXML{
 		Path:                     record.Path,
-		Arn:                      roleARN(record.Path, record.RoleName),
+		Arn:                      s.roleARN(record.Path, record.RoleName),
 		RoleName:                 record.RoleName,
 		AssumeRolePolicyDocument: encodePolicyDocument(record.AssumeRolePolicyDocument),
 		CreateDate:               record.CreateDate.UTC().Format(time.RFC3339),
@@ -581,11 +583,11 @@ func roleToXML(record roleRecord) roleXML {
 	}
 }
 
-func roleARN(path, roleName string) string {
+func (s *Service) roleARN(path, roleName string) string {
 	if path == "/" {
-		return fmt.Sprintf("arn:aws:iam::%s:role/%s", accountID, roleName)
+		return fmt.Sprintf("arn:aws:iam::%s:role/%s", s.scope.Account, roleName)
 	}
-	return fmt.Sprintf("arn:aws:iam::%s:role%s%s", accountID, path, roleName)
+	return fmt.Sprintf("arn:aws:iam::%s:role%s%s", s.scope.Account, path, roleName)
 }
 
 func rolePolicyKey(roleName, policyName string) string {
@@ -685,4 +687,9 @@ func writeXML(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 	w.WriteHeader(status)
 	_ = xml.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

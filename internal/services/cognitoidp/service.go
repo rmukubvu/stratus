@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
@@ -20,11 +21,10 @@ const (
 	userClientsBucket = "cognito-user-pool-clients"
 	usersBucket       = "cognito-users"
 	groupsBucket      = "cognito-groups"
-	accountID         = "000000000000"
-	region            = "us-east-1"
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 	mu       sync.Mutex
@@ -79,7 +79,7 @@ type groupRecord struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation string) error {
@@ -129,10 +129,10 @@ func (s *Service) createUserPool(w http.ResponseWriter, r *http.Request) error {
 	if input.PoolName == "" {
 		return validation("PoolName is required")
 	}
-	id := fmt.Sprintf("%s_%s", region, uuid.NewString()[:8])
+	id := fmt.Sprintf("%s_%s", s.scope.Region, uuid.NewString()[:8])
 	now := s.now().UTC()
 	record := userPool{
-		ARN:                fmt.Sprintf("arn:aws:cognito-idp:%s:%s:userpool/%s", region, accountID, id),
+		ARN:                fmt.Sprintf("arn:aws:cognito-idp:%s:%s:userpool/%s", s.scope.Region, s.scope.Account, id),
 		CreatedAt:          now,
 		ID:                 id,
 		LastModifiedAt:     now,
@@ -162,10 +162,10 @@ func (s *Service) CreateUserPool(input CreateUserPoolInput) (string, string, err
 	if input.PoolName == "" {
 		return "", "", validation("PoolName is required")
 	}
-	id := fmt.Sprintf("%s_%s", region, uuid.NewString()[:8])
+	id := fmt.Sprintf("%s_%s", s.scope.Region, uuid.NewString()[:8])
 	now := s.now().UTC()
 	record := userPool{
-		ARN:                fmt.Sprintf("arn:aws:cognito-idp:%s:%s:userpool/%s", region, accountID, id),
+		ARN:                fmt.Sprintf("arn:aws:cognito-idp:%s:%s:userpool/%s", s.scope.Region, s.scope.Account, id),
 		CreatedAt:          now,
 		ID:                 id,
 		LastModifiedAt:     now,
@@ -802,4 +802,9 @@ func ternary(condition bool, left, right string) string {
 		return left
 	}
 	return right
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 	"github.com/stratus/internal/store"
 )
@@ -19,11 +20,10 @@ import (
 const (
 	streamsBucket = "dynamodb-streams"
 	recordsBucket = "dynamodb-stream-records"
-	accountID     = "000000000000"
-	region        = "us-east-1"
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	lambda   *lambdasvc.Service
 	now      func() time.Time
@@ -59,7 +59,7 @@ type iteratorToken struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) SetLambda(lambda *lambdasvc.Service) {
@@ -93,7 +93,7 @@ func (s *Service) EnsureStream(tableName, viewType string) (string, error) {
 	}
 	label := s.now().UTC().Format("2006-01-02T15:04:05.000")
 	record := streamRecord{
-		Arn:            streamARN(tableName, label),
+		Arn:            s.streamARN(tableName, label),
 		CreatedAt:      s.now().UTC(),
 		Label:          label,
 		ShardID:        "shardId-00000000000000000000",
@@ -156,7 +156,7 @@ func (s *Service) AddRecord(tableName string, keys, oldImage, newImage map[strin
 	}
 	if s.lambda != nil {
 		payload := map[string]any{
-			"awsRegion":      region,
+			"awsRegion":      s.scope.Region,
 			"eventID":        rec.EventID,
 			"eventName":      rec.EventName,
 			"eventSource":    "aws:dynamodb",
@@ -221,17 +221,17 @@ func (s *Service) describeStream(w http.ResponseWriter, r *http.Request) error {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"StreamDescription": map[string]any{
 			"CreationRequestDateTime": stream.CreatedAt.Format(time.RFC3339),
-			"KeySchema": []map[string]string{{"AttributeName": "", "KeyType": "HASH"}},
+			"KeySchema":               []map[string]string{{"AttributeName": "", "KeyType": "HASH"}},
 			"LastEvaluatedShardId":    nil,
 			"Shards": []map[string]any{{
 				"SequenceNumberRange": map[string]any{"StartingSequenceNumber": "1"},
 				"ShardId":             stream.ShardID,
 			}},
-			"StreamArn":       stream.Arn,
-			"StreamLabel":     stream.Label,
-			"StreamStatus":    stream.Status,
-			"StreamViewType":  stream.StreamViewType,
-			"TableName":       stream.TableName,
+			"StreamArn":      stream.Arn,
+			"StreamLabel":    stream.Label,
+			"StreamStatus":   stream.Status,
+			"StreamViewType": stream.StreamViewType,
+			"TableName":      stream.TableName,
 		},
 	})
 	return nil
@@ -296,7 +296,7 @@ func (s *Service) getRecords(w http.ResponseWriter, r *http.Request) error {
 			return nil
 		}
 		records = append(records, map[string]any{
-			"awsRegion":      region,
+			"awsRegion":      s.scope.Region,
 			"eventID":        rec.EventID,
 			"eventName":      rec.EventName,
 			"eventSource":    "aws:dynamodb",
@@ -407,8 +407,8 @@ func selectImage(viewType, side string, keys, oldImage, newImage map[string]any)
 	return nil
 }
 
-func streamARN(tableName, label string) string {
-	return "arn:aws:dynamodb:" + region + ":" + accountID + ":table/" + tableName + "/stream/" + label
+func (s *Service) streamARN(tableName, label string) string {
+	return "arn:aws:dynamodb:" + s.scope.Region + ":" + s.scope.Account + ":table/" + tableName + "/stream/" + label
 }
 
 func recordKey(tableName string, seq int) string {
@@ -457,4 +457,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

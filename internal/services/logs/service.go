@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
@@ -22,6 +23,7 @@ const (
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 }
@@ -61,7 +63,7 @@ type EventSummary struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation string) error {
@@ -198,7 +200,7 @@ func (s *Service) describeLogGroups(w http.ResponseWriter, r *http.Request) erro
 			return nil
 		}
 		groups = append(groups, map[string]any{
-			"arn":          "arn:aws:logs:us-east-1:000000000000:log-group:" + record.Name,
+			"arn":          s.scope.ARN("logs", "log-group:"+record.Name),
 			"creationTime": record.CreatedAt.UnixMilli(),
 			"logGroupName": record.Name,
 			"storedBytes":  0,
@@ -253,7 +255,7 @@ func (s *Service) describeLogStreams(w http.ResponseWriter, r *http.Request) err
 			"lastIngestionTime":   record.LastIngestionTime,
 			"storedBytes":         record.StoredBytes,
 			"uploadSequenceToken": strconv.FormatInt(record.SequenceToken, 10),
-			"arn":                 "arn:aws:logs:us-east-1:000000000000:log-group:" + record.GroupName + ":log-stream:" + record.StreamName,
+			"arn":                 s.scope.ARN("logs", "log-group:"+record.GroupName+":log-stream:"+record.StreamName),
 		})
 		return nil
 	}); err != nil {
@@ -411,4 +413,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

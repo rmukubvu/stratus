@@ -13,6 +13,7 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/chaos"
+	"github.com/stratus/internal/scope"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 	"github.com/stratus/internal/store"
 )
@@ -20,11 +21,10 @@ import (
 const (
 	stateMachinesBucket = "stepfunctions-state-machines"
 	executionsBucket    = "stepfunctions-executions"
-	accountID           = "000000000000"
-	region              = "us-east-1"
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	lambda   *lambdasvc.Service
 	faults   chaos.Gate
@@ -99,7 +99,7 @@ type catcher struct {
 }
 
 func NewService(metadata store.Store, lambda *lambdasvc.Service) *Service {
-	return &Service{metadata: metadata, lambda: lambda, faults: chaos.Passthrough{}, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, lambda: lambda, faults: chaos.Passthrough{}, now: time.Now}
 }
 
 // SetFaults routes Task state invocations through a chaos gate. They are
@@ -168,7 +168,7 @@ func (s *Service) createStateMachine(w http.ResponseWriter, r *http.Request) err
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"creationDate":    formatTime(record.CreatedAt),
-		"stateMachineArn": stateMachineARN(record.Name),
+		"stateMachineArn": s.stateMachineARN(record.Name),
 	})
 	return nil
 }
@@ -187,7 +187,7 @@ func (s *Service) CreateStateMachine(input CreateStateMachineInput) (string, err
 		return "", &apierror.Error{StatusCode: http.StatusBadRequest, Code: "InvalidDefinition", Message: err.Error()}
 	}
 	if _, err := s.loadStateMachineByName(input.Name); err == nil {
-		return stateMachineARN(input.Name), nil
+		return s.stateMachineARN(input.Name), nil
 	}
 	record := stateMachineRecord{
 		CreatedAt:  s.now().UTC(),
@@ -199,7 +199,7 @@ func (s *Service) CreateStateMachine(input CreateStateMachineInput) (string, err
 	if err := s.putStateMachine(record); err != nil {
 		return "", internal(err)
 	}
-	return stateMachineARN(input.Name), nil
+	return s.stateMachineARN(input.Name), nil
 }
 
 func (s *Service) DeleteStateMachineByARN(arn string) error {
@@ -213,7 +213,7 @@ func (s *Service) DeleteStateMachineByARN(arn string) error {
 	if err := s.metadata.Delete(stateMachinesBucket, record.Name); err != nil {
 		return internal(err)
 	}
-	if err := s.metadata.DeletePrefix(executionsBucket, executionARN(record.Name, "")); err != nil {
+	if err := s.metadata.DeletePrefix(executionsBucket, s.executionARN(record.Name, "")); err != nil {
 		return internal(err)
 	}
 	return nil
@@ -241,7 +241,7 @@ func (s *Service) StartExecutionByARN(ctx context.Context, arn, input string) er
 	}
 	output, execErr := s.executeDefinition(arn, definition, payload)
 	execution := executionRecord{
-		ExecutionArn:    executionARN(record.Name, name),
+		ExecutionArn:    s.executionARN(record.Name, name),
 		Input:           input,
 		Name:            name,
 		StartDate:       start,
@@ -276,7 +276,7 @@ func (s *Service) listStateMachines(w http.ResponseWriter) error {
 		items = append(items, map[string]any{
 			"creationDate":    formatTime(record.CreatedAt),
 			"name":            record.Name,
-			"stateMachineArn": stateMachineARN(record.Name),
+			"stateMachineArn": s.stateMachineARN(record.Name),
 			"type":            record.Type,
 		})
 		return nil
@@ -303,7 +303,7 @@ func (s *Service) describeStateMachine(w http.ResponseWriter, r *http.Request) e
 		"definition":      record.Definition,
 		"name":            record.Name,
 		"roleArn":         record.RoleArn,
-		"stateMachineArn": stateMachineARN(record.Name),
+		"stateMachineArn": s.stateMachineARN(record.Name),
 		"status":          "ACTIVE",
 		"type":            record.Type,
 	})
@@ -327,7 +327,7 @@ func (s *Service) startExecution(w http.ResponseWriter, r *http.Request) error {
 		input.Name = uuid.NewString()
 	}
 	start := s.now().UTC()
-	executionArn := executionARN(record.Name, input.Name)
+	executionArn := s.executionARN(record.Name, input.Name)
 	output, status, runErr := s.execute(record, input.Input)
 	if runErr != nil {
 		status = "FAILED"
@@ -339,7 +339,7 @@ func (s *Service) startExecution(w http.ResponseWriter, r *http.Request) error {
 		Name:            input.Name,
 		Output:          output,
 		StartDate:       start,
-		StateMachineArn: stateMachineARN(record.Name),
+		StateMachineArn: s.stateMachineARN(record.Name),
 		Status:          status,
 		StopDate:        s.now().UTC(),
 	}
@@ -391,7 +391,7 @@ func (s *Service) deleteStateMachine(w http.ResponseWriter, r *http.Request) err
 	if err := s.metadata.Delete(stateMachinesBucket, record.Name); err != nil {
 		return internal(err)
 	}
-	if err := s.metadata.DeletePrefix(executionsBucket, stateMachineARN(record.Name)+":execution:"); err != nil {
+	if err := s.metadata.DeletePrefix(executionsBucket, s.stateMachineARN(record.Name)+":execution:"); err != nil {
 		return internal(err)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{})
@@ -409,7 +409,7 @@ func (s *Service) execute(record stateMachineRecord, input string) (string, stri
 			return "", "FAILED", err
 		}
 	}
-	output, err := s.executeDefinition(stateMachineARN(record.Name), definition, payload)
+	output, err := s.executeDefinition(s.stateMachineARN(record.Name), definition, payload)
 	if err != nil {
 		return "", "FAILED", err
 	}
@@ -737,12 +737,12 @@ func (s *Service) loadExecution(arn string) (executionRecord, error) {
 	return record, nil
 }
 
-func stateMachineARN(name string) string {
-	return fmt.Sprintf("arn:aws:states:%s:%s:stateMachine:%s", region, accountID, name)
+func (s *Service) stateMachineARN(name string) string {
+	return fmt.Sprintf("arn:aws:states:%s:%s:stateMachine:%s", s.scope.Region, s.scope.Account, name)
 }
 
-func executionARN(stateMachineName, name string) string {
-	return fmt.Sprintf("arn:aws:states:%s:%s:execution:%s:%s", region, accountID, stateMachineName, name)
+func (s *Service) executionARN(stateMachineName, name string) string {
+	return fmt.Sprintf("arn:aws:states:%s:%s:execution:%s:%s", s.scope.Region, s.scope.Account, stateMachineName, name)
 }
 
 func lambdaName(arn string) string {
@@ -803,4 +803,9 @@ func cloneMapAny(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

@@ -23,6 +23,7 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/scope"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 	"github.com/stratus/internal/store"
 )
@@ -31,12 +32,12 @@ const (
 	namespace      = "http://queue.amazonaws.com/doc/2012-11-05/"
 	queuesBucket   = "sqs-queues"
 	messagesBucket = "sqs-messages"
-	accountID      = "000000000000"
 )
 
 var queueNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	lambda   *lambdasvc.Service
 	now      func() time.Time
@@ -170,7 +171,7 @@ type receivedMessage struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) SetLambda(lambda *lambdasvc.Service) {
@@ -197,7 +198,7 @@ func (s *Service) SendMessageToARN(queueArn string, body string) error {
 		return internal(err)
 	}
 	if s.lambda != nil {
-		s.lambda.DispatchSQSEvent(context.Background(), queueARN(queue.Name), record.MessageID, uuid.NewString(), record.Body, map[string]string{
+		s.lambda.DispatchSQSEvent(context.Background(), s.queueARN(queue.Name), record.MessageID, uuid.NewString(), record.Body, map[string]string{
 			"ApproximateReceiveCount": "1",
 			"SentTimestamp":           strconv.FormatInt(record.SentAt.UnixMilli(), 10),
 		})
@@ -516,7 +517,7 @@ func (s *Service) createQueue(w http.ResponseWriter, r *http.Request, requestID 
 		writeXML(w, http.StatusOK, createQueueResponse{
 			XMLNS: namespace,
 			Result: queueURLResult{
-				QueueURL: queueURL(r, name),
+				QueueURL: s.queueURL(r, name),
 			},
 			ResponseMetadata: responseMetadata{RequestID: requestID},
 		})
@@ -535,7 +536,7 @@ func (s *Service) createQueue(w http.ResponseWriter, r *http.Request, requestID 
 	writeXML(w, http.StatusOK, createQueueResponse{
 		XMLNS: namespace,
 		Result: queueURLResult{
-			QueueURL: queueURL(r, name),
+			QueueURL: s.queueURL(r, name),
 		},
 		ResponseMetadata: responseMetadata{RequestID: requestID},
 	})
@@ -560,7 +561,7 @@ func (s *Service) getQueueURL(w http.ResponseWriter, r *http.Request, requestID 
 	writeXML(w, http.StatusOK, getQueueURLResponse{
 		XMLNS: namespace,
 		Result: queueURLResult{
-			QueueURL: queueURL(r, name),
+			QueueURL: s.queueURL(r, name),
 		},
 		ResponseMetadata: responseMetadata{RequestID: requestID},
 	})
@@ -581,7 +582,7 @@ func (s *Service) listQueues(w http.ResponseWriter, r *http.Request, requestID s
 			return nil
 		}
 		if prefix == "" || strings.HasPrefix(record.Name, prefix) {
-			urls = append(urls, queueURL(r, record.Name))
+			urls = append(urls, s.queueURL(r, record.Name))
 		}
 		return nil
 	}); err != nil {
@@ -723,7 +724,7 @@ func (s *Service) sendMessage(w http.ResponseWriter, r *http.Request, requestID 
 		if receiptHandle == "" {
 			receiptHandle = uuid.NewString()
 		}
-		s.lambda.DispatchSQSEvent(context.Background(), queueARN(queue.Name), record.MessageID, receiptHandle, record.Body, map[string]string{
+		s.lambda.DispatchSQSEvent(context.Background(), s.queueARN(queue.Name), record.MessageID, receiptHandle, record.Body, map[string]string{
 			"ApproximateReceiveCount": "1",
 			"SentTimestamp":           strconv.FormatInt(record.SentAt.UnixMilli(), 10),
 		})
@@ -1013,7 +1014,7 @@ func (s *Service) queueAttributes(r *http.Request, queue queueRecord, requested 
 		"ApproximateNumberOfMessages":           strconv.Itoa(visible),
 		"ApproximateNumberOfMessagesNotVisible": strconv.Itoa(notVisible),
 		"ApproximateNumberOfMessagesDelayed":    strconv.Itoa(delayed),
-		"QueueArn":                              fmt.Sprintf("arn:aws:sqs:us-east-1:%s:%s", accountID, queue.Name),
+		"QueueArn":                              s.scope.ARN("sqs", queue.Name),
 	}
 	for k, v := range queue.Attributes {
 		attrs[k] = v
@@ -1204,16 +1205,16 @@ func validateQueueName(name string) error {
 	return nil
 }
 
-func queueURL(r *http.Request, name string) string {
+func (s *Service) queueURL(r *http.Request, name string) string {
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	return fmt.Sprintf("%s://%s/%s/%s", scheme, r.Host, accountID, name)
+	return fmt.Sprintf("%s://%s/%s/%s", scheme, r.Host, s.scope.Account, name)
 }
 
-func queueARN(name string) string {
-	return fmt.Sprintf("arn:aws:sqs:us-east-1:%s:%s", accountID, name)
+func (s *Service) queueARN(name string) string {
+	return s.scope.ARN("sqs", name)
 }
 
 func queueNameFromARN(arn string) string {
@@ -1378,4 +1379,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.0")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

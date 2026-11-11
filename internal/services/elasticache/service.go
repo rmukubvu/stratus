@@ -18,6 +18,7 @@ import (
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
 	"github.com/stratus/internal/backing"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
@@ -27,9 +28,6 @@ const (
 
 	// kind labels the engine containers this service owns.
 	kind = "elasticache"
-
-	accountID = "000000000000"
-	region    = "us-east-1"
 )
 
 // Cluster statuses, as ElastiCache reports them.
@@ -52,6 +50,7 @@ type Options struct {
 }
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	engines  backing.Runner
 	catalog  Engines
@@ -91,7 +90,7 @@ func NewService(opts Options) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{metadata: opts.Metadata, engines: engines, catalog: catalog, now: now}
+	return &Service{scope: scope.Default(), metadata: opts.Metadata, engines: engines, catalog: catalog, now: now}
 }
 
 // Service names this backend for the control plane.
@@ -215,7 +214,7 @@ func (s *Service) createCacheCluster(w http.ResponseWriter, r *http.Request, req
 		} `xml:"CreateCacheClusterResult"`
 		ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 	}{XMLNS: namespace, ResponseMetadata: responseMetadata{RequestID: requestID}}
-	payload.Result.CacheCluster = cacheClusterXMLFromRecord(record)
+	payload.Result.CacheCluster = s.cacheClusterXMLFromRecord(record)
 	writeXML(w, http.StatusOK, payload)
 	return nil
 }
@@ -288,7 +287,7 @@ func (s *Service) describeCacheClusters(w http.ResponseWriter, r *http.Request, 
 		ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 	}{XMLNS: namespace, ResponseMetadata: responseMetadata{RequestID: requestID}}
 	for _, item := range items {
-		payload.Result.CacheClusters = append(payload.Result.CacheClusters, cacheClusterXMLFromRecord(item))
+		payload.Result.CacheClusters = append(payload.Result.CacheClusters, s.cacheClusterXMLFromRecord(item))
 	}
 	writeXML(w, http.StatusOK, payload)
 	return nil
@@ -321,7 +320,7 @@ func (s *Service) deleteCacheCluster(w http.ResponseWriter, r *http.Request, req
 		} `xml:"DeleteCacheClusterResult"`
 		ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 	}{XMLNS: namespace, ResponseMetadata: responseMetadata{RequestID: requestID}}
-	payload.Result.CacheCluster = cacheClusterXMLFromRecord(record)
+	payload.Result.CacheCluster = s.cacheClusterXMLFromRecord(record)
 	writeXML(w, http.StatusOK, payload)
 	return nil
 }
@@ -351,10 +350,10 @@ type cacheClusterXML struct {
 	CacheNodes             []cacheNodeXML `xml:"CacheNodes>CacheNode"`
 }
 
-func cacheClusterXMLFromRecord(record cacheClusterRecord) cacheClusterXML {
+func (s *Service) cacheClusterXMLFromRecord(record cacheClusterRecord) cacheClusterXML {
 	endpoint := endpointXML{Address: record.Address, Port: record.Port}
 	out := cacheClusterXML{
-		ARN:                    fmt.Sprintf("arn:aws:elasticache:%s:%s:cluster:%s", region, accountID, record.ID),
+		ARN:                    fmt.Sprintf("arn:aws:elasticache:%s:%s:cluster:%s", s.scope.Region, s.scope.Account, record.ID),
 		CacheClusterId:         record.ID,
 		CacheClusterStatus:     record.Status,
 		CacheClusterCreateTime: record.Created,
@@ -447,4 +446,9 @@ func writeXML(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(status)
 	_ = xml.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

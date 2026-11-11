@@ -16,6 +16,7 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/chaos"
+	"github.com/stratus/internal/scope"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 	"github.com/stratus/internal/services/sns"
 	"github.com/stratus/internal/services/sqs"
@@ -28,22 +29,21 @@ const (
 	rulesBucket      = "events-rules"
 	targetsBucket    = "events-targets"
 	archivesBucket   = "events-archives"
-	accountID        = "000000000000"
-	region           = "us-east-1"
 	defaultBusName   = "default"
 )
 
 var nameRe = regexp.MustCompile(`^[\.\-_A-Za-z0-9]+$`)
 
 type Service struct {
-	metadata store.Store
-	lambda   *lambdasvc.Service
-	sns      *sns.Service
-	sqs      *sqs.Service
+	scope         scope.Scope
+	metadata      store.Store
+	lambda        *lambdasvc.Service
+	sns           *sns.Service
+	sqs           *sqs.Service
 	stepFunctions *stepfunctions.Service
-	faults   chaos.Gate
-	now      func() time.Time
-	mu       sync.Mutex
+	faults        chaos.Gate
+	now           func() time.Time
+	mu            sync.Mutex
 }
 
 type PutRuleInput struct {
@@ -188,7 +188,7 @@ type putEventsEntry struct {
 }
 
 func NewService(metadata store.Store, lambda *lambdasvc.Service) *Service {
-	svc := &Service{metadata: metadata, lambda: lambda, faults: chaos.Passthrough{}, now: time.Now}
+	svc := &Service{scope: scope.Default(), metadata: metadata, lambda: lambda, faults: chaos.Passthrough{}, now: time.Now}
 	go svc.runScheduler()
 	return svc
 }
@@ -273,7 +273,7 @@ func (s *Service) createEventBus(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	record := eventBusRecord{
-		Arn:       eventBusARN(input.Name),
+		Arn:       s.eventBusARN(input.Name),
 		CreatedAt: s.now().UTC(),
 		Name:      input.Name,
 	}
@@ -298,9 +298,9 @@ func (s *Service) CreateEventBus(name string) (string, error) {
 		return "", err
 	}
 	if _, err := s.loadEventBus(name); err == nil {
-		return eventBusARN(name), nil
+		return s.eventBusARN(name), nil
 	}
-	record := eventBusRecord{Arn: eventBusARN(name), CreatedAt: s.now().UTC(), Name: name}
+	record := eventBusRecord{Arn: s.eventBusARN(name), CreatedAt: s.now().UTC(), Name: name}
 	if err := s.putEventBus(record); err != nil {
 		return "", internal(err)
 	}
@@ -356,7 +356,7 @@ func (s *Service) PutRule(input PutRuleInput) (string, error) {
 		state = "ENABLED"
 	}
 	record := ruleRecord{
-		Arn:                ruleARN(busName, input.Name),
+		Arn:                s.ruleARN(busName, input.Name),
 		CreatedAt:          s.now().UTC(),
 		Description:        input.Description,
 		EventBusName:       busName,
@@ -505,7 +505,7 @@ func (s *Service) putRule(w http.ResponseWriter, r *http.Request) error {
 		return validation("State must be ENABLED or DISABLED")
 	}
 	record := ruleRecord{
-		Arn:                ruleARN(busName, input.Name),
+		Arn:                s.ruleARN(busName, input.Name),
 		CreatedAt:          s.now().UTC(),
 		Description:        input.Description,
 		EventBusName:       busName,
@@ -718,7 +718,7 @@ func (s *Service) createArchive(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	record := archiveRecord{
-		ArchiveArn:     archiveARN(input.ArchiveName),
+		ArchiveArn:     s.archiveARN(input.ArchiveName),
 		ArchiveName:    input.ArchiveName,
 		CreatedAt:      s.now().UTC(),
 		Description:    input.Description,
@@ -785,11 +785,11 @@ func (s *Service) processEntry(entry putEventsEntry) (string, error) {
 	}
 
 	payload := map[string]any{
-		"account":     accountID,
+		"account":     s.scope.Account,
 		"detail":      detail,
 		"detail-type": entry.DetailType,
 		"id":          eventID,
-		"region":      region,
+		"region":      s.scope.Region,
 		"resources":   entry.Resources,
 		"source":      entry.Source,
 		"time":        eventTime.Format(time.RFC3339),
@@ -826,7 +826,7 @@ func (s *Service) ensureDefaultBus() error {
 		return nil
 	}
 	record := eventBusRecord{
-		Arn:       eventBusARN(defaultBusName),
+		Arn:       s.eventBusARN(defaultBusName),
 		CreatedAt: s.now().UTC(),
 		Name:      defaultBusName,
 	}
@@ -964,19 +964,19 @@ func targetStoreKey(busName, ruleName, id string) string {
 	return busName + "|" + ruleName + "|" + id
 }
 
-func archiveARN(name string) string {
-	return fmt.Sprintf("arn:aws:events:%s:%s:archive/%s", region, accountID, name)
+func (s *Service) archiveARN(name string) string {
+	return fmt.Sprintf("arn:aws:events:%s:%s:archive/%s", s.scope.Region, s.scope.Account, name)
 }
 
-func eventBusARN(name string) string {
-	return fmt.Sprintf("arn:aws:events:%s:%s:event-bus/%s", region, accountID, name)
+func (s *Service) eventBusARN(name string) string {
+	return fmt.Sprintf("arn:aws:events:%s:%s:event-bus/%s", s.scope.Region, s.scope.Account, name)
 }
 
-func ruleARN(busName, name string) string {
+func (s *Service) ruleARN(busName, name string) string {
 	if busName == defaultBusName {
-		return fmt.Sprintf("arn:aws:events:%s:%s:rule/%s", region, accountID, name)
+		return fmt.Sprintf("arn:aws:events:%s:%s:rule/%s", s.scope.Region, s.scope.Account, name)
 	}
-	return fmt.Sprintf("arn:aws:events:%s:%s:rule/%s/%s", region, accountID, busName, name)
+	return fmt.Sprintf("arn:aws:events:%s:%s:rule/%s/%s", s.scope.Region, s.scope.Account, busName, name)
 }
 
 func defaultBus(name string) string {
@@ -1125,11 +1125,11 @@ func (s *Service) processScheduledRules() error {
 			return err
 		}
 		payload := map[string]any{
-			"account":     accountID,
+			"account":     s.scope.Account,
 			"detail":      map[string]any{},
 			"detail-type": "Scheduled Event",
 			"id":          uuid.NewString(),
-			"region":      region,
+			"region":      s.scope.Region,
 			"resources":   []string{rule.Arn},
 			"source":      "aws.events",
 			"time":        now.Format(time.RFC3339),
@@ -1379,4 +1379,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

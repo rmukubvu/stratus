@@ -12,17 +12,17 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
 const (
 	keysBucket    = "kms-keys"
 	aliasesBucket = "kms-aliases"
-	accountID     = "000000000000"
-	region        = "us-east-1"
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 }
@@ -83,7 +83,7 @@ type decryptInput struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation string) error {
@@ -134,7 +134,7 @@ func (s *Service) createKey(w http.ResponseWriter, r *http.Request) error {
 
 	keyID := uuid.NewString()
 	record := keyRecord{
-		Arn:         keyARN(keyID),
+		Arn:         s.keyARN(keyID),
 		CreatedAt:   s.now().UTC(),
 		Description: input.Description,
 		Enabled:     true,
@@ -167,7 +167,7 @@ func (s *Service) CreateKey(input CreateKeyInput) (string, string, error) {
 	}
 	keyID := uuid.NewString()
 	record := keyRecord{
-		Arn:         keyARN(keyID),
+		Arn:         s.keyARN(keyID),
 		CreatedAt:   s.now().UTC(),
 		Description: input.Description,
 		Enabled:     true,
@@ -204,7 +204,7 @@ func (s *Service) CreateAlias(aliasName, targetKeyID string) error {
 		}
 	}
 	alias := aliasRecord{
-		AliasArn:    aliasARN(aliasName),
+		AliasArn:    s.aliasARN(aliasName),
 		AliasName:   aliasName,
 		CreatedAt:   s.now().UTC(),
 		TargetKeyID: record.KeyID,
@@ -272,7 +272,7 @@ func (s *Service) getKeyPolicy(w http.ResponseWriter, r *http.Request) error {
 	}
 	policy := record.Policy
 	if policy == "" {
-		policy = defaultKeyPolicy()
+		policy = s.defaultKeyPolicy()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"Policy":     policy,
@@ -364,7 +364,7 @@ func (s *Service) createAlias(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	alias := aliasRecord{
-		AliasArn:    aliasARN(input.AliasName),
+		AliasArn:    s.aliasARN(input.AliasName),
 		AliasName:   input.AliasName,
 		CreatedAt:   s.now().UTC(),
 		TargetKeyID: record.KeyID,
@@ -551,7 +551,7 @@ func (s *Service) keyMetadata(record keyRecord) map[string]any {
 		algorithms = []string{"SYMMETRIC_DEFAULT"}
 	}
 	return map[string]any{
-		"AWSAccountId":         accountID,
+		"AWSAccountId":         s.scope.Account,
 		"Arn":                  record.Arn,
 		"CreationDate":         float64(record.CreatedAt.Unix()),
 		"Description":          record.Description,
@@ -567,16 +567,16 @@ func (s *Service) keyMetadata(record keyRecord) map[string]any {
 	}
 }
 
-func keyARN(keyID string) string {
-	return fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", region, accountID, keyID)
+func (s *Service) keyARN(keyID string) string {
+	return fmt.Sprintf("arn:aws:kms:%s:%s:key/%s", s.scope.Region, s.scope.Account, keyID)
 }
 
-func aliasARN(aliasName string) string {
-	return fmt.Sprintf("arn:aws:kms:%s:%s:%s", region, accountID, aliasName)
+func (s *Service) aliasARN(aliasName string) string {
+	return fmt.Sprintf("arn:aws:kms:%s:%s:%s", s.scope.Region, s.scope.Account, aliasName)
 }
 
-func defaultKeyPolicy() string {
-	return fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Sid":"EnableRoot","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::%s:root"},"Action":"kms:*","Resource":"*"}]}`, accountID)
+func (s *Service) defaultKeyPolicy() string {
+	return fmt.Sprintf(`{"Version":"2012-10-17","Statement":[{"Sid":"EnableRoot","Effect":"Allow","Principal":{"AWS":"arn:aws:iam::%s:root"},"Action":"kms:*","Resource":"*"}]}`, s.scope.Account)
 }
 
 func validateAliasName(name string) error {
@@ -611,4 +611,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

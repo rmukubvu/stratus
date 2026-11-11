@@ -3,6 +3,7 @@ package fis
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/stratus/internal/scope"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -269,7 +270,7 @@ func TestSameSeedReplaysSameFaults(t *testing.T) {
 func TestActionsAndResourceTypes(t *testing.T) {
 	f := newFixture(t)
 	_, out := f.call(t, http.MethodGet, "/actions", nil)
-	if list, _ := out["actions"].([]any); len(list) != len(newCatalog()) {
+	if list, _ := out["actions"].([]any); len(list) != len(newCatalog(scope.Default())) {
 		t.Fatalf("list actions: %v", out)
 	}
 	status, out := f.call(t, http.MethodGet, "/actions/aws:lambda:invocation-error", nil)

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
@@ -42,6 +43,7 @@ type Options struct {
 
 // Directory is the Cloud Map application service.
 type Directory struct {
+	scope    scope.Scope
 	metadata store.Store
 	zones    Zones
 	now      func() time.Time
@@ -54,7 +56,12 @@ func NewDirectory(opts Options) *Directory {
 	if now == nil {
 		now = time.Now
 	}
-	return &Directory{metadata: opts.Metadata, zones: opts.Zones, now: now}
+	return &Directory{scope: scope.Default(), metadata: opts.Metadata, zones: opts.Zones, now: now}
+}
+
+// SetScope sets the account and region this directory serves.
+func (d *Directory) SetScope(sc scope.Scope) {
+	d.scope = sc
 }
 
 // NamespaceInput is what the CreateXxxNamespace operations accept.
@@ -95,7 +102,7 @@ func (d *Directory) CreateNamespace(in NamespaceInput) (Operation, error) {
 		if d.zones == nil {
 			return Operation{}, invalidInput("DNS namespaces need Route 53, which is not available")
 		}
-		zoneID, err := d.zones.CreateManagedZone(name, ns.Type == typeDNSPrivate, in.VPC, "Created by AWS Cloud Map namespace with ARN "+ns.ARN())
+		zoneID, err := d.zones.CreateManagedZone(name, ns.Type == typeDNSPrivate, in.VPC, "Created by AWS Cloud Map namespace with ARN "+ns.ARN(d.scope))
 		if err != nil {
 			return Operation{}, err
 		}

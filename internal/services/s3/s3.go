@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 	"github.com/stratus/internal/store/fsblob"
 )
@@ -37,6 +38,7 @@ type Options struct {
 }
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	blobs    *fsblob.Store
 	now      func() time.Time
@@ -127,6 +129,7 @@ type completeMultipartUploadResult struct {
 
 func NewService(opts Options) *Service {
 	return &Service{
+		scope:    scope.Default(),
 		metadata: opts.Metadata,
 		blobs:    opts.Blobs,
 		now:      time.Now,
@@ -235,7 +238,7 @@ func (s *Service) listBuckets(w http.ResponseWriter) error {
 	writeXML(w, http.StatusOK, listBucketsResult{
 		XMLNS: xmlNamespace,
 		Owner: bucketOwner{
-			ID:          "000000000000",
+			ID:          s.scope.Account,
 			DisplayName: "stratus",
 		},
 		Buckets: buckets,
@@ -257,7 +260,8 @@ func (s *Service) createBucket(w http.ResponseWriter, r *http.Request, bucket st
 		return apiError(http.StatusBadRequest, "MalformedXML", err.Error(), "/"+bucket)
 	}
 	if region == "" {
-		region = "us-east-1"
+		// No LocationConstraint means us-east-1, whatever region signed it.
+		region = scope.DefaultRegion
 	}
 
 	raw, err := json.Marshal(bucketMetadata{
@@ -863,4 +867,9 @@ func writeXML(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 	w.WriteHeader(status)
 	_ = xml.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

@@ -134,7 +134,7 @@ func (m *Manager) Invoke(ctx context.Context, spec lambdasvc.FunctionSpec, paylo
 		m.logger.Warn("warm pool expiration failed", "error", err)
 	}
 
-	warm, err := m.pool.GetOrCreate(ctx, spec.FunctionName, func(ctx context.Context) (*WarmContainer, error) {
+	warm, err := m.pool.GetOrCreate(ctx, runtimeKey(spec), func(ctx context.Context) (*WarmContainer, error) {
 		return m.startContainer(ctx, spec, rt, imageName)
 	}, func(ctx context.Context, existing *WarmContainer) (bool, error) {
 		return m.isHealthy(ctx, existing)
@@ -151,11 +151,11 @@ func (m *Manager) Invoke(ctx context.Context, spec lambdasvc.FunctionSpec, paylo
 	var timedOut errRuntimeTimedOut
 	if errors.As(err, &timedOut) {
 		// Lambda discards the execution environment after a timeout.
-		_ = m.pool.Remove(context.Background(), spec.FunctionName, m.removeContainer)
+		_ = m.pool.Remove(context.Background(), runtimeKey(spec), m.removeContainer)
 		return lambdasvc.InvokeResult{Payload: timedOut.payload, FunctionError: functionErrorUnhandled}, nil
 	}
 
-	_ = m.pool.Remove(context.Background(), spec.FunctionName, m.removeContainer)
+	_ = m.pool.Remove(context.Background(), runtimeKey(spec), m.removeContainer)
 	var apiErr *apierror.Error
 	if errors.As(err, &apiErr) {
 		return lambdasvc.InvokeResult{}, err
@@ -190,7 +190,7 @@ func (m *Manager) ensureImage(ctx context.Context, imageName string) error {
 }
 
 func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpec, rt Runtime, imageName string) (*WarmContainer, error) {
-	containerName := m.owner.ContainerName(spec.FunctionName)
+	containerName := m.owner.ContainerName(runtimeKey(spec))
 	_ = m.removeNamedContainer(ctx, containerName)
 
 	in, err := m.launchInput(ctx, spec, rt, imageName)
@@ -209,7 +209,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 
 	labels := m.owner.Labels()
 	labels[LabelKind] = "lambda"
-	labels[LabelResource] = spec.FunctionName
+	labels[LabelResource] = runtimeKey(spec)
 	cfg := &container.Config{
 		Image:        plan.Image,
 		Entrypoint:   plan.Entrypoint,
@@ -249,7 +249,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 	warm := &WarmContainer{
 		ID:        resp.ID,
 		Name:      containerName,
-		Function:  spec.FunctionName,
+		Function:  runtimeKey(spec),
 		HostPort:  hostPort,
 		LastUsed:  time.Now(),
 		CreatedAt: time.Now(),
@@ -282,7 +282,10 @@ func (m *Manager) launchInput(ctx context.Context, spec lambdasvc.FunctionSpec, 
 		return in, nil
 	}
 
-	codeDir := filepath.Join(m.blobRoot, "lambda", spec.FunctionName, "source")
+	codeDir := spec.CodeDir
+	if codeDir == "" {
+		codeDir = filepath.Join(m.blobRoot, "lambda", spec.FunctionName, "source")
+	}
 	if _, err := os.Stat(codeDir); err != nil {
 		return launchInput{}, serviceError(http.StatusInternalServerError, "lambda code directory is missing: "+err.Error())
 	}
@@ -290,7 +293,7 @@ func (m *Manager) launchInput(ctx context.Context, spec lambdasvc.FunctionSpec, 
 	in.CodeHasBootstrap = isRegularFile(filepath.Join(codeDir, "bootstrap"))
 
 	if len(spec.LayerDirs) > 0 {
-		optDir := filepath.Join(m.runtimeDir, "layers", sanitizeName(spec.FunctionName))
+		optDir := filepath.Join(m.runtimeDir, "layers", sanitizeName(runtimeKey(spec)))
 		if err := mergeLayers(optDir, spec.LayerDirs); err != nil {
 			return launchInput{}, serviceError(http.StatusInternalServerError, err.Error())
 		}
@@ -610,4 +613,13 @@ func defaultDockerHost() string {
 		return "unix://" + socketPath
 	}
 	return ""
+}
+
+// runtimeKey is the warm-pool key of a function: unique across accounts and
+// regions (see lambda.RuntimeKey), or the plain name for older callers.
+func runtimeKey(spec lambdasvc.FunctionSpec) string {
+	if spec.Key != "" {
+		return spec.Key
+	}
+	return spec.FunctionName
 }

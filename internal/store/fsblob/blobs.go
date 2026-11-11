@@ -84,9 +84,26 @@ func (s *Store) Delete(namespace, key string) error {
 	return nil
 }
 
+// DeleteNamespace removes a namespace, in this store and in the stores of
+// other accounts and regions nested under it (see Scoped).
 func (s *Store) DeleteNamespace(namespace string) error {
-	if err := os.RemoveAll(filepath.Join(s.root, namespace)); err != nil && !os.IsNotExist(err) {
+	dirs, err := filepath.Glob(filepath.Join(s.root, "@*", "*", namespace))
+	if err != nil {
 		return err
 	}
+	for _, dir := range append(dirs, filepath.Join(s.root, namespace)) {
+		if err := os.RemoveAll(dir); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
 	return nil
+}
+
+// Scoped returns a store for one account and region, nested in a
+// directory named by prefix (see scope.Prefix). An empty prefix is s.
+func (s *Store) Scoped(prefix string) *Store {
+	if prefix == "" {
+		return s
+	}
+	return &Store{root: filepath.Join(s.root, filepath.FromSlash(prefix))}
 }

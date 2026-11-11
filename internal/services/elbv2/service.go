@@ -15,6 +15,7 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
@@ -24,11 +25,10 @@ const (
 	targetGroupsBucket  = "elbv2-target-groups"
 	listenersBucket     = "elbv2-listeners"
 	targetsBucket       = "elbv2-targets"
-	accountID           = "000000000000"
-	region              = "us-east-1"
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 	mu       sync.Mutex
@@ -74,7 +74,7 @@ type responseMetadata struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requestID string) error {
@@ -120,9 +120,9 @@ func (s *Service) createLoadBalancer(w http.ResponseWriter, r *http.Request, req
 		return notImplemented("only application load balancers are supported")
 	}
 	record := loadBalancerRecord{
-		Arn:     loadBalancerARN(name),
+		Arn:     s.loadBalancerARN(name),
 		Created: s.now().UTC(),
-		DNSName: name + "-" + uuid.NewString()[:8] + "." + region + ".elb.amazonaws.com",
+		DNSName: name + "-" + uuid.NewString()[:8] + "." + s.scope.Region + ".elb.amazonaws.com",
 		Name:    name,
 		Scheme:  defaultString(form.Get("Scheme"), "internet-facing"),
 		State:   "active",
@@ -236,7 +236,7 @@ func (s *Service) createTargetGroup(w http.ResponseWriter, r *http.Request, requ
 	}
 	port, _ := strconv.Atoi(defaultString(form.Get("Port"), "80"))
 	record := targetGroupRecord{
-		Arn:        targetGroupARN(name),
+		Arn:        s.targetGroupARN(name),
 		Created:    s.now().UTC(),
 		Name:       name,
 		Port:       port,
@@ -350,7 +350,7 @@ func (s *Service) createListener(w http.ResponseWriter, r *http.Request, request
 		return notImplemented("only forward listeners are supported")
 	}
 	record := listenerRecord{
-		Arn:              listenerARN(),
+		Arn:              s.listenerARN(),
 		Created:          s.now().UTC(),
 		DefaultTargetArn: targetArn,
 		LoadBalancerArn:  lbArn,
@@ -609,16 +609,16 @@ func targetStoreKey(groupARN, id string) string {
 	return groupARN + "|" + id
 }
 
-func loadBalancerARN(name string) string {
-	return "arn:aws:elasticloadbalancing:" + region + ":" + accountID + ":loadbalancer/app/" + name + "/" + uuid.NewString()[:8]
+func (s *Service) loadBalancerARN(name string) string {
+	return "arn:aws:elasticloadbalancing:" + s.scope.Region + ":" + s.scope.Account + ":loadbalancer/app/" + name + "/" + uuid.NewString()[:8]
 }
 
-func targetGroupARN(name string) string {
-	return "arn:aws:elasticloadbalancing:" + region + ":" + accountID + ":targetgroup/" + name + "/" + uuid.NewString()[:8]
+func (s *Service) targetGroupARN(name string) string {
+	return "arn:aws:elasticloadbalancing:" + s.scope.Region + ":" + s.scope.Account + ":targetgroup/" + name + "/" + uuid.NewString()[:8]
 }
 
-func listenerARN() string {
-	return "arn:aws:elasticloadbalancing:" + region + ":" + accountID + ":listener/app/" + uuid.NewString()
+func (s *Service) listenerARN() string {
+	return "arn:aws:elasticloadbalancing:" + s.scope.Region + ":" + s.scope.Account + ":listener/app/" + uuid.NewString()
 }
 
 func validation(message string) error {
@@ -637,4 +637,9 @@ func writeXML(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(status)
 	_ = xml.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

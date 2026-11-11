@@ -12,12 +12,11 @@ import (
 
 	"github.com/stratus/internal/chaos"
 	"github.com/stratus/internal/control"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
 const (
-	region    = "us-east-1"
-	accountID = "000000000000"
 	// SeedTag carries an experiment's chaos seed. Set it on a template or
 	// in StartExperiment's tags to replay a run; Stratus always reports the
 	// seed it used under this tag.
@@ -34,6 +33,7 @@ type ChaosEngine interface {
 
 // Service implements the FIS API.
 type Service struct {
+	scope   scope.Scope
 	mu      sync.Mutex
 	repo    repository
 	engine  ChaosEngine
@@ -45,9 +45,10 @@ type Service struct {
 // NewService builds the FIS service.
 func NewService(metadata store.Store, engine ChaosEngine) *Service {
 	return &Service{
+		scope:   scope.Default(),
 		repo:    repository{store: metadata},
 		engine:  engine,
-		catalog: newCatalog(),
+		catalog: newCatalog(scope.Default()),
 		now:     time.Now,
 		newID:   newID,
 	}
@@ -77,7 +78,7 @@ func (s *Service) CreateTemplate(in TemplateInput) (Template, error) {
 		CreationTime:   Epoch(now),
 		LastUpdateTime: Epoch(now),
 	}
-	t.Arn = fmt.Sprintf("arn:aws:fis:%s:%s:experiment-template/%s", region, accountID, t.ID)
+	t.Arn = fmt.Sprintf("arn:aws:fis:%s:%s:experiment-template/%s", s.scope.Region, s.scope.Account, t.ID)
 	if in.Description != nil {
 		t.Description = *in.Description
 	}
@@ -209,7 +210,7 @@ func (s *Service) StartExperiment(in StartInput) (Experiment, error) {
 	rec := experimentRecord{
 		Experiment: Experiment{
 			ID:                   id,
-			Arn:                  fmt.Sprintf("arn:aws:fis:%s:%s:experiment/%s", region, accountID, id),
+			Arn:                  fmt.Sprintf("arn:aws:fis:%s:%s:experiment/%s", s.scope.Region, s.scope.Account, id),
 			ExperimentTemplateID: t.ID,
 			RoleArn:              t.RoleArn,
 			Targets:              t.Targets,
@@ -412,4 +413,10 @@ func newID(prefix string) string {
 		sb.WriteByte(idAlphabet[int(c)%len(idAlphabet)])
 	}
 	return sb.String()
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
+	s.catalog = newCatalog(sc)
 }

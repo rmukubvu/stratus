@@ -1,6 +1,8 @@
 package kafka
 
 import (
+	"github.com/stratus/internal/scope"
+
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -11,9 +13,6 @@ import (
 )
 
 const (
-	accountID = "000000000000"
-	region    = "us-east-1"
-
 	typeProvisioned = "PROVISIONED"
 	typeServerless  = "SERVERLESS"
 
@@ -76,7 +75,7 @@ type cluster struct {
 
 // newCluster validates a create request's common fields and builds the
 // cluster it describes, without an endpoint yet.
-func newCluster(name string, tags map[string]string, now time.Time) (cluster, error) {
+func newCluster(sc scope.Scope, name string, tags map[string]string, now time.Time) (cluster, error) {
 	if !clusterNamePattern.MatchString(name) {
 		return cluster{}, badRequest("clusterName must be 1-64 letters, digits or hyphens, starting with a letter or digit")
 	}
@@ -84,7 +83,7 @@ func newCluster(name string, tags map[string]string, now time.Time) (cluster, er
 		tags = map[string]string{}
 	}
 	return cluster{
-		ARN:            fmt.Sprintf("arn:aws:kafka:%s:%s:cluster/%s/%s", region, accountID, name, randomID()),
+		ARN:            sc.ARN("kafka", "cluster/"+name+"/"+randomID()),
 		Name:           name,
 		Tags:           tags,
 		Created:        now.UTC(),

@@ -11,29 +11,29 @@ import (
 	"time"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
 const (
 	repositoriesBucket = "ecr-repositories"
 	imagesBucket       = "ecr-images"
-	accountID          = "000000000000"
-	region             = "us-east-1"
 )
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
 	mu       sync.Mutex
 }
 
 type repositoryRecord struct {
-	Arn          string            `json:"arn"`
-	CreatedAt    time.Time         `json:"created_at"`
-	Name         string            `json:"name"`
-	RegistryID   string            `json:"registry_id"`
-	RepositoryURI string           `json:"repository_uri"`
-	Tags         map[string]string `json:"tags,omitempty"`
+	Arn           string            `json:"arn"`
+	CreatedAt     time.Time         `json:"created_at"`
+	Name          string            `json:"name"`
+	RegistryID    string            `json:"registry_id"`
+	RepositoryURI string            `json:"repository_uri"`
+	Tags          map[string]string `json:"tags,omitempty"`
 }
 
 type imageRecord struct {
@@ -46,7 +46,7 @@ type imageRecord struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation string) error {
@@ -86,11 +86,11 @@ func (s *Service) createRepository(w http.ResponseWriter, r *http.Request) error
 		return nil
 	}
 	record := repositoryRecord{
-		Arn:           repositoryARN(input.RepositoryName),
+		Arn:           s.repositoryARN(input.RepositoryName),
 		CreatedAt:     s.now().UTC(),
 		Name:          input.RepositoryName,
-		RegistryID:    accountID,
-		RepositoryURI: repositoryURI(input.RepositoryName),
+		RegistryID:    s.scope.Account,
+		RepositoryURI: s.repositoryURI(input.RepositoryName),
 	}
 	if err := s.putRepository(record); err != nil {
 		return internal(err)
@@ -134,10 +134,10 @@ func (s *Service) describeRepositories(w http.ResponseWriter, r *http.Request) e
 
 func (s *Service) putImage(w http.ResponseWriter, r *http.Request) error {
 	var input struct {
-		ImageManifest         string `json:"imageManifest"`
+		ImageManifest          string `json:"imageManifest"`
 		ImageManifestMediaType string `json:"imageManifestMediaType"`
-		ImageTag              string `json:"imageTag"`
-		RepositoryName        string `json:"repositoryName"`
+		ImageTag               string `json:"imageTag"`
+		RepositoryName         string `json:"repositoryName"`
 	}
 	if err := decodeJSON(r, &input); err != nil {
 		return err
@@ -171,8 +171,8 @@ func (s *Service) putImage(w http.ResponseWriter, r *http.Request) error {
 				"imageDigest": digest,
 				"imageTag":    input.ImageTag,
 			},
-			"imageManifest": input.ImageManifest,
-			"registryId":    accountID,
+			"imageManifest":  input.ImageManifest,
+			"registryId":     s.scope.Account,
 			"repositoryName": input.RepositoryName,
 		},
 	})
@@ -232,7 +232,7 @@ func (s *Service) batchGetImage(w http.ResponseWriter, r *http.Request) error {
 		record, err := s.loadImage(input.RepositoryName, imageID.ImageTag, imageID.ImageDigest)
 		if err != nil {
 			failures = append(failures, map[string]any{
-				"failureCode": "ImageNotFound",
+				"failureCode":   "ImageNotFound",
 				"failureReason": err.Error(),
 				"imageId": map[string]any{
 					"imageDigest": imageID.ImageDigest,
@@ -246,10 +246,10 @@ func (s *Service) batchGetImage(w http.ResponseWriter, r *http.Request) error {
 				"imageDigest": record.Digest,
 				"imageTag":    record.Tag,
 			},
-			"imageManifest":         record.Manifest,
+			"imageManifest":          record.Manifest,
 			"imageManifestMediaType": record.MediaType,
-			"registryId":            accountID,
-			"repositoryName":        record.Repository,
+			"registryId":             s.scope.Account,
+			"repositoryName":         record.Repository,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"images": images, "failures": failures})
@@ -350,20 +350,20 @@ func (s *Service) loadImage(repository, tag, digest string) (imageRecord, error)
 
 func repositoryResponse(repo repositoryRecord) map[string]any {
 	return map[string]any{
-		"createdAt":     repo.CreatedAt.Format(time.RFC3339),
-		"registryId":    repo.RegistryID,
-		"repositoryArn": repo.Arn,
+		"createdAt":      repo.CreatedAt.Format(time.RFC3339),
+		"registryId":     repo.RegistryID,
+		"repositoryArn":  repo.Arn,
 		"repositoryName": repo.Name,
-		"repositoryUri": repo.RepositoryURI,
+		"repositoryUri":  repo.RepositoryURI,
 	}
 }
 
-func repositoryARN(name string) string {
-	return "arn:aws:ecr:" + region + ":" + accountID + ":repository/" + name
+func (s *Service) repositoryARN(name string) string {
+	return "arn:aws:ecr:" + s.scope.Region + ":" + s.scope.Account + ":repository/" + name
 }
 
-func repositoryURI(name string) string {
-	return accountID + ".dkr.ecr." + region + ".amazonaws.com/" + name
+func (s *Service) repositoryURI(name string) string {
+	return s.scope.Account + ".dkr.ecr." + s.scope.Region + ".amazonaws.com/" + name
 }
 
 func imageKey(repository, tag, digest string) string {
@@ -392,4 +392,9 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

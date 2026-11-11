@@ -19,6 +19,7 @@ import (
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
 	"github.com/stratus/internal/backing"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
@@ -29,9 +30,6 @@ const (
 
 	// kind labels the engine containers this service owns.
 	kind = "rds"
-
-	accountID = "000000000000"
-	region    = "us-east-1"
 )
 
 // Instance statuses, as RDS reports them.
@@ -54,6 +52,7 @@ type Options struct {
 }
 
 type Service struct {
+	scope    scope.Scope
 	metadata store.Store
 	engines  backing.Runner
 	catalog  Engines
@@ -106,7 +105,7 @@ func NewService(opts Options) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{metadata: opts.Metadata, engines: engines, catalog: catalog, now: now}
+	return &Service{scope: scope.Default(), metadata: opts.Metadata, engines: engines, catalog: catalog, now: now}
 }
 
 // Service names this backend for the control plane.
@@ -309,7 +308,7 @@ func (s *Service) createDBInstance(w http.ResponseWriter, r *http.Request, reque
 		} `xml:"CreateDBInstanceResult"`
 		ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 	}{XMLNS: namespace, ResponseMetadata: responseMetadata{RequestID: requestID}}
-	payload.Result.DBInstance = instanceXML(record)
+	payload.Result.DBInstance = s.instanceXML(record)
 	writeXML(w, http.StatusOK, payload)
 	return nil
 }
@@ -394,7 +393,7 @@ func (s *Service) describeDBInstances(w http.ResponseWriter, r *http.Request, re
 		ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 	}{XMLNS: namespace, ResponseMetadata: responseMetadata{RequestID: requestID}}
 	for _, item := range items {
-		payload.Result.DBInstances = append(payload.Result.DBInstances, instanceXML(item))
+		payload.Result.DBInstances = append(payload.Result.DBInstances, s.instanceXML(item))
 	}
 	writeXML(w, http.StatusOK, payload)
 	return nil
@@ -427,7 +426,7 @@ func (s *Service) deleteDBInstance(w http.ResponseWriter, r *http.Request, reque
 		} `xml:"DeleteDBInstanceResult"`
 		ResponseMetadata responseMetadata `xml:"ResponseMetadata"`
 	}{XMLNS: namespace, ResponseMetadata: responseMetadata{RequestID: requestID}}
-	payload.Result.DBInstance = instanceXML(record)
+	payload.Result.DBInstance = s.instanceXML(record)
 	writeXML(w, http.StatusOK, payload)
 	return nil
 }
@@ -473,10 +472,10 @@ func subnetGroupXML(record subnetGroupRecord) dbSubnetGroupXML {
 	}
 }
 
-func instanceXML(record instanceRecord) dbInstanceXML {
+func (s *Service) instanceXML(record instanceRecord) dbInstanceXML {
 	out := dbInstanceXML{
 		AllocatedStorage:     record.AllocatedStorage,
-		DBInstanceArn:        fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", region, accountID, record.Identifier),
+		DBInstanceArn:        fmt.Sprintf("arn:aws:rds:%s:%s:db:%s", s.scope.Region, s.scope.Account, record.Identifier),
 		DBInstanceClass:      record.Class,
 		DBInstanceIdentifier: record.Identifier,
 		DBInstanceStatus:     record.Status,
@@ -590,4 +589,9 @@ func writeXML(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(status)
 	_ = xml.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }

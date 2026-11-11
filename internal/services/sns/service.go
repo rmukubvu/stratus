@@ -18,6 +18,7 @@ import (
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
 	"github.com/stratus/internal/chaos"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
@@ -25,13 +26,12 @@ const (
 	namespace           = "http://sns.amazonaws.com/doc/2010-03-31/"
 	topicsBucket        = "sns-topics"
 	subscriptionsBucket = "sns-subscriptions"
-	accountID           = "000000000000"
-	region              = "us-east-1"
 )
 
 var topicNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,256}(\.fifo)?$`)
 
 type Service struct {
+	scope        scope.Scope
 	metadata     store.Store
 	queueTarget  QueuePublisher
 	lambdaTarget LambdaInvoker
@@ -139,7 +139,7 @@ type setTopicAttributesResponse struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, faults: chaos.Passthrough{}, now: time.Now}
+	return &Service{scope: scope.Default(), metadata: metadata, faults: chaos.Passthrough{}, now: time.Now}
 }
 
 // SetFaults routes fan-out deliveries to subscribers through a chaos gate.
@@ -225,7 +225,7 @@ func (s *Service) createTopic(w http.ResponseWriter, r *http.Request, requestID 
 		Attributes: normalizeAttributes(attrs),
 		CreatedAt:  s.now().UTC(),
 		Name:       name,
-		TopicArn:   topicARN(name),
+		TopicArn:   s.topicARN(name),
 	}
 	if err := s.putTopic(record); err != nil {
 		return internal(err)
@@ -258,7 +258,7 @@ func (s *Service) CreateTopic(input CreateTopicInput) (string, error) {
 		Attributes: normalizeAttributes(input.Attributes),
 		CreatedAt:  s.now().UTC(),
 		Name:       input.Name,
-		TopicArn:   topicARN(input.Name),
+		TopicArn:   s.topicARN(input.Name),
 	}
 	if err := s.putTopic(record); err != nil {
 		return "", internal(err)
@@ -321,7 +321,7 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request, requestID st
 		CreatedAt:       s.now().UTC(),
 		Endpoint:        endpoint,
 		Protocol:        protocol,
-		SubscriptionArn: subscriptionARN(),
+		SubscriptionArn: s.subscriptionARN(),
 		TopicArn:        topic.TopicArn,
 	}
 	if err := s.putSubscription(record); err != nil {
@@ -539,7 +539,7 @@ func (s *Service) getTopicAttributes(w http.ResponseWriter, r *http.Request, req
 
 	attrs := []attributeMember{
 		{Key: "DisplayName", Value: record.Attributes["DisplayName"]},
-		{Key: "Owner", Value: accountID},
+		{Key: "Owner", Value: s.scope.Account},
 		{Key: "TopicArn", Value: record.TopicArn},
 	}
 	for _, key := range sortedAttributeKeys(record.Attributes) {
@@ -768,8 +768,8 @@ func (s *Service) putTopic(record topicRecord) error {
 	return s.metadata.Put(topicsBucket, record.Name, raw)
 }
 
-func topicARN(name string) string {
-	return fmt.Sprintf("arn:aws:sns:%s:%s:%s", region, accountID, name)
+func (s *Service) topicARN(name string) string {
+	return fmt.Sprintf("arn:aws:sns:%s:%s:%s", s.scope.Region, s.scope.Account, name)
 }
 
 func validateTopicName(name string) error {
@@ -873,8 +873,8 @@ func lambdaNameFromARN(arn string) (string, bool) {
 	return name, true
 }
 
-func subscriptionARN() string {
-	return fmt.Sprintf("arn:aws:sns:%s:%s:%s", region, accountID, uuid.NewString())
+func (s *Service) subscriptionARN() string {
+	return fmt.Sprintf("arn:aws:sns:%s:%s:%s", s.scope.Region, s.scope.Account, uuid.NewString())
 }
 
 func notFound(topic string) error {
@@ -901,4 +901,9 @@ func writeXML(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "text/xml")
 	w.WriteHeader(status)
 	_ = xml.NewEncoder(w).Encode(payload)
+}
+
+// SetScope sets the account and region this service instance serves.
+func (s *Service) SetScope(sc scope.Scope) {
+	s.scope = sc
 }
