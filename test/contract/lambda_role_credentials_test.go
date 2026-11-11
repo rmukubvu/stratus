@@ -18,8 +18,12 @@ func TestLambdaRunsWithItsExecutionRole(t *testing.T) {
 	if err := writeZip(zipPath, map[string]string{
 		"handler.py": "import os, boto3\n" +
 			"def main(event, context):\n" +
-			"    sts = boto3.client('sts', endpoint_url=os.environ['STRATUS_ENDPOINT'])\n" +
-			"    return sts.get_caller_identity()\n",
+			"    try:\n" +
+			"        sts = boto3.client('sts', endpoint_url=os.environ['STRATUS_ENDPOINT'], region_name=os.environ['AWS_REGION'])\n" +
+			"        identity = sts.get_caller_identity()\n" +
+			"        return {'Account': identity['Account'], 'Arn': identity['Arn']}\n" +
+			"    except Exception as e:\n" +
+			"        return {'error': repr(e), 'key': os.environ.get('AWS_ACCESS_KEY_ID', '')[:4]}\n",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -42,6 +46,6 @@ func TestLambdaRunsWithItsExecutionRole(t *testing.T) {
 		t.Fatalf("decode function result: %v\n%s", err, raw)
 	}
 	if id.Account != accountA || id.Arn != "arn:aws:sts::"+accountA+":assumed-role/whoami-role/whoami" {
-		t.Fatalf("the function ran as %+v", id)
+		t.Fatalf("the function ran as %+v; result %s", id, raw)
 	}
 }
