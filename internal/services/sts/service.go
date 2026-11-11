@@ -152,6 +152,12 @@ func (s *Service) GetAccessKeyInfo(accessKeyID string) (string, error) {
 	return scope.DefaultAccount, nil
 }
 
+// Session returns the session an access key STS issued belongs to.
+func (s *Service) Session(accessKeyID string) (Session, bool) {
+	session, ok, err := s.session(accessKeyID)
+	return session, ok && err == nil
+}
+
 func (s *Service) session(accessKeyID string) (Session, bool, error) {
 	if accessKeyID == "" || scope.ValidAccount(accessKeyID) {
 		return Session{}, false, nil

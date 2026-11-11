@@ -52,3 +52,9 @@ func ResolveScope(r *http.Request, sig *awscompat.SigV4Identity, accounts Accoun
 	}
 	return sc
 }
+
+// Authorizer decides whether a request's caller may make it. It returns an
+// *apierror.Error, such as AccessDenied, to refuse.
+type Authorizer interface {
+	Authorize(r *http.Request, metadata RequestMetadata) error
+}

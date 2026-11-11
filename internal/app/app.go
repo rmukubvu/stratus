@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/stratus/internal/authz"
 	"github.com/stratus/internal/backing"
 	"github.com/stratus/internal/chaos"
 	"github.com/stratus/internal/config"
@@ -68,6 +69,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
+	iamMode, err := authz.ParseMode(os.Getenv("STRATUS_IAM"))
+	if err != nil {
+		return nil, err
+	}
 	bedrockConfig, err := bedrock.ConfigFromEnv(os.Getenv)
 	if err != nil {
 		return nil, err
@@ -135,15 +140,16 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	))
 
 	handler := httpapi.NewServer(httpapi.Options{
-		Logger:    logger,
-		Services:  defaults.services,
-		Stacks:    stacks,
-		Accounts:  httpapi.AccountResolvers{stsService, iamKeys},
-		Operator:  operatorService,
-		Control:   controlHandler,
-		Gate:      controlService.Gate(),
-		Faults:    chaosEngine,
-		ColdStart: lambdaRuntime.CleanupFunction,
+		Logger:     logger,
+		Services:   defaults.services,
+		Stacks:     stacks,
+		Accounts:   httpapi.AccountResolvers{stsService, iamKeys},
+		Authorizer: authz.New(iamMode, authz.Callers{Sessions: stsService, Keys: iamKeys}, stacks, logger),
+		Operator:   operatorService,
+		Control:    controlHandler,
+		Gate:       controlService.Gate(),
+		Faults:     chaosEngine,
+		ColdStart:  lambdaRuntime.CleanupFunction,
 	})
 
 	server := &http.Server{

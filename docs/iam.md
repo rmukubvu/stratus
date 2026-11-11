@@ -43,4 +43,39 @@ that reference it deploy, but it grants nothing once policies are enforced.
 
 ## Enforcement
 
-Policies are stored but not enforced yet; every caller can do everything.
+By default policies are stored but not enforced: every caller can do
+everything, which is what most test suites want. Set `STRATUS_IAM` to
+check them:
+
+| `STRATUS_IAM` | Behaviour |
+| --- | --- |
+| `off` (default) | Policies are not evaluated. |
+| `audit` | Requests policies would refuse are logged (`iam refused request`) and let through. Use it to find missing permissions without breaking a run. |
+| `enforce` | Requests policies do not allow fail with `AccessDenied` (`AccessDeniedException` for JSON APIs), as in AWS. |
+
+What is checked:
+
+- **Who.** IAM users (`AKIA…` keys) and assumed roles (`ASIA…` keys) are
+  evaluated against their identity-based policies: inline policies and the
+  default versions of attached managed policies. The account root (a
+  twelve-digit or unknown key, such as `test`) is never refused, so
+  existing suites keep working with enforcement on.
+- **How.** AWS's evaluation logic: an explicit `Deny` wins, then any
+  `Allow`, otherwise the request is implicitly denied. `Action`/`NotAction`,
+  `Resource`/`NotResource`, wildcards, policy variables such as
+  `${aws:username}`, and conditions (`String*`, `Arn*`, `Numeric*`, `Date*`,
+  `Bool`, `IpAddress`, `Null`, `…IfExists`, `ForAnyValue:`/`ForAllValues:`)
+  are supported. Global condition keys include `aws:SourceIp`,
+  `aws:RequestedRegion`, `aws:SecureTransport`, `aws:CurrentTime`,
+  `aws:PrincipalArn`, `aws:PrincipalAccount`, `aws:PrincipalType` and
+  `aws:username`.
+- **Credentials.** A deactivated access key fails with
+  `InvalidClientTokenId` and an expired session with `ExpiredToken`.
+  `sts:GetCallerIdentity` needs no permission, as in AWS.
+
+Resources are named from the request for S3, SQS, SNS, DynamoDB, Lambda,
+SSM, KMS (key IDs and ARNs), Secrets Manager (ARNs), Kinesis, CloudWatch
+Logs, Step Functions, EventBridge rules, IAM and STS. For other requests
+Stratus cannot name the resource, so statements are matched on their action
+and conditions only. An operation Stratus cannot name is checked as
+`<service>:*`, so only a caller allowed the whole service may call it.

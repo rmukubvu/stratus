@@ -192,6 +192,22 @@ func (s *Stacks) Close() error {
 
 var _ io.Closer = (*Stacks)(nil)
 
+// UserPolicies returns an IAM user's identity-based policy documents.
+func (s *Stacks) UserPolicies(account, userName string) ([]string, error) {
+	return s.iam(account).UserPolicies(userName)
+}
+
+// RolePolicies returns an IAM role's identity-based policy documents.
+func (s *Stacks) RolePolicies(account, roleName string) ([]string, error) {
+	return s.iam(account).RolePolicies(roleName)
+}
+
+func (s *Stacks) iam(account string) *iam.Service {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.account(account).iam
+}
+
 // account returns the global services of an account. Callers hold s.mu.
 func (s *Stacks) account(id string) *accountServices {
 	if acct, ok := s.accounts[id]; ok {

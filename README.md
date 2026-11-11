@@ -44,7 +44,8 @@ a twelve-digit access key and the region from the request signature. See
 [docs/accounts.md](docs/accounts.md).
 
 IAM users, access keys, managed policies and STS `AssumeRole` work the
-way they do in AWS; see [docs/iam.md](docs/iam.md).
+way they do in AWS; see [docs/iam.md](docs/iam.md). Set `STRATUS_IAM=enforce` to have
+requests refused when their caller's policies do not allow them.
 
 ## What Works Today
 
