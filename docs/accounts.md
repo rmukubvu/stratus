@@ -22,6 +22,24 @@ AWS_ACCESS_KEY_ID=111111111111 aws sts get-caller-identity   # "Account": "11111
 AWS_ACCESS_KEY_ID=test         aws sts get-caller-identity   # "Account": "000000000000"
 ```
 
+### Assuming a role in another account
+
+`sts assume-role` returns temporary credentials (`ASIA…` access key, secret
+and session token) that act in the role's account, the way a pipeline moves
+from a tooling account into a workload account:
+
+```sh
+AWS_ACCESS_KEY_ID=111111111111 aws sts assume-role \
+  --role-arn arn:aws:iam::222222222222:role/deployer --role-session-name ci
+# Calls signed with the returned credentials act in 222222222222, and
+# get-caller-identity reports arn:aws:sts::222222222222:assumed-role/deployer/ci.
+```
+
+Sessions are kept in the data directory, so they survive restarts and are
+part of snapshots. `GetAccessKeyInfo` reports the account of any key. Until
+IAM enforcement is turned on, the role does not have to exist, its trust
+policy is not checked and session expiry is not enforced.
+
 ## Choosing the region
 
 The region is the one the request is signed for (`--region`,
@@ -59,7 +77,7 @@ database and the blob directory.
 
 - Requests act in the caller's account. Reaching a resource in another
   account directly (for example sending to another account's queue URL) is
-  not modelled; use STS `AssumeRole` into that account instead.
+  not modelled; assume a role in that account instead.
 - The control API's service views (SES inbox, scheduler clock, MSK brokers,
   DNS resolver) show the default account and region.
 - Policies are stored but not enforced unless IAM enforcement is turned on.

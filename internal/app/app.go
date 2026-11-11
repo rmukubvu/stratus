@@ -73,6 +73,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}
 	chaosEngine := chaos.NewEngine(control.DefaultCatalog().Names(), nil)
 	blobStore := fsblob.New(blobRoot)
+	stsService := sts.NewService(metaStore)
 	stacks := newStacks(platform{
 		meta:    metaStore,
 		blobs:   blobStore,
@@ -86,7 +87,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 			Mode:       bedrockConfig.Mode,
 			Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
 		}),
-		sts:    sts.NewService(),
+		sts:    stsService,
 		getenv: os.Getenv,
 		logger: logger,
 	})
@@ -134,6 +135,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Logger:    logger,
 		Services:  defaults.services,
 		Stacks:    stacks,
+		Accounts:  stsService,
 		Operator:  operatorService,
 		Control:   controlHandler,
 		Gate:      controlService.Gate(),

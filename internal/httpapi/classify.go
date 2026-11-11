@@ -55,6 +55,8 @@ var targetToService = map[string]string{
 
 var queryActionToService = map[string]string{
 	"GetCallerIdentity":        "sts",
+	"AssumeRole":               "sts",
+	"GetAccessKeyInfo":         "sts",
 	"CreateTopic":              "sns",
 	"ListTopics":               "sns",
 	"GetTopicAttributes":       "sns",
