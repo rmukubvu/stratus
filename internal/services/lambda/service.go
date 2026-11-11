@@ -97,6 +97,19 @@ type FunctionSpec struct {
 	PackageType string
 	ImageURI    string
 	ImageConfig ImageConfig
+	// Role is the function's execution role ARN.
+	Role string
+	// Credentials are the execution role's session credentials, issued when
+	// the container starts. Empty when none were issued.
+	Credentials Credentials
+}
+
+// Credentials are temporary AWS credentials given to a function, as Lambda
+// gives it its execution role's.
+type Credentials struct {
+	AccessKeyID     string
+	SecretAccessKey string
+	SessionToken    string
 }
 
 // ImageConfig overrides the container image's own entrypoint, command and
@@ -1769,6 +1782,7 @@ func (s *Service) specFromRecord(record functionRecord) FunctionSpec {
 		PackageType:  defaultString(record.PackageType, PackageTypeZip),
 		ImageURI:     record.ImageURI,
 		ImageConfig:  record.ImageConfig,
+		Role:         record.Role,
 	}
 }
 

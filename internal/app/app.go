@@ -81,6 +81,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	blobStore := fsblob.New(blobRoot)
 	iamKeys := iam.NewKeyDirectory(metaStore)
 	stsService := sts.NewService(metaStore, iamKeys)
+	lambdaRuntime.SetCredentialIssuer(stsService)
 	stacks := newStacks(platform{
 		meta:    metaStore,
 		blobs:   blobStore,

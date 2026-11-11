@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/stratus/internal/apierror"
@@ -182,4 +183,45 @@ func validation(message string) error {
 
 func internal(err error) error {
 	return &apierror.Error{StatusCode: http.StatusInternalServerError, Code: "InternalFailure", Message: err.Error()}
+}
+
+// lambdaSessionDuration is the longest session STS issues; a warm container
+// keeps the credentials it started with.
+const lambdaSessionDuration = maxDuration
+
+// RoleCredentials issues session credentials for a Lambda function's
+// execution role. The session acts in the function's own account, so a
+// function whose role ARN names another (often made-up) account still calls
+// back into the account it runs in.
+func (s *Service) RoleCredentials(account, roleARN, sessionName string) (string, string, string, error) {
+	name := roleARN
+	if role, ok := ParseRoleARN(roleARN); ok {
+		name = role.Name
+	} else if i := strings.LastIndex(roleARN, "/"); i >= 0 {
+		name = roleARN[i+1:]
+	}
+	if account == "" {
+		account = scope.DefaultAccount
+	}
+	session, err := s.AssumeRole(AssumeRoleInput{
+		RoleARN:         "arn:aws:iam::" + account + ":role/" + name,
+		RoleSessionName: lambdaSessionName(sessionName),
+		DurationSeconds: int(lambdaSessionDuration.Seconds()),
+	})
+	if err != nil {
+		return "", "", "", err
+	}
+	return session.AccessKeyID, session.SecretAccessKey, session.SessionToken, nil
+}
+
+// lambdaSessionName fits a function name to RoleSessionName's 2–64
+// characters, as Lambda names sessions after the function.
+func lambdaSessionName(name string) string {
+	if len(name) > 64 {
+		name = name[:64]
+	}
+	for len(name) < 2 {
+		name += "-"
+	}
+	return name
 }

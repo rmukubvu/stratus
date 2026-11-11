@@ -94,3 +94,10 @@ image's own settings.
   emulator's `START` and `REPORT` lines.
 - **Architectures.** Containers run on the host's architecture. An `arm64`
   function on an x86 host needs Docker's emulation (binfmt/QEMU).
+
+## Credentials
+
+Each container starts with session credentials for the function's execution
+role, so an AWS SDK in the function signs requests as the role, in the
+function's account. Point the SDK at Stratus with an environment variable
+such as `AWS_ENDPOINT_URL`. See [iam.md](iam.md).

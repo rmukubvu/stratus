@@ -2,6 +2,8 @@ package container
 
 import (
 	"errors"
+	"io"
+	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
@@ -171,3 +173,57 @@ func TestPlanCustomBaseImageIsWrappedInMountedEmulator(t *testing.T) {
 		t.Fatalf("Mounts = %+v", plan.Mounts)
 	}
 }
+
+func TestPlanGivesTheFunctionItsRoleCredentials(t *testing.T) {
+	in := zipInput("python3.12", FamilyManaged)
+	in.Spec.Credentials = lambdasvc.Credentials{AccessKeyID: "ASIAROLE", SecretAccessKey: "secret", SessionToken: "token"}
+	plan, err := planLaunch(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{"AWS_ACCESS_KEY_ID": "ASIAROLE", "AWS_SECRET_ACCESS_KEY": "secret", "AWS_SESSION_TOKEN": "token"} {
+		if got, _ := envValue(plan.Env, key); got != value {
+			t.Fatalf("%s = %q, want %q", key, got, value)
+		}
+	}
+
+	// A function's own credentials win, and none are set without a role.
+	in.Spec.Environment["AWS_ACCESS_KEY_ID"] = "test"
+	plan, _ = planLaunch(in)
+	if got, _ := envValue(plan.Env, "AWS_ACCESS_KEY_ID"); got != "test" {
+		t.Fatalf("the function's own key should win, got %q", got)
+	}
+	plan, _ = planLaunch(zipInput("python3.12", FamilyManaged))
+	if _, ok := envValue(plan.Env, "AWS_SESSION_TOKEN"); ok {
+		t.Fatal("no credentials without a role session")
+	}
+}
+
+type fakeIssuer struct {
+	account, role, session string
+	err                    error
+}
+
+func (f *fakeIssuer) RoleCredentials(account, roleARN, session string) (string, string, string, error) {
+	f.account, f.role, f.session = account, roleARN, session
+	return "ASIAX", "s", "t", f.err
+}
+
+func TestRoleCredentialsAreIssuedForTheFunction(t *testing.T) {
+	issuer := &fakeIssuer{}
+	m := &Manager{logger: discardLogger()}
+	spec := lambdasvc.FunctionSpec{FunctionName: "orders", Account: "111111111111", Role: "arn:aws:iam::111111111111:role/r"}
+	if got := m.roleCredentials(spec); got.AccessKeyID != "" {
+		t.Fatalf("no issuer, got %+v", got)
+	}
+	m.SetCredentialIssuer(issuer)
+	if got := m.roleCredentials(spec); got.AccessKeyID != "ASIAX" || issuer.account != "111111111111" || issuer.role != spec.Role || issuer.session != "orders" {
+		t.Fatalf("got %+v from %+v", got, issuer)
+	}
+	issuer.err = errors.New("boom")
+	if got := m.roleCredentials(spec); got.AccessKeyID != "" {
+		t.Fatalf("a failed issue must give no credentials, got %+v", got)
+	}
+}
+
+func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
