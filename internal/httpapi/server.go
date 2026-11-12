@@ -26,6 +26,7 @@ import (
 	"github.com/stratus/internal/services/cognitoidp"
 	"github.com/stratus/internal/services/dynamodb"
 	"github.com/stratus/internal/services/dynamodbstreams"
+	"github.com/stratus/internal/services/ec2"
 	"github.com/stratus/internal/services/ecr"
 	"github.com/stratus/internal/services/ecs"
 	"github.com/stratus/internal/services/elasticache"
@@ -77,6 +78,7 @@ type Services struct {
 	ECR             *ecr.Service
 	ECS             *ecs.Service
 	ELBV2           *elbv2.Service
+	EC2             *ec2.Service
 	ACM             *acm.Service
 	RDS             *rds.Service
 	ElastiCache     *elasticache.Service
@@ -399,6 +401,8 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 		return svc.handleECS(w, r, metadata)
 	case "elbv2":
 		return svc.handleELBV2(w, r, metadata)
+	case "ec2":
+		return svc.handleEC2(w, r, metadata)
 	case "acm":
 		return svc.handleACM(w, r, metadata)
 	case "rds":
@@ -614,6 +618,13 @@ func (s *Services) handleELBV2(w http.ResponseWriter, r *http.Request, metadata 
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"elbv2\" is not implemented"}
 	}
 	return s.ELBV2.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
+}
+
+func (s *Services) handleEC2(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {
+	if s.EC2 == nil {
+		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "service \"ec2\" is not implemented"}
+	}
+	return s.EC2.Handle(w, r, metadata.Classification.Operation, metadata.RequestID)
 }
 
 func (s *Services) handleACM(w http.ResponseWriter, r *http.Request, metadata RequestMetadata) error {

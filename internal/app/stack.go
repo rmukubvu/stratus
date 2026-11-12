@@ -22,6 +22,7 @@ import (
 	"github.com/stratus/internal/services/cognitoidp"
 	"github.com/stratus/internal/services/dynamodb"
 	"github.com/stratus/internal/services/dynamodbstreams"
+	"github.com/stratus/internal/services/ec2"
 	"github.com/stratus/internal/services/ecr"
 	"github.com/stratus/internal/services/ecs"
 	"github.com/stratus/internal/services/elasticache"
@@ -250,6 +251,8 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 	ecrService := ecr.NewService(meta)
 	ecsService := ecs.NewService(meta)
 	elbv2Service := elbv2.NewService(meta)
+	ec2Service := ec2.NewService(meta)
+	monitoringService := monitoring.NewService(meta)
 	acmService := acm.NewService(meta)
 	ssmService := ssm.NewService(meta)
 	kmsService := kms.NewService(meta)
@@ -264,7 +267,7 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 	for _, svc := range []interface{ SetScope(scope.Scope) }{
 		lambdaService, snsService, sqsService, streamsService, dynamoDBService, eventsService,
 		kinesisService, cognitoIDPService, stepFunctionsService, sesService, schedulerService,
-		ecrService, ecsService, elbv2Service, acmService, ssmService, kmsService, secretsService,
+		ecrService, ecsService, elbv2Service, ec2Service, monitoringService, acmService, ssmService, kmsService, secretsService,
 		logsService, rdsService, elastiCacheService, kafkaService, cloudMapService, fisService,
 	} {
 		svc.SetScope(sc)
@@ -273,6 +276,7 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 	sqsService.SetLambda(lambdaService)
 	snsService.SetQueuePublisher(sqsService)
 	snsService.SetLambdaInvoker(lambdaService)
+	monitoringService.SetSNS(snsService)
 	lambdaService.SetQueuePublisher(sqsService)
 	lambdaService.SetTopicPublisher(snsService)
 	streamsService.SetLambda(lambdaService)
@@ -324,7 +328,7 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 			Logs:            logsService,
 			SNS:             snsService,
 			SQS:             sqsService,
-			Monitoring:      monitoring.NewService(meta),
+			Monitoring:      monitoringService,
 			KMS:             kmsService,
 			Events:          eventsService,
 			SecretsManager:  secretsService,
@@ -335,6 +339,7 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 			ECR:             ecrService,
 			ECS:             ecsService,
 			ELBV2:           elbv2Service,
+			EC2:             ec2Service,
 			ACM:             acmService,
 			RDS:             rdsService,
 			ElastiCache:     elastiCacheService,

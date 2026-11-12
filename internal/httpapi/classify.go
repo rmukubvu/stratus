@@ -6,8 +6,10 @@ import (
 
 	"github.com/stratus/internal/awscompat"
 	"github.com/stratus/internal/services/bedrock"
+	"github.com/stratus/internal/services/ec2"
 	"github.com/stratus/internal/services/fis"
 	"github.com/stratus/internal/services/kafka"
+	"github.com/stratus/internal/services/monitoring"
 	"github.com/stratus/internal/services/route53"
 	"github.com/stratus/internal/services/scheduler"
 	"github.com/stratus/internal/services/ses"
@@ -50,6 +52,7 @@ var targetToService = map[string]string{
 	"DynamoDBStreams_20120810":             "dynamodbstreams",
 	"AmazonSQS":                            "sqs",
 	"AmazonCloudWatch":                     "monitoring",
+	"GraniteServiceVersion20100801":        "monitoring",
 	"Route53AutoNaming_v20170314":          "servicediscovery",
 }
 
@@ -125,6 +128,7 @@ var signedQueryServices = map[string]struct{}{
 	"rds":            {},
 	"elasticache":    {},
 	"ses":            {},
+	"ec2":            {},
 }
 
 func init() {
@@ -132,6 +136,16 @@ func init() {
 	for _, action := range ses.QueryOperations {
 		if _, taken := queryActionToService[action]; !taken {
 			queryActionToService[action] = "ses"
+		}
+	}
+	for _, action := range monitoring.AlarmOperations() {
+		if _, taken := queryActionToService[action]; !taken && strings.Contains(action, "Alarm") {
+			queryActionToService[action] = "monitoring"
+		}
+	}
+	for _, action := range ec2.Operations {
+		if _, taken := queryActionToService[action]; !taken {
+			queryActionToService[action] = "ec2"
 		}
 	}
 }

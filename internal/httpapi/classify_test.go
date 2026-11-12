@@ -536,3 +536,18 @@ func TestUnmatchedPathSignedForAnotherServiceIsNotS3(t *testing.T) {
 		t.Fatalf("an S3-signed request stays S3: %+v", got)
 	}
 }
+
+func TestClassifyEC2BySigningNameAndAction(t *testing.T) {
+	signed := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=CreateVpc&CidrBlock=10.0.0.0%2F16"))
+	signed.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	signed.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20260101/us-east-1/ec2/aws4_request, SignedHeaders=host, Signature=x")
+	if got, err := Classify(signed); err != nil || got.Service != "ec2" || got.Protocol != ProtocolQuery || got.Operation != "CreateVpc" {
+		t.Fatalf("signed: %+v, %v", got, err)
+	}
+
+	unsigned := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=DescribeSecurityGroups"))
+	unsigned.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if got, err := Classify(unsigned); err != nil || got.Service != "ec2" {
+		t.Fatalf("unsigned: %+v, %v", got, err)
+	}
+}

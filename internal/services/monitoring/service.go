@@ -18,6 +18,7 @@ import (
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/awscompat"
+	"github.com/stratus/internal/scope"
 	"github.com/stratus/internal/store"
 )
 
@@ -28,6 +29,8 @@ const (
 
 type Service struct {
 	metadata store.Store
+	scope    scope.Scope
+	sns      TopicPublisher
 	now      func() time.Time
 	mu       sync.Mutex
 }
@@ -47,6 +50,8 @@ type dimension struct {
 }
 
 type metricDatumJSON struct {
+	Values     []float64   `json:"Values"`
+	Counts     []float64   `json:"Counts"`
 	Dimensions []dimension `json:"Dimensions"`
 	MetricName string      `json:"MetricName"`
 	Timestamp  flexTime    `json:"Timestamp"`
@@ -197,14 +202,18 @@ type datapointJSON struct {
 }
 
 func NewService(metadata store.Store) *Service {
-	return &Service{metadata: metadata, now: time.Now}
+	return &Service{metadata: metadata, scope: scope.Default(), now: time.Now}
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requestID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	switch normalizeOperation(operation, r) {
+	op := normalizeOperation(operation, r)
+	if handler, ok := alarmOperations[op]; ok {
+		return handler(s, w, r, requestID)
+	}
+	switch op {
 	case "PutMetricData":
 		return s.putMetricData(w, r, requestID)
 	case "ListMetrics":
@@ -283,6 +292,9 @@ func (s *Service) storeMetrics(w http.ResponseWriter, r *http.Request, requestID
 		if err := s.metadata.Put(metricsBucket, key, raw); err != nil {
 			return internal(err)
 		}
+	}
+	if err := s.evaluateDue(); err != nil {
+		return err
 	}
 	writeResponse(w, r, http.StatusOK, putMetricDataResponse{
 		XMLNS:            namespace,
@@ -489,8 +501,9 @@ func parseMetricData(form url.Values, namespace string, now time.Time) ([]metric
 			}
 			break
 		}
+		values, counts := floatList(form, prefix+"Values.member."), floatList(form, prefix+"Counts.member.")
 		value, err := strconv.ParseFloat(form.Get(prefix+"Value"), 64)
-		if err != nil {
+		if err != nil && len(values) == 0 {
 			return nil, validation("metric Value is invalid")
 		}
 		timestamp := now
@@ -501,14 +514,23 @@ func parseMetricData(form url.Values, namespace string, now time.Time) ([]metric
 			}
 			timestamp = parsed
 		}
-		out = append(out, metricDatum{
+		base := metricDatum{
 			Dimensions: parseDimensions(form, prefix+"Dimensions.member."),
 			MetricName: name,
 			Namespace:  namespace,
 			Timestamp:  timestamp.UTC(),
 			Unit:       form.Get(prefix + "Unit"),
 			Value:      value,
-		})
+		}
+		if len(values) == 0 {
+			out = append(out, base)
+			continue
+		}
+		expanded, err := expandValues(base, values, counts)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, expanded...)
 	}
 	if len(out) == 0 {
 		return nil, validation("MetricData is required")
@@ -533,17 +555,67 @@ func parseMetricDataJSON(payload putMetricDataRequestJSON, now time.Time) ([]met
 		}
 		dims := append([]dimension(nil), item.Dimensions...)
 		sort.Slice(dims, func(i, j int) bool { return dims[i].Name < dims[j].Name })
-		out = append(out, metricDatum{
+		base := metricDatum{
 			Dimensions: dims,
 			MetricName: name,
 			Namespace:  strings.TrimSpace(payload.Namespace),
 			Timestamp:  timestamp.UTC(),
 			Unit:       strings.TrimSpace(item.Unit),
 			Value:      item.Value,
-		})
+		}
+		if len(item.Values) == 0 {
+			out = append(out, base)
+			continue
+		}
+		expanded, err := expandValues(base, item.Values, item.Counts)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, expanded...)
 	}
 	if len(out) == 0 {
 		return nil, validation("MetricData is required")
+	}
+	return out, nil
+}
+
+func floatList(form url.Values, prefix string) []float64 {
+	var out []float64
+	for n := 1; ; n++ {
+		raw := form.Get(prefix + strconv.Itoa(n))
+		if raw == "" {
+			return out
+		}
+		v, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			return out
+		}
+		out = append(out, v)
+	}
+}
+
+// maxExpandedSamples bounds how many samples one Values/Counts datum may
+// expand to; CloudWatch accepts up to 150 values, each counted.
+const maxExpandedSamples = 10000
+
+// expandValues turns a datum's Values/Counts arrays into one datum per
+// sample, so statistics see each occurrence.
+func expandValues(base metricDatum, values, counts []float64) ([]metricDatum, error) {
+	if len(counts) > 0 && len(counts) != len(values) {
+		return nil, &apierror.Error{StatusCode: http.StatusBadRequest, Code: "InvalidParameterValue",
+			Message: "The parameters MetricData.member.1.Values and MetricData.member.1.Counts must be of the same size."}
+	}
+	var out []metricDatum
+	for i, v := range values {
+		n := 1
+		if len(counts) > 0 {
+			n = int(counts[i])
+		}
+		for j := 0; j < n && len(out) < maxExpandedSamples; j++ {
+			d := base
+			d.Value = v
+			out = append(out, d)
+		}
 	}
 	return out, nil
 }

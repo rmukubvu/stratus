@@ -54,6 +54,7 @@ func DefaultCatalog() Catalog {
 		ServiceState{Name: "cognitoidp", BucketPrefixes: []string{"cognito-"}},
 		ServiceState{Name: "dynamodb", BucketPrefixes: []string{"dynamodb-"}},
 		ServiceState{Name: "dynamodbstreams", BucketPrefixes: []string{"dynamodb-stream"}},
+		ServiceState{Name: "ec2", BucketPrefixes: []string{"ec2-"}},
 		ServiceState{Name: "ecr", BucketPrefixes: []string{"ecr-"}},
 		ServiceState{Name: "ecs", BucketPrefixes: []string{"ecs-"}},
 		ServiceState{Name: "elasticache", BucketPrefixes: []string{"elasticache-"}},
