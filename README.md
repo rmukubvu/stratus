@@ -55,7 +55,7 @@ requests refused when their caller's policies do not allow them.
 - S3
 - Lambda
 - SSM
-- DynamoDB
+- DynamoDB: sort keys, secondary indexes, the expression languages, conditional writes, batches and transactions ([docs/dynamodb.md](docs/dynamodb.md))
 - DynamoDB Streams
 - CloudWatch Logs
 - CloudWatch Metrics and Alarms (metric and composite alarms, evaluated against the metrics you publish)
