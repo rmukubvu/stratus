@@ -255,6 +255,9 @@ Useful files when orienting yourself:
 ## Install
 
 The release path for direct install is Homebrew tap plus GitHub Releases.
+A multi-arch container image is published to `ghcr.io/rmukubvu/stratus` with
+each release, for Docker Compose and other container setups; see
+[docs/container.md](docs/container.md).
 
 For macOS users, the recommended install is:
 

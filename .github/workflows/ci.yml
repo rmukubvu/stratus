@@ -119,6 +119,38 @@ jobs:
           curl -fsS "$STRATUS_ENDPOINT/_stratus/control/v1/ready"
           stratus snapshot save from-action
 
+  # Builds the release image the way GoReleaser does (a context holding
+  # linux/<arch>/stratus) and checks it serves and reports healthy.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build the image
+        run: |
+          ctx="$RUNNER_TEMP/image"
+          mkdir -p "$ctx/linux/amd64"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$ctx/linux/amd64/stratus" ./cmd/stratus
+          docker buildx build --platform linux/amd64 --load -t stratus:ci -f build/container/Dockerfile "$ctx"
+
+      - name: Run it and wait until healthy
+        run: |
+          docker run -d --name stratus -p 4566:4566 stratus:ci
+          for _ in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' stratus)"
+            [ "$status" = healthy ] && break
+            sleep 1
+          done
+          docker inspect -f '{{.State.Health.Status}}' stratus | grep -qx healthy || { docker logs stratus; exit 1; }
+          curl -fsS -X PUT http://127.0.0.1:4566/image-check -o /dev/null
+          curl -fsS http://127.0.0.1:4566/_stratus/health
+
   sdk:
     strategy:
       fail-fast: false
