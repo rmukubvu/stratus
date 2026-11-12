@@ -225,6 +225,14 @@ func Classify(r *http.Request) (Classification, error) {
 		}
 	}
 
+	if name := nonS3SigningName(r); name != "" {
+		return Classification{
+			Protocol:  ProtocolREST,
+			Service:   UnsupportedService,
+			Operation: name + " " + r.Method + " " + r.URL.Path,
+		}, nil
+	}
+
 	bucket, key := classifyPathStyleS3(r.URL.Path)
 	return Classification{
 		Protocol:  ProtocolS3,
@@ -233,6 +241,27 @@ func Classify(r *http.Request) (Classification, error) {
 		Bucket:    bucket,
 		Key:       key,
 	}, nil
+}
+
+// UnsupportedService classifies a REST request signed for a service other
+// than S3 whose path matches nothing Stratus serves. Without it, the request
+// would fall through to path-style S3 (a CreateUsagePlan POST to /usageplans
+// would read as an S3 bucket) and get a misleading S3 error instead of
+// NotImplemented.
+const UnsupportedService = "unsupported"
+
+// nonS3SigningName is the SigV4 signing name of a request signed for a service
+// other than S3, or "".
+func nonS3SigningName(r *http.Request) string {
+	sigv4 := awscompat.ParseSigV4Authorization(r.Header.Get("Authorization"))
+	if sigv4 == nil {
+		return ""
+	}
+	switch sigv4.Service {
+	case "", "s3", "s3express", "s3-object-lambda":
+		return ""
+	}
+	return sigv4.Service
 }
 
 // signedRESTService names the REST service a request is signed for, or ""

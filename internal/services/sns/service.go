@@ -1,6 +1,8 @@
 package sns
 
 import (
+	"github.com/stratus/internal/tags"
+
 	"context"
 	"encoding/json"
 	"encoding/xml"
@@ -57,6 +59,7 @@ type topicRecord struct {
 	Attributes map[string]string `json:"attributes,omitempty"`
 	CreatedAt  time.Time         `json:"created_at"`
 	Name       string            `json:"name"`
+	Tags       tags.List         `json:"tags,omitempty"`
 	TopicArn   string            `json:"topic_arn"`
 }
 
@@ -182,6 +185,12 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requ
 		return s.setSubscriptionAttributes(w, r, requestID)
 	case "Unsubscribe":
 		return s.unsubscribe(w, r, requestID)
+	case "TagResource":
+		return s.tagResource(w, r, requestID)
+	case "UntagResource":
+		return s.untagResource(w, r, requestID)
+	case "ListTagsForResource":
+		return s.listTagsForResource(w, r, requestID)
 	case "DeleteTopic":
 		return s.deleteTopic(w, r, requestID)
 	default:
@@ -206,11 +215,15 @@ func (s *Service) createTopic(w http.ResponseWriter, r *http.Request, requestID 
 	if strings.HasSuffix(name, ".fifo") || strings.EqualFold(attrs["FifoTopic"], "true") {
 		return notImplemented("FIFO topics are not supported")
 	}
-	if raw := form.Get("Tags.member.1.Key"); raw != "" {
-		return notImplemented("SNS topic tags are not supported")
+	topicTags, err := topicTagsFromForm(form)
+	if err != nil {
+		return err
 	}
 
 	if topic, err := s.loadTopicByName(name); err == nil {
+		if len(topicTags) > 0 && !topic.Tags.Equal(topicTags) {
+			return badRequest("InvalidParameter", "Invalid parameter: Tags Reason: Topic already exists with different tags")
+		}
 		writeXML(w, http.StatusOK, createTopicResponse{
 			XMLNS: namespace,
 			Result: topicArnResult{
@@ -225,6 +238,7 @@ func (s *Service) createTopic(w http.ResponseWriter, r *http.Request, requestID 
 		Attributes: normalizeAttributes(attrs),
 		CreatedAt:  s.now().UTC(),
 		Name:       name,
+		Tags:       topicTags,
 		TopicArn:   s.topicARN(name),
 	}
 	if err := s.putTopic(record); err != nil {
