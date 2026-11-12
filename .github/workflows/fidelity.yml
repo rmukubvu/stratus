@@ -1,0 +1,125 @@
+name: Fidelity
+
+# Scores Stratus with AWS's own fidelity tests (aws/aws-emulator-evaluation-suite), the tests
+# AWS verified against real AWS and scores AWS Emulator with. See docs/fidelity.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite_ref:
+        description: aws-emulator-evaluation-suite commit to score against
+        required: false
+  schedule:
+    - cron: "0 4 * * 1"
+  pull_request:
+    paths:
+      - scripts/fidelity/**
+      - .github/workflows/fidelity.yml
+
+env:
+  # Pinned so scores are comparable run to run; bump deliberately.
+  SUITE_REF: ${{ inputs.suite_ref || '4df2823bafface2ada35f482c07ff6668cc078e1' }}
+  SHARDS: 12
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Unit-test the scoring script
+        run: python -m unittest discover -s scripts/fidelity -v
+
+  run:
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Check out the evaluation suite
+        run: |
+          git init -q suite
+          git -C suite fetch -q --depth 1 https://github.com/aws/aws-emulator-evaluation-suite "$SUITE_REF"
+          git -C suite checkout -q FETCH_HEAD
+
+      - name: Install the suite's runner
+        working-directory: suite
+        run: uv sync --locked --extra checks
+
+      - name: Build Stratus
+        run: go build -o "$RUNNER_TEMP/stratus" ./cmd/stratus
+
+      - name: Pre-pull Lambda runtimes and engine images
+        run: |
+          for image in \
+            public.ecr.aws/lambda/python:3.12 public.ecr.aws/lambda/python:3.13 \
+            public.ecr.aws/lambda/nodejs:20 public.ecr.aws/lambda/nodejs:22 \
+            public.ecr.aws/lambda/provided:al2023 \
+            postgres:16-alpine mysql:8.0 valkey/valkey:8 memcached:1.6-alpine \
+            redpandadata/redpanda:v24.2.7; do
+            docker pull -q "$image" || echo "::warning::could not pull $image"
+          done
+
+      - name: Run shard ${{ matrix.shard }} of ${{ env.SHARDS }}
+        run: |
+          suite/.venv/bin/python scripts/fidelity/stratus_fidelity.py run \
+            --suite suite --stratus "$RUNNER_TEMP/stratus" --out reports \
+            --shard "${{ matrix.shard }}/$SHARDS" --jobs 6
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fidelity-reports-${{ matrix.shard }}
+          path: reports
+          retention-days: 30
+
+  score:
+    needs: run
+    if: always() && needs.run.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Check out the evaluation suite
+        run: |
+          git init -q suite
+          git -C suite fetch -q --depth 1 https://github.com/aws/aws-emulator-evaluation-suite "$SUITE_REF"
+          git -C suite checkout -q FETCH_HEAD
+
+      - name: Install the suite's runner
+        working-directory: suite
+        run: uv sync --locked --extra checks
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: fidelity-reports-*
+          path: reports
+          merge-multiple: true
+
+      - name: Score
+        run: |
+          suite/.venv/bin/python scripts/fidelity/stratus_fidelity.py report \
+            --suite suite --out reports --stratus-version "${GITHUB_SHA::7}" \
+            --json scores.json --markdown scores.md
+          cat scores.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fidelity-scores
+          path: |
+            scores.json
+            scores.md
