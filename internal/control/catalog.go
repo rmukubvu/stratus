@@ -70,7 +70,7 @@ func DefaultCatalog() Catalog {
 		ServiceState{Name: "monitoring", BucketPrefixes: []string{"cloudwatch-"}},
 		ServiceState{Name: "rds", BucketPrefixes: []string{"rds-"}},
 		ServiceState{Name: "route53", BucketPrefixes: []string{"route53-"}},
-		ServiceState{Name: "s3", BucketPrefixes: []string{"s3-"}, BlobNamespaces: []string{"s3"}},
+		ServiceState{Name: "s3", BucketPrefixes: []string{"s3-"}, BlobNamespaces: []string{"s3", "s3-versions", "s3-multipart"}},
 		ServiceState{Name: "scheduler", BucketPrefixes: []string{"scheduler-"}},
 		ServiceState{Name: "secretsmanager", BucketPrefixes: []string{"secretsmanager-"}},
 		ServiceState{Name: "servicediscovery", BucketPrefixes: []string{"servicediscovery-"}},

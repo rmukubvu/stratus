@@ -59,14 +59,19 @@ type objectMetadata struct {
 	ContentType    string    `json:"content_type"`
 	ContentLength  int64     `json:"content_length"`
 	LastModified   time.Time `json:"last_modified"`
+	// VersionID is empty for objects in a bucket that never had versioning.
+	VersionID    string     `json:"version_id,omitempty"`
+	DeleteMarker bool       `json:"delete_marker,omitempty"`
+	Lock         objectLock `json:"lock"`
 }
 
 type multipartUpload struct {
-	Bucket      string    `json:"bucket"`
-	Key         string    `json:"key"`
-	UploadID    string    `json:"upload_id"`
-	ContentType string    `json:"content_type"`
-	CreatedAt   time.Time `json:"created_at"`
+	Bucket      string     `json:"bucket"`
+	Key         string     `json:"key"`
+	UploadID    string     `json:"upload_id"`
+	ContentType string     `json:"content_type"`
+	CreatedAt   time.Time  `json:"created_at"`
+	Lock        objectLock `json:"lock"`
 }
 
 type multipartPart struct {
@@ -138,10 +143,11 @@ func NewService(opts Options) *Service {
 }
 
 func (s *Service) ReadObjectBytes(bucket, key string) ([]byte, error) {
-	if _, err := s.loadObject(bucket, key); err != nil {
+	meta, err := s.loadObject(bucket, key)
+	if err != nil {
 		return nil, err
 	}
-	file, err := s.blobs.Open(documentNamespace+"/"+bucket, key)
+	file, err := s.blobs.Open(blobLocation(bucket, meta))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, errNoSuchKey(bucket, key)
@@ -179,6 +185,12 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, bucket, key str
 	if key == "" && r.URL.Query().Has("policy") {
 		return s.handleBucketPolicy(w, r, bucket)
 	}
+	if key == "" && r.URL.Query().Has("versions") {
+		if r.Method != http.MethodGet {
+			return methodNotAllowed("/" + bucket)
+		}
+		return s.listObjectVersions(w, r, bucket)
+	}
 	if key == "" {
 		if name := bucketSubresource(r.URL.Query()); name != "" {
 			return s.handleBucketSubresource(w, r, bucket, name)
@@ -187,6 +199,12 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, bucket, key str
 	if key != "" {
 		if r.URL.Query().Has("tagging") {
 			return s.handleObjectTagging(w, r, bucket, key)
+		}
+		if r.URL.Query().Has("retention") {
+			return s.handleObjectRetention(w, r, bucket, key)
+		}
+		if r.URL.Query().Has("legal-hold") {
+			return s.handleObjectLegalHold(w, r, bucket, key)
 		}
 		if name := unsupportedSubresource(r.URL.Query()); name != "" {
 			return notImplementedSubresource(name, "/"+bucket+"/"+key)
@@ -219,11 +237,11 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, bucket, key str
 		}
 		return methodNotAllowed("/" + bucket + "/" + key)
 	case http.MethodGet:
-		return s.getObject(w, bucket, key)
+		return s.getObject(w, r, bucket, key)
 	case http.MethodHead:
-		return s.headObject(w, bucket, key)
+		return s.headObject(w, r, bucket, key)
 	case http.MethodDelete:
-		return s.deleteObject(w, bucket, key)
+		return s.deleteObject(w, r, bucket, key)
 	default:
 		return methodNotAllowed("/" + bucket + "/" + key)
 	}
@@ -292,6 +310,15 @@ func (s *Service) createBucket(w http.ResponseWriter, r *http.Request, bucket st
 	if err := s.metadata.Put(bucketMetadataBucket, bucket, raw); err != nil {
 		return internalError(err, "/"+bucket)
 	}
+	if strings.EqualFold(r.Header.Get(headerBucketLock), "true") {
+		// Creating a bucket with Object Lock also turns versioning on.
+		if err := s.metadata.Put(bucketConfigBucket, bucket+"/versioning", []byte(`<VersioningConfiguration xmlns="`+xmlNamespace+`"><Status>Enabled</Status></VersioningConfiguration>`)); err != nil {
+			return internalError(err, "/"+bucket)
+		}
+		if err := s.metadata.Put(bucketConfigBucket, bucket+"/object-lock", []byte(objectLockEnabledDoc)); err != nil {
+			return internalError(err, "/"+bucket)
+		}
+	}
 
 	w.Header().Set("Location", "/"+bucket)
 	w.WriteHeader(http.StatusOK)
@@ -320,6 +347,11 @@ func (s *Service) deleteBucket(w http.ResponseWriter, bucket string) error {
 	if err != nil && !errors.Is(err, errStopScan) {
 		return internalError(err, "/"+bucket)
 	}
+	if !hasObjects {
+		if hasObjects, err = s.bucketHasVersions(bucket); err != nil {
+			return internalError(err, "/"+bucket)
+		}
+	}
 	if hasObjects {
 		return apiError(http.StatusConflict, "BucketNotEmpty", "The bucket you tried to delete is not empty.", "/"+bucket)
 	}
@@ -336,66 +368,74 @@ func (s *Service) deleteBucket(w http.ResponseWriter, bucket string) error {
 	if err := s.blobs.DeleteNamespace(documentNamespace + "/" + bucket); err != nil {
 		return internalError(err, "/"+bucket)
 	}
+	if err := s.blobs.DeleteNamespace(versionNamespace + "/" + bucket); err != nil {
+		return internalError(err, "/"+bucket)
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 
 func (s *Service) putObject(w http.ResponseWriter, r *http.Request, bucket, key string) error {
-	if err := s.requireBucket(bucket, "/"+bucket+"/"+key); err != nil {
+	resource := "/" + bucket + "/" + key
+	if err := s.requireBucket(bucket, resource); err != nil {
 		return err
 	}
-
-	objectTags, err := objectTagsFromHeader(r, "/"+bucket+"/"+key)
+	objectTags, err := objectTagsFromHeader(r, resource)
+	if err != nil {
+		return err
+	}
+	lock, err := s.requestLock(r, bucket, resource)
 	if err != nil {
 		return err
 	}
 
+	chunked := strings.EqualFold(r.Header.Get("Content-Encoding"), "aws-chunked")
 	bodyReader := io.Reader(r.Body)
-	if strings.EqualFold(r.Header.Get("Content-Encoding"), "aws-chunked") {
+	if chunked {
 		bodyReader = httputil.NewChunkedReader(bufio.NewReader(r.Body))
 	}
-	result, err := s.blobs.Put(documentNamespace+"/"+bucket, key, bodyReader)
+	meta, err := s.storeObject(bucket, key, bodyReader, contentTypeOf(r), lock)
 	if err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
-	}
-
-	contentType := r.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
-	}
-
-	meta := objectMetadata{
-		Key:            key,
-		ETag:           `"` + result.MD5Hex + `"`,
-		ChecksumCRC32:  result.CRC32Base64,
-		ChecksumSHA256: result.SHA256Base64,
-		ContentType:    contentType,
-		ContentLength:  result.Size,
-		LastModified:   s.now().UTC(),
-	}
-	if err := s.putObjectMetadata(bucket, meta); err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
+		return internalError(err, resource)
 	}
 	if err := s.putObjectTags(bucket, key, objectTags); err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
+		return internalError(err, resource)
 	}
 
-	if !strings.EqualFold(r.Header.Get("Content-Encoding"), "aws-chunked") {
-		w.Header().Set("ETag", `"`+result.MD5Hex+`"`)
+	if !chunked {
+		w.Header().Set("ETag", meta.ETag)
 	}
 	setChecksumHeaders(w, meta)
+	setVersionHeader(w, meta)
 	w.WriteHeader(http.StatusOK)
 	return nil
 }
 
-func (s *Service) getObject(w http.ResponseWriter, bucket, key string) error {
-	meta, err := s.loadObject(bucket, key)
+// requestLock reads the Object Lock settings a write request asks for,
+// applying the bucket's default retention.
+func (s *Service) requestLock(r *http.Request, bucket, resource string) (objectLock, error) {
+	cfg, err := s.lockConfig(bucket)
+	if err != nil {
+		return objectLock{}, internalError(err, resource)
+	}
+	return lockFromHeaders(r, cfg, s.now(), resource)
+}
+
+func contentTypeOf(r *http.Request) string {
+	if contentType := r.Header.Get("Content-Type"); contentType != "" {
+		return contentType
+	}
+	return "application/octet-stream"
+}
+
+func (s *Service) getObject(w http.ResponseWriter, r *http.Request, bucket, key string) error {
+	meta, err := s.readableVersion(w, r, bucket, key)
 	if err != nil {
 		return err
 	}
 
-	file, err := s.blobs.Open(documentNamespace+"/"+bucket, key)
+	file, err := s.blobs.Open(blobLocation(bucket, meta))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return errNoSuchKey(bucket, key)
@@ -416,8 +456,8 @@ func (s *Service) getObject(w http.ResponseWriter, bucket, key string) error {
 	return nil
 }
 
-func (s *Service) headObject(w http.ResponseWriter, bucket, key string) error {
-	meta, err := s.loadObject(bucket, key)
+func (s *Service) headObject(w http.ResponseWriter, r *http.Request, bucket, key string) error {
+	meta, err := s.readableVersion(w, r, bucket, key)
 	if err != nil {
 		return err
 	}
@@ -427,21 +467,24 @@ func (s *Service) headObject(w http.ResponseWriter, bucket, key string) error {
 	return nil
 }
 
-func (s *Service) deleteObject(w http.ResponseWriter, bucket, key string) error {
-	if err := s.requireBucket(bucket, "/"+bucket+"/"+key); err != nil {
-		return err
+// readableVersion resolves the version a GET or HEAD reads. A delete marker
+// named by version ID is MethodNotAllowed; a key whose latest version is a
+// delete marker is NoSuchKey; both carry x-amz-delete-marker.
+func (s *Service) readableVersion(w http.ResponseWriter, r *http.Request, bucket, key string) (objectMetadata, error) {
+	versionID := r.URL.Query().Get("versionId")
+	meta, err := s.requireVersion(bucket, key, versionID)
+	if err != nil {
+		if versionID == "" && s.latestIsDeleteMarker(bucket, key) {
+			w.Header().Set("X-Amz-Delete-Marker", "true")
+		}
+		return objectMetadata{}, err
 	}
-	if err := s.metadata.Delete(objectMetadataBucket, objectKey(bucket, key)); err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
+	if meta.DeleteMarker {
+		w.Header().Set("X-Amz-Delete-Marker", "true")
+		w.Header().Set("X-Amz-Version-Id", meta.VersionID)
+		return objectMetadata{}, methodNotAllowed("/" + bucket + "/" + key)
 	}
-	if err := s.metadata.Delete(objectTagsBucket, objectKey(bucket, key)); err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
-	}
-	if err := s.blobs.Delete(documentNamespace+"/"+bucket, key); err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
-	}
-	w.WriteHeader(http.StatusNoContent)
-	return nil
+	return meta, nil
 }
 
 func (s *Service) createMultipartUpload(w http.ResponseWriter, r *http.Request, bucket, key string) error {
@@ -449,16 +492,17 @@ func (s *Service) createMultipartUpload(w http.ResponseWriter, r *http.Request, 
 		return err
 	}
 
-	contentType := r.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	lock, err := s.requestLock(r, bucket, "/"+bucket+"/"+key)
+	if err != nil {
+		return err
 	}
 	upload := multipartUpload{
 		Bucket:      bucket,
 		Key:         key,
 		UploadID:    strconv.FormatInt(s.now().UnixNano(), 36),
-		ContentType: contentType,
+		ContentType: contentTypeOf(r),
 		CreatedAt:   s.now().UTC(),
+		Lock:        lock,
 	}
 	raw, err := json.Marshal(upload)
 	if err != nil {
@@ -541,25 +585,14 @@ func (s *Service) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 		readers = append(readers, file)
 	}
 
-	result, err := s.blobs.Put(documentNamespace+"/"+bucket, key, io.MultiReader(readers...))
+	meta, err := s.storeObject(bucket, key, io.MultiReader(readers...), upload.ContentType, upload.Lock)
 	if err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
-	}
-	meta := objectMetadata{
-		Key:            key,
-		ETag:           `"` + result.MD5Hex + `"`,
-		ChecksumCRC32:  result.CRC32Base64,
-		ChecksumSHA256: result.SHA256Base64,
-		ContentType:    upload.ContentType,
-		ContentLength:  result.Size,
-		LastModified:   s.now().UTC(),
-	}
-	if err := s.putObjectMetadata(bucket, meta); err != nil {
 		return internalError(err, "/"+bucket+"/"+key)
 	}
 	if err := s.deleteMultipartUpload(bucket, uploadID); err != nil {
 		return internalError(err, "/"+bucket+"/"+key)
 	}
+	setVersionHeader(w, meta)
 	writeXML(w, http.StatusOK, completeMultipartUploadResult{
 		XMLNS:    xmlNamespace,
 		Location: "/" + bucket + "/" + key,
@@ -582,51 +615,51 @@ func (s *Service) abortMultipartUpload(w http.ResponseWriter, bucket, uploadID s
 }
 
 func (s *Service) copyObject(w http.ResponseWriter, r *http.Request, bucket, key string) error {
-	if err := s.requireBucket(bucket, "/"+bucket+"/"+key); err != nil {
+	resource := "/" + bucket + "/" + key
+	if err := s.requireBucket(bucket, resource); err != nil {
 		return err
 	}
-	source, err := url.PathUnescape(strings.TrimPrefix(r.Header.Get("X-Amz-Copy-Source"), "/"))
-	if err != nil || source == "" {
-		return apiError(http.StatusBadRequest, "InvalidArgument", "x-amz-copy-source must identify an existing object.", "/"+bucket+"/"+key)
+	header, err := url.PathUnescape(r.Header.Get("X-Amz-Copy-Source"))
+	if err != nil {
+		header = ""
 	}
-	parts := strings.SplitN(source, "/", 2)
-	if len(parts) != 2 {
-		return apiError(http.StatusBadRequest, "InvalidArgument", "x-amz-copy-source must identify an existing object.", "/"+bucket+"/"+key)
+	sourceBucket, sourceKey, sourceVersion, ok := parseCopySource(header)
+	if !ok {
+		return apiError(http.StatusBadRequest, "InvalidArgument", "x-amz-copy-source must identify an existing object.", resource)
 	}
-	sourceMeta, err := s.loadObject(parts[0], parts[1])
+	sourceMeta, err := s.requireVersion(sourceBucket, sourceKey, sourceVersion)
 	if err != nil {
 		return err
 	}
-	file, err := s.blobs.Open(documentNamespace+"/"+parts[0], parts[1])
+	if sourceMeta.DeleteMarker {
+		return apiError(http.StatusBadRequest, "InvalidRequest", "The source of a copy request may not specifically refer to a delete marker by version id.", resource)
+	}
+	lock, err := s.requestLock(r, bucket, resource)
+	if err != nil {
+		return err
+	}
+	file, err := s.blobs.Open(blobLocation(sourceBucket, sourceMeta))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return errNoSuchKey(parts[0], parts[1])
+			return errNoSuchKey(sourceBucket, sourceKey)
 		}
-		return internalError(err, "/"+bucket+"/"+key)
+		return internalError(err, resource)
 	}
 	defer file.Close()
 
-	result, err := s.blobs.Put(documentNamespace+"/"+bucket, key, file)
+	meta, err := s.storeObject(bucket, key, file, sourceMeta.ContentType, lock)
 	if err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
-	}
-	meta := objectMetadata{
-		Key:            key,
-		ETag:           `"` + result.MD5Hex + `"`,
-		ChecksumCRC32:  result.CRC32Base64,
-		ChecksumSHA256: result.SHA256Base64,
-		ContentType:    sourceMeta.ContentType,
-		ContentLength:  result.Size,
-		LastModified:   s.now().UTC(),
-	}
-	if err := s.putObjectMetadata(bucket, meta); err != nil {
-		return internalError(err, "/"+bucket+"/"+key)
+		return internalError(err, resource)
 	}
 
 	type copyResult struct {
 		XMLName      xml.Name `xml:"CopyObjectResult"`
 		ETag         string   `xml:"ETag"`
 		LastModified string   `xml:"LastModified"`
+	}
+	setVersionHeader(w, meta)
+	if sourceMeta.VersionID != "" {
+		w.Header().Set("X-Amz-Copy-Source-Version-Id", sourceMeta.VersionID)
 	}
 	writeXML(w, http.StatusOK, copyResult{
 		ETag:         meta.ETag,
@@ -795,6 +828,14 @@ func setObjectHeaders(w http.ResponseWriter, meta objectMetadata) {
 	w.Header().Set("ETag", meta.ETag)
 	w.Header().Set("Last-Modified", meta.LastModified.UTC().Format(http.TimeFormat))
 	setChecksumHeaders(w, meta)
+	setVersionHeader(w, meta)
+	setLockHeaders(w, meta.Lock)
+}
+
+func setVersionHeader(w http.ResponseWriter, meta objectMetadata) {
+	if meta.VersionID != "" {
+		w.Header().Set("X-Amz-Version-Id", meta.VersionID)
+	}
 }
 
 func setChecksumHeaders(w http.ResponseWriter, meta objectMetadata) {
