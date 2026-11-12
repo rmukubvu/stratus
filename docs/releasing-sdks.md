@@ -39,16 +39,28 @@ PyPI → Your account → Publishing → *Add a new pending publisher* → GitHu
 | Workflow name | `sdk-release.yml` |
 | Environment name | `pypi` |
 
-### 3. npm: first publish with a short-lived token
+### 3. npm: publish the first version by hand, then trust the workflow
 
-npm only lets you configure trusted publishing on a package that already
-exists, so the first version goes out with a token:
+npm lets you configure trusted publishing only on a package that already
+exists, and a CI token, even one that bypasses two-factor authentication,
+can't create a new package (`E_STAGE_REQUIRED`). So the first version is
+published from your machine:
 
-1. npm → Access Tokens → *Generate New Token* → *Granular Access Token*.
-   Give it **Read and write** permission on packages, an expiry of 7 days,
-   and no organisation access.
-2. GitHub → this repository → Settings → Secrets and variables → Actions →
-   *New repository secret*: name `NPM_TOKEN`, value the token.
+```sh
+git checkout sdk-v0.1.0          # after pushing the tag (see below)
+cd sdk/typescript
+npm login                        # asks for your 2FA code
+npm ci
+npm publish --access public      # asks for your 2FA code again
+```
+
+Then npm → the `stratus-emulator` package → Settings → *Trusted Publisher* →
+GitHub Actions: organisation or user `rmukubvu`, repository `stratus`,
+workflow filename `sdk-release.yml`, environment `npm`. On the same page,
+under *Publishing access*, require two-factor authentication and disallow
+tokens. The `npm` job of that first tag's run fails because the package
+doesn't exist yet. That is expected, so don't re-run it: the hand-published
+version is the release.
 
 ### 4. GitHub environments
 
@@ -68,13 +80,4 @@ recommended, so every publish waits for your click.
    ```
 3. Approve the `npm` and `pypi` deployments if you added reviewers.
 
-## After the first release: switch npm to trusted publishing
-
-1. npm → the `stratus-emulator` package → Settings → *Trusted Publisher* →
-   GitHub Actions: organisation or user `rmukubvu`, repository `stratus`,
-   workflow filename `sdk-release.yml`, environment `npm`.
-2. On the same page, under *Publishing access*, choose to require two-factor
-   authentication and disallow tokens.
-3. Delete the `NPM_TOKEN` secret from GitHub, and revoke the token on npm.
-
-From then on, releases need only a tag.
+From the second version on, releases need only a tag.
