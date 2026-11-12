@@ -5,3 +5,4 @@ stratus
 test/fixtures/cdk-inline-httpapi/cdk.out/
 test/fixtures/cdk-inline-httpapi/node_modules/
 test/fixtures/java-sdk-smoke/target/
+__pycache__/

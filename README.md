@@ -88,6 +88,10 @@ Support is intentionally uneven by service. Some services have deeper
 behavioral coverage than others. The compatibility bar is the contract suite,
 not the presence of a package name.
 
+How close each service is to real AWS is measured with AWS's own fidelity
+tests, the ones AWS scores AWS Emulator with; scores, the gaps that block the
+most tests and how to rerun them are in [docs/fidelity.md](docs/fidelity.md).
+
 RDS instances and ElastiCache clusters are real engines: the endpoint the
 API returns speaks the real wire protocol, and the create call returns once
 the engine accepts connections. The images must be present locally
