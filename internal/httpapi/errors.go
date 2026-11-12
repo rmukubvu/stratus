@@ -22,13 +22,18 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 
 	metadata := MetadataFromContext(r.Context())
 
-	switch metadata.Classification.Protocol {
-	case ProtocolJSON, ProtocolREST:
+	switch {
+	case metadata.Classification.Protocol == ProtocolQuery && metadata.Classification.Service == "ec2":
+		WriteXML(w, apiErr.StatusCode, awscompat.EC2ErrorResponse{
+			Errors:    []awscompat.QueryError{{Code: apiErr.Code, Message: apiErr.Message}},
+			RequestID: metadata.RequestID,
+		})
+	case metadata.Classification.Protocol == ProtocolJSON || metadata.Classification.Protocol == ProtocolREST:
 		WriteJSON(w, apiErr.StatusCode, map[string]string{
 			"__type":  apiErr.Code,
 			"message": apiErr.Message,
 		})
-	case ProtocolS3:
+	case metadata.Classification.Protocol == ProtocolS3:
 		WriteXML(w, apiErr.StatusCode, awscompat.S3ErrorResponse{
 			Code:      apiErr.Code,
 			Message:   apiErr.Message,

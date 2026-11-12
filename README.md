@@ -49,7 +49,7 @@ requests refused when their caller's policies do not allow them.
 
 ## What Works Today
 
-`stratus` currently includes first-class support for 29 service families:
+`stratus` currently includes first-class support for 34 service families:
 
 - STS
 - S3
@@ -58,7 +58,7 @@ requests refused when their caller's policies do not allow them.
 - DynamoDB
 - DynamoDB Streams
 - CloudWatch Logs
-- CloudWatch Metrics
+- CloudWatch Metrics and Alarms (metric and composite alarms, evaluated against the metrics you publish)
 - SQS
 - SNS
 - EventBridge
@@ -75,6 +75,7 @@ requests refused when their caller's policies do not allow them.
 - ECR
 - ECS
 - ELBv2
+- EC2 networking (VPCs, subnets, internet gateways, route tables, security groups)
 - RDS (real PostgreSQL, MySQL and MariaDB in Docker)
 - ElastiCache (real Valkey/Redis and Memcached in Docker)
 - MSK (a real Kafka-compatible Redpanda broker in Docker)
@@ -83,10 +84,17 @@ requests refused when their caller's policies do not allow them.
 - SES v1 and v2 (sends land in a captured inbox)
 - EventBridge Scheduler (with a clock you can fast-forward)
 - Bedrock Runtime (record real model answers once, replay them offline)
+- Fault Injection Service (FIS-compatible experiments over Stratus chaos)
 
 Support is intentionally uneven by service. Some services have deeper
 behavioral coverage than others. The compatibility bar is the contract suite,
 not the presence of a package name.
+
+CloudWatch alarms are evaluated, not just stored: each period they look at
+the datapoints you published and move between `INSUFFICIENT_DATA`, `OK` and
+`ALARM` with the reasons, history and SNS notifications AWS produces, so a
+test can check that its metrics really trip its alarms. See
+[docs/cloudwatch.md](docs/cloudwatch.md).
 
 How close each service is to real AWS is measured with AWS's own fidelity
 tests, the ones AWS scores AWS Emulator with; scores, the gaps that block the
@@ -105,6 +113,11 @@ instance writes its A, AAAA, CNAME or SRV records into the namespace's zone,
 and the control API resolves any name the way a client in the VPC would, so a
 test can check service discovery without a DNS server. See
 [docs/route53.md](docs/route53.md) and [docs/cloudmap.md](docs/cloudmap.md).
+
+EC2 networking covers what other resources are placed in: VPCs with their
+main route table and default security group, subnets, internet gateways,
+routes and security group rules, with EC2's dependency and CIDR checks. It
+runs no instances. See [docs/ec2.md](docs/ec2.md).
 
 Emails sent through SES are never delivered; they land in an inbox the
 control API, MCP server and SDKs can read and filter, so a test asserts on
