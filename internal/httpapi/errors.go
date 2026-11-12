@@ -8,6 +8,14 @@ import (
 	"github.com/stratus/internal/awscompat"
 )
 
+// ErrorResponder is an error that writes its own response body, for a
+// service whose error shape the shared writer cannot express. It should
+// also unwrap to an *apierror.Error so the request log records its code.
+type ErrorResponder interface {
+	error
+	WriteErrorResponse(w http.ResponseWriter)
+}
+
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	apiErr := &apierror.Error{
 		StatusCode: http.StatusInternalServerError,

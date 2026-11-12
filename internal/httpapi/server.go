@@ -234,7 +234,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var apiErr *apierror.Error
 	if err != nil {
-		WriteError(recorder, r, err)
+		var custom ErrorResponder
+		if errors.As(err, &custom) {
+			custom.WriteErrorResponse(recorder)
+		} else {
+			WriteError(recorder, r, err)
+		}
 		var typed *apierror.Error
 		if errors.As(err, &typed) {
 			apiErr = typed
