@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -35,11 +37,16 @@ func (h *harness) call(op string, body string) (map[string]any, string) {
 	rec := httptest.NewRecorder()
 	err := h.svc.Handle(rec, httptest.NewRequest("POST", "http://localhost:4566/", bytes.NewBufferString(body)), op)
 	if err != nil {
-		var apiErr *apierror.Error
-		if !errors.As(err, &apiErr) {
+		responder, ok := err.(interface{ WriteErrorResponse(http.ResponseWriter) })
+		if !ok {
 			h.t.Fatalf("%s: unexpected error %v", op, err)
 		}
-		return map[string]any{"message": apiErr.Message}, apiErr.Code
+		var apiErr *apierror.Error
+		if !errors.As(err, &apiErr) {
+			h.t.Fatalf("%s: error %v does not unwrap to an API error", op, err)
+		}
+		rec = httptest.NewRecorder()
+		responder.WriteErrorResponse(rec)
 	}
 	var out map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
@@ -466,5 +473,21 @@ func TestBatchGetReturnsUnprocessedKeysPastSixteenMegabytes(t *testing.T) {
 	}
 	if left := len(pending["Keys"].([]any)); got+left != 45 || pending["ConsistentRead"] != true {
 		t.Fatalf("returned %d, unprocessed %d (ConsistentRead %v)", got, left, pending["ConsistentRead"])
+	}
+}
+
+func TestResponsesCarryCRC32AndErrorsUnwrap(t *testing.T) {
+	h := newHarness(t)
+	rec := httptest.NewRecorder()
+	if err := h.svc.Handle(rec, httptest.NewRequest("POST", "/", bytes.NewBufferString(`{}`)), "ListTables"); err != nil {
+		t.Fatal(err)
+	}
+	if want := fmt.Sprint(crc32.ChecksumIEEE(rec.Body.Bytes())); rec.Header().Get("X-Amz-Crc32") != want {
+		t.Fatalf("x-amz-crc32 = %q, want %s", rec.Header().Get("X-Amz-Crc32"), want)
+	}
+	err := h.svc.Handle(httptest.NewRecorder(), httptest.NewRequest("POST", "/", bytes.NewBufferString(`{"TableName":"missing"}`)), "DescribeTable")
+	var apiErr *apierror.Error
+	if !errors.As(err, &apiErr) || apiErr.Code != "ResourceNotFoundException" {
+		t.Fatalf("error %v must unwrap to ResourceNotFoundException so the request log records it", err)
 	}
 }

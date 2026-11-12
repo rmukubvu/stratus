@@ -437,6 +437,10 @@ type transactionCanceledError struct {
 }
 
 func (e *transactionCanceledError) Error() string { return e.apiErr.Error() }
+func (e *transactionCanceledError) Unwrap() error { return &e.apiErr }
+func (e *transactionCanceledError) WriteErrorResponse(w http.ResponseWriter) {
+	writeJSON(w, e.apiErr.StatusCode, e.body())
+}
 
 func (e *transactionCanceledError) body() map[string]any {
 	return map[string]any{"__type": errorTypePrefix + e.apiErr.Code, "Message": e.apiErr.Message, "CancellationReasons": e.reasons}

@@ -84,14 +84,22 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 	switch e := err.(type) {
 	case nil:
 		writeJSON(w, http.StatusOK, out)
-	case *transactionCanceledError:
-		writeJSON(w, e.apiErr.StatusCode, e.body())
+		return nil
 	case *apierror.Error:
-		writeJSON(w, e.StatusCode, map[string]any{"__type": errorTypePrefix + e.Code, "message": e.Message})
-	default:
-		return err
+		return &responseError{apiErr: e}
 	}
-	return nil
+	return err
+}
+
+// responseError renders an API error in DynamoDB's own shape (qualified
+// __type, x-amz-crc32) while still unwrapping to the *apierror.Error the
+// server records.
+type responseError struct{ apiErr *apierror.Error }
+
+func (e *responseError) Error() string { return e.apiErr.Error() }
+func (e *responseError) Unwrap() error { return e.apiErr }
+func (e *responseError) WriteErrorResponse(w http.ResponseWriter) {
+	writeJSON(w, e.apiErr.StatusCode, map[string]any{"__type": errorTypePrefix + e.apiErr.Code, "message": e.apiErr.Message})
 }
 
 // errorTypePrefix qualifies error codes in __type, as DynamoDB does.
