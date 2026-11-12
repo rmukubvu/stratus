@@ -64,7 +64,7 @@ requests refused when their caller's policies do not allow them.
 - EventBridge
 - IAM
 - CloudFormation
-- KMS
+- KMS: symmetric, RSA, NIST, secp256k1 and Ed25519 keys with real signatures, data keys and encryption context ([docs/kms.md](docs/kms.md))
 - API Gateway v2
 - API Gateway REST
 - Cognito IDP
