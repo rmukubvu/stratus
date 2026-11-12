@@ -41,20 +41,19 @@ Kafka images pulled, and publishes `scores.md` in the run summary.
 
 ## Current scores
 
-First run, 2026-11-12, on a machine that could not pull the Lambda base
-images or the Postgres, MySQL and Redpanda images, so tests that invoke a
-function or connect to an engine fail here and should do better in the CI
-run.
+First run of the Fidelity workflow, 2026-11-12, with the Lambda, database,
+cache and Kafka images pulled. The whole selection took 13 minutes across 12
+shards.
 
-Suite `4df2823b`, Stratus `2424ca1`.
+Suite `4df2823b`, Stratus `86eb4cc`.
 
 | | Passed / scored | Score | Not implemented | Other failures | Excluded |
 |---|---:|---:|---:|---:|---:|
-| All selected tests | 290 / 12717 | 2.3% | 7425 | 5002 | 270 |
-| Single-service tests | 274 / 10023 | 2.7% | 5513 | 4236 | 38 |
-| Cross-service tests | 16 / 2694 | 0.6% | 1912 | 766 | 232 |
-| Control plane | 124 / 6968 | 1.8% | 3861 | 2983 | 124 |
-| Data plane | 168 / 6074 | 2.8% | 3768 | 2138 | 181 |
+| All selected tests | 308 / 12855 | 2.4% | 7494 | 5053 | 132 |
+| Single-service tests | 290 / 10040 | 2.9% | 5522 | 4228 | 21 |
+| Cross-service tests | 18 / 2815 | 0.6% | 1972 | 825 | 111 |
+| Control plane | 127 / 6996 | 1.8% | 3873 | 2996 | 96 |
+| Data plane | 183 / 6186 | 3.0% | 3826 | 2177 | 69 |
 
 Single-service tests, by service:
 
@@ -64,10 +63,10 @@ Single-service tests, by service:
 | `apigateway` | 3 / 578 | 0.5% | 238 | 337 | 0 |
 | `apigatewayv2` | 1 / 171 | 0.6% | 114 | 56 | 2 |
 | `bedrock-runtime` | 0 / 85 | 0.0% | 10 | 75 | 0 |
-| `cloudformation` | 2 / 386 | 0.5% | 294 | 90 | 21 |
+| `cloudformation` | 2 / 388 | 0.5% | 294 | 92 | 19 |
 | `cloudwatch` | 15 / 641 | 2.3% | 440 | 186 | 0 |
 | `cognito-idp` | 2 / 582 | 0.3% | 443 | 137 | 0 |
-| `dynamodb` | 26 / 882 | 2.9% | 413 | 443 | 4 |
+| `dynamodb` | 30 / 886 | 3.4% | 413 | 443 | 0 |
 | `dynamodbstreams` | 0 / 16 | 0.0% | 0 | 16 | 0 |
 | `ecr` | 0 / 199 | 0.0% | 163 | 36 | 0 |
 | `ecs` | 12 / 410 | 2.9% | 94 | 304 | 0 |
@@ -75,23 +74,23 @@ Single-service tests, by service:
 | `elbv2` | 0 / 298 | 0.0% | 9 | 289 | 0 |
 | `events` | 13 / 200 | 6.5% | 108 | 79 | 0 |
 | `fis` | 0 / 51 | 0.0% | 28 | 23 | 0 |
-| `iam` | 35 / 444 | 7.9% | 306 | 103 | 2 |
+| `iam` | 35 / 446 | 7.8% | 307 | 104 | 0 |
 | `kafka` | 0 / 200 | 0.0% | 5 | 195 | 0 |
 | `kinesis` | 15 / 214 | 7.0% | 112 | 87 | 0 |
-| `kms` | 9 / 238 | 3.8% | 152 | 77 | 0 |
-| `lambda` | 3 / 587 | 0.5% | 496 | 88 | 2 |
+| `kms` | 10 / 238 | 4.2% | 152 | 76 | 0 |
+| `lambda` | 4 / 589 | 0.7% | 502 | 83 | 0 |
 | `logs` | 3 / 446 | 0.7% | 327 | 116 | 0 |
 | `rds` | 0 / 291 | 0.0% | 99 | 192 | 0 |
 | `route53` | 11 / 114 | 9.6% | 23 | 80 | 0 |
-| `s3` | 29 / 478 | 6.1% | 4 | 445 | 3 |
+| `s3` | 33 / 481 | 6.9% | 4 | 444 | 0 |
 | `scheduler` | 3 / 120 | 2.5% | 95 | 22 | 0 |
 | `secretsmanager` | 6 / 194 | 3.1% | 134 | 54 | 0 |
 | `servicediscovery` | 11 / 74 | 14.9% | 10 | 53 | 0 |
 | `ses` | 1 / 120 | 0.8% | 56 | 63 | 0 |
 | `sesv2` | 0 / 120 | 0.0% | 1 | 119 | 0 |
 | `sns` | 3 / 245 | 1.2% | 221 | 21 | 0 |
-| `sqs` | 54 / 302 | 17.9% | 119 | 129 | 4 |
-| `ssm` | 2 / 270 | 0.7% | 206 | 62 | 0 |
+| `sqs` | 60 / 306 | 19.6% | 119 | 127 | 0 |
+| `ssm` | 2 / 270 | 0.7% | 208 | 60 | 0 |
 | `stepfunctions` | 10 / 520 | 1.9% | 445 | 65 | 0 |
 | `sts` | 5 / 145 | 3.4% | 97 | 43 | 0 |
 
