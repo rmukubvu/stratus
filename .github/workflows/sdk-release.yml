@@ -102,16 +102,12 @@ jobs:
       - name: Update npm
         run: npm install -g npm@11
 
+      # Authenticates through trusted publishing (OIDC); no token is stored.
+      # npm only allows that once the package exists, so its very first
+      # version is published by hand (docs/releasing-sdks.md).
       - name: Publish
         working-directory: sdk/typescript
-        env:
-          # Only for the very first publish, before trusted publishing can be
-          # configured on npmjs.com. Delete the secret afterwards.
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -n "$NPM_TOKEN" ]; then
-            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$HOME/.npmrc"
-          fi
           npm ci --no-audit --no-fund
           npm publish --provenance --access public
 
