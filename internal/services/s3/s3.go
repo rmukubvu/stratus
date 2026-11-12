@@ -180,6 +180,19 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, bucket, key str
 		return s.handleBucketPolicy(w, r, bucket)
 	}
 	if key == "" {
+		if name := bucketSubresource(r.URL.Query()); name != "" {
+			return s.handleBucketSubresource(w, r, bucket, name)
+		}
+	}
+	if key != "" {
+		if r.URL.Query().Has("tagging") {
+			return s.handleObjectTagging(w, r, bucket, key)
+		}
+		if name := unsupportedSubresource(r.URL.Query()); name != "" {
+			return notImplementedSubresource(name, "/"+bucket+"/"+key)
+		}
+	}
+	if key == "" {
 		switch r.Method {
 		case http.MethodPut:
 			return s.createBucket(w, r, bucket)
@@ -317,6 +330,9 @@ func (s *Service) deleteBucket(w http.ResponseWriter, bucket string) error {
 	if err := s.metadata.Delete(bucketPolicyBucket, bucket); err != nil {
 		return internalError(err, "/"+bucket)
 	}
+	if err := s.deleteBucketConfigs(bucket); err != nil {
+		return internalError(err, "/"+bucket)
+	}
 	if err := s.blobs.DeleteNamespace(documentNamespace + "/" + bucket); err != nil {
 		return internalError(err, "/"+bucket)
 	}
@@ -327,6 +343,11 @@ func (s *Service) deleteBucket(w http.ResponseWriter, bucket string) error {
 
 func (s *Service) putObject(w http.ResponseWriter, r *http.Request, bucket, key string) error {
 	if err := s.requireBucket(bucket, "/"+bucket+"/"+key); err != nil {
+		return err
+	}
+
+	objectTags, err := objectTagsFromHeader(r, "/"+bucket+"/"+key)
+	if err != nil {
 		return err
 	}
 
@@ -356,6 +377,9 @@ func (s *Service) putObject(w http.ResponseWriter, r *http.Request, bucket, key 
 	if err := s.putObjectMetadata(bucket, meta); err != nil {
 		return internalError(err, "/"+bucket+"/"+key)
 	}
+	if err := s.putObjectTags(bucket, key, objectTags); err != nil {
+		return internalError(err, "/"+bucket+"/"+key)
+	}
 
 	if !strings.EqualFold(r.Header.Get("Content-Encoding"), "aws-chunked") {
 		w.Header().Set("ETag", `"`+result.MD5Hex+`"`)
@@ -381,6 +405,9 @@ func (s *Service) getObject(w http.ResponseWriter, bucket, key string) error {
 	defer file.Close()
 
 	setObjectHeaders(w, meta)
+	if list, err := s.objectTags(bucket, key); err == nil && len(list) > 0 {
+		w.Header().Set("X-Amz-Tagging-Count", strconv.Itoa(len(list)))
+	}
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.WriteHeader(http.StatusOK)
 	if _, err := io.Copy(w, file); err != nil {
@@ -405,6 +432,9 @@ func (s *Service) deleteObject(w http.ResponseWriter, bucket, key string) error 
 		return err
 	}
 	if err := s.metadata.Delete(objectMetadataBucket, objectKey(bucket, key)); err != nil {
+		return internalError(err, "/"+bucket+"/"+key)
+	}
+	if err := s.metadata.Delete(objectTagsBucket, objectKey(bucket, key)); err != nil {
 		return internalError(err, "/"+bucket+"/"+key)
 	}
 	if err := s.blobs.Delete(documentNamespace+"/"+bucket, key); err != nil {

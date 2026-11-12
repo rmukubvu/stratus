@@ -15,6 +15,10 @@ func notFound(format string, args ...any) error {
 	return &apierror.Error{StatusCode: http.StatusNotFound, Code: "NotFoundException", Message: fmt.Sprintf(format, args...)}
 }
 
+func notImplemented(format string, args ...any) error {
+	return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: fmt.Sprintf(format, args...)}
+}
+
 func conflict(format string, args ...any) error {
 	return &apierror.Error{StatusCode: http.StatusConflict, Code: "ConflictException", Message: fmt.Sprintf(format, args...)}
 }

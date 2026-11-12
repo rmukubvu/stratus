@@ -258,7 +258,7 @@ func (s *Service) handleV2(w http.ResponseWriter, r *http.Request) error {
 			},
 		})
 	default:
-		return &apierror.Error{StatusCode: http.StatusNotFound, Code: "NotFoundException", Message: "sesv2 operation is not implemented: " + r.Method + " " + r.URL.Path}
+		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: "sesv2 operation is not implemented: " + r.Method + " " + r.URL.Path}
 	}
 }
 

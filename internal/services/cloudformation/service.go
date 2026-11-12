@@ -1,6 +1,8 @@
 package cloudformation
 
 import (
+	"github.com/stratus/internal/tags"
+
 	"archive/zip"
 	"bytes"
 	"context"
@@ -104,6 +106,7 @@ type stackRecord struct {
 	TemplateBody        string            `json:"template_body"`
 	TemplateDescription string            `json:"template_description,omitempty"`
 	TimeoutInMinutes    int               `json:"timeout_in_minutes,omitempty"`
+	Tags                tags.List         `json:"tags,omitempty"`
 }
 
 type stackParameter struct {
@@ -385,6 +388,12 @@ type stackXML struct {
 	StackStatus         string                 `xml:"StackStatus"`
 	TemplateDescription string                 `xml:"TemplateDescription,omitempty"`
 	TimeoutInMinutes    int                    `xml:"TimeoutInMinutes,omitempty"`
+	Tags                []tagXML               `xml:"Tags>member"`
+}
+
+type tagXML struct {
+	Key   string `xml:"Key"`
+	Value string `xml:"Value"`
 }
 
 type stackSummaryXML struct {
@@ -541,8 +550,9 @@ func (s *Service) createStack(w http.ResponseWriter, r *http.Request, requestID 
 	if form.Get("EnableTerminationProtection") != "" || form.Get("RetainExceptOnCreate") != "" {
 		return notImplemented("termination protection controls are not implemented")
 	}
-	if hasIndexedPrefix(form, "Tags.member.") {
-		return notImplemented("stack tags are not implemented")
+	stackTags, err := stackTagsFromForm(form)
+	if err != nil {
+		return err
 	}
 	doc, normalized, err := parseTemplate(form)
 	if err != nil {
@@ -605,6 +615,7 @@ func (s *Service) createStack(w http.ResponseWriter, r *http.Request, requestID 
 		TemplateBody:        normalized,
 		TemplateDescription: doc.Description,
 		TimeoutInMinutes:    timeoutInMinutes,
+		Tags:                stackTags,
 	}
 	if err := s.putStack(record); err != nil {
 		return internal(err)
@@ -3136,7 +3147,28 @@ func stackToXML(record stackRecord) stackXML {
 		StackStatus:         record.StackStatus,
 		TemplateDescription: record.TemplateDescription,
 		TimeoutInMinutes:    record.TimeoutInMinutes,
+		Tags:                stackTagsToXML(record.Tags),
 	}
+}
+
+// stackTagsFromForm reads and validates the Tags.member.N list of CreateStack.
+func stackTagsFromForm(form url.Values) (tags.List, error) {
+	list, err := tags.FromQuery(form, "Tags.member.")
+	if err == nil {
+		err = list.Validate(tags.MaxPerResource)
+	}
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	return list, nil
+}
+
+func stackTagsToXML(list tags.List) []tagXML {
+	out := make([]tagXML, 0, len(list))
+	for _, t := range list {
+		out = append(out, tagXML{Key: t.Key, Value: t.Value})
+	}
+	return out
 }
 
 func stackParametersToXML(params []stackParameter) []templateParameterXML {

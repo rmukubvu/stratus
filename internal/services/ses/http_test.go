@@ -285,7 +285,7 @@ func TestV2TemplatesAndRawContent(t *testing.T) {
 		t.Fatalf("delete template: %v", err)
 	}
 	_, _, err = v2(t, svc, http.MethodPatch, "/v2/email/templates/welcome", nil)
-	requireCode(t, err, "NotFoundException")
+	requireCode(t, err, "NotImplemented")
 }
 
 func TestInboxRoutes(t *testing.T) {

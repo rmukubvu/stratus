@@ -1,6 +1,8 @@
 package iam
 
 import (
+	"github.com/stratus/internal/tags"
+
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -51,6 +53,7 @@ type roleRecord struct {
 	Path                     string    `json:"path"`
 	RoleID                   string    `json:"role_id"`
 	RoleName                 string    `json:"role_name"`
+	Tags                     tags.List `json:"tags,omitempty"`
 }
 
 type rolePolicyRecord struct {
@@ -142,14 +145,15 @@ type attachedPolicyXML struct {
 }
 
 type roleXML struct {
-	Path                     string `xml:"Path"`
-	Arn                      string `xml:"Arn"`
-	RoleName                 string `xml:"RoleName"`
-	AssumeRolePolicyDocument string `xml:"AssumeRolePolicyDocument"`
-	CreateDate               string `xml:"CreateDate"`
-	RoleID                   string `xml:"RoleId"`
-	Description              string `xml:"Description,omitempty"`
-	MaxSessionDuration       int    `xml:"MaxSessionDuration,omitempty"`
+	Path                     string     `xml:"Path"`
+	Arn                      string     `xml:"Arn"`
+	RoleName                 string     `xml:"RoleName"`
+	AssumeRolePolicyDocument string     `xml:"AssumeRolePolicyDocument"`
+	CreateDate               string     `xml:"CreateDate"`
+	RoleID                   string     `xml:"RoleId"`
+	Description              string     `xml:"Description,omitempty"`
+	MaxSessionDuration       int        `xml:"MaxSessionDuration,omitempty"`
+	Tags                     *tagSetXML `xml:"Tags,omitempty"`
 }
 
 // NewService returns the IAM service of one account. keys is the access-key
@@ -185,6 +189,12 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requ
 		return s.listRolePolicies(w, r, requestID)
 	case "DeleteRolePolicy":
 		return s.deleteRolePolicy(w, r, requestID)
+	case "TagRole":
+		return s.tagRole(w, r, requestID)
+	case "UntagRole":
+		return s.untagRole(w, r, requestID)
+	case "ListRoleTags":
+		return s.listRoleTags(w, r, requestID)
 	}
 
 	form, err := parseForm(r)
@@ -216,8 +226,9 @@ func (s *Service) createRole(w http.ResponseWriter, r *http.Request, requestID s
 	if raw := form.Get("PermissionsBoundary"); raw != "" {
 		return notImplemented("permissions boundaries are not implemented")
 	}
-	if hasIndexedPrefix(form, "Tags.member.") {
-		return notImplemented("role tags are not implemented")
+	roleTags, err := roleTagsFromForm(form)
+	if err != nil {
+		return err
 	}
 
 	doc, err := normalizePolicyDocument(form.Get("AssumeRolePolicyDocument"))
@@ -249,6 +260,7 @@ func (s *Service) createRole(w http.ResponseWriter, r *http.Request, requestID s
 		Path:                     path,
 		RoleID:                   s.newRoleID(),
 		RoleName:                 roleName,
+		Tags:                     roleTags,
 	}
 	if err := s.putRole(record); err != nil {
 		return internal(err)
@@ -564,6 +576,7 @@ func (s *Service) roleToXML(record roleRecord) roleXML {
 		RoleID:                   record.RoleID,
 		Description:              record.Description,
 		MaxSessionDuration:       record.MaxSessionDuration,
+		Tags:                     optionalTagsXML(record.Tags),
 	}
 }
 

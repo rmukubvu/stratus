@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -515,5 +516,23 @@ func TestClassifyCloudMapByTarget(t *testing.T) {
 	got, err := Classify(req)
 	if err != nil || got.Service != "servicediscovery" || got.Protocol != ProtocolJSON || got.Operation != "DiscoverInstances" {
 		t.Fatalf("unexpected classification: %+v %v", got, err)
+	}
+}
+
+func TestUnmatchedPathSignedForAnotherServiceIsNotS3(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/usageplans", nil)
+	r.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20260101/us-east-1/apigateway/aws4_request, SignedHeaders=host, Signature=x")
+	got, err := Classify(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Service != UnsupportedService || got.Operation != "apigateway POST /usageplans" {
+		t.Fatalf("got %+v", got)
+	}
+
+	s3 := httptest.NewRequest(http.MethodPut, "/bucket", nil)
+	s3.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=test/20260101/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=x")
+	if got, _ := Classify(s3); got.Service != "s3" || got.Bucket != "bucket" {
+		t.Fatalf("an S3-signed request stays S3: %+v", got)
 	}
 }

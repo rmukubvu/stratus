@@ -177,7 +177,7 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request) error {
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	default:
-		return notFound("no MSK operation matches %s %s", r.Method, r.URL.Path)
+		return notImplemented("no MSK operation matches %s %s", r.Method, r.URL.Path)
 	}
 }
 

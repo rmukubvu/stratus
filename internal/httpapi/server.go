@@ -439,6 +439,12 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, metadata Reque
 			return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "UnknownOperationException", Message: "service \"servicediscovery\" is not implemented"}
 		}
 		return svc.CloudMap.Handle(w, r, metadata.Classification.Operation)
+	case UnsupportedService:
+		return &apierror.Error{
+			StatusCode: http.StatusNotImplemented,
+			Code:       "NotImplemented",
+			Message:    "operation is not implemented: " + metadata.Classification.Operation,
+		}
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
