@@ -41,78 +41,90 @@ Kafka images pulled, and publishes `scores.md` in the run summary.
 
 ## Current scores
 
-First run of the Fidelity workflow, 2026-11-12, with the Lambda, database,
-cache and Kafka images pulled. The whole selection took 13 minutes across 12
-shards.
+Full local run, 2026-11-13, with the three blocker PRs listed under
+Progress, with the Lambda, database, cache and Kafka images pulled.
 
-Suite `4df2823b`, Stratus `86eb4cc`.
+Suite `4df2823b`, Stratus `780069c` (#27's first commit; the merged head differs only in request logging).
 
 | | Passed / scored | Score | Not implemented | Other failures | Excluded |
 |---|---:|---:|---:|---:|---:|
-| All selected tests | 308 / 12855 | 2.4% | 7494 | 5053 | 132 |
-| Single-service tests | 290 / 10040 | 2.9% | 5522 | 4228 | 21 |
-| Cross-service tests | 18 / 2815 | 0.6% | 1972 | 825 | 111 |
-| Control plane | 127 / 6996 | 1.8% | 3873 | 2996 | 96 |
-| Data plane | 183 / 6186 | 3.0% | 3826 | 2177 | 69 |
+| All selected tests | 879 / 12691 | 6.9% | 7301 | 4511 | 296 |
+| Single-service tests | 841 / 10023 | 8.4% | 5420 | 3762 | 38 |
+| Cross-service tests | 38 / 2668 | 1.4% | 1881 | 749 | 258 |
+| Control plane | 367 / 6955 | 5.3% | 4112 | 2476 | 137 |
+| Data plane | 521 / 6054 | 8.6% | 3372 | 2161 | 201 |
 
 Single-service tests, by service:
 
 | | Passed / scored | Score | Not implemented | Other failures | Excluded |
 |---|---:|---:|---:|---:|---:|
-| `acm` | 0 / 252 | 0.0% | 212 | 40 | 0 |
-| `apigateway` | 3 / 578 | 0.5% | 238 | 337 | 0 |
-| `apigatewayv2` | 1 / 171 | 0.6% | 114 | 56 | 2 |
-| `bedrock-runtime` | 0 / 85 | 0.0% | 10 | 75 | 0 |
-| `cloudformation` | 2 / 388 | 0.5% | 294 | 92 | 19 |
-| `cloudwatch` | 15 / 641 | 2.3% | 440 | 186 | 0 |
-| `cognito-idp` | 2 / 582 | 0.3% | 443 | 137 | 0 |
-| `dynamodb` | 30 / 886 | 3.4% | 413 | 443 | 0 |
-| `dynamodbstreams` | 0 / 16 | 0.0% | 0 | 16 | 0 |
-| `ecr` | 0 / 199 | 0.0% | 163 | 36 | 0 |
-| `ecs` | 12 / 410 | 2.9% | 94 | 304 | 0 |
-| `elasticache` | 0 / 150 | 0.0% | 39 | 111 | 0 |
-| `elbv2` | 0 / 298 | 0.0% | 9 | 289 | 0 |
-| `events` | 13 / 200 | 6.5% | 108 | 79 | 0 |
-| `fis` | 0 / 51 | 0.0% | 28 | 23 | 0 |
-| `iam` | 35 / 446 | 7.8% | 307 | 104 | 0 |
-| `kafka` | 0 / 200 | 0.0% | 5 | 195 | 0 |
-| `kinesis` | 15 / 214 | 7.0% | 112 | 87 | 0 |
-| `kms` | 10 / 238 | 4.2% | 152 | 76 | 0 |
-| `lambda` | 4 / 589 | 0.7% | 502 | 83 | 0 |
-| `logs` | 3 / 446 | 0.7% | 327 | 116 | 0 |
-| `rds` | 0 / 291 | 0.0% | 99 | 192 | 0 |
+| `acm` | 0 / 252 | 0.0% | 213 | 39 | 0 |
+| `apigateway` | 3 / 578 | 0.5% | 349 | 226 | 0 |
+| `apigatewayv2` | 1 / 171 | 0.6% | 145 | 25 | 2 |
+| `bedrock-runtime` | 0 / 85 | 0.0% | 31 | 54 | 0 |
+| `cloudformation` | 2 / 386 | 0.5% | 276 | 108 | 21 |
+| `cloudwatch` | 153 / 641 | 23.9% | 272 | 216 | 0 |
+| `cognito-idp` | 2 / 582 | 0.3% | 439 | 141 | 0 |
+| `dynamodb` | 339 / 882 | 38.4% | 156 | 387 | 4 |
+| `dynamodbstreams` | 2 / 16 | 12.5% | 0 | 14 | 0 |
+| `ecr` | 0 / 199 | 0.0% | 166 | 33 | 0 |
+| `ecs` | 12 / 410 | 2.9% | 206 | 192 | 0 |
+| `elasticache` | 0 / 150 | 0.0% | 128 | 22 | 0 |
+| `elbv2` | 6 / 298 | 2.0% | 92 | 200 | 0 |
+| `events` | 13 / 200 | 6.5% | 102 | 85 | 0 |
+| `fis` | 0 / 51 | 0.0% | 5 | 46 | 0 |
+| `iam` | 54 / 444 | 12.2% | 260 | 130 | 2 |
+| `kafka` | 0 / 200 | 0.0% | 128 | 72 | 0 |
+| `kinesis` | 15 / 214 | 7.0% | 118 | 81 | 0 |
+| `kms` | 9 / 238 | 3.8% | 146 | 83 | 0 |
+| `lambda` | 5 / 587 | 0.9% | 509 | 73 | 2 |
+| `logs` | 3 / 446 | 0.7% | 344 | 99 | 0 |
+| `rds` | 0 / 291 | 0.0% | 180 | 111 | 0 |
 | `route53` | 11 / 114 | 9.6% | 23 | 80 | 0 |
-| `s3` | 33 / 481 | 6.9% | 4 | 444 | 0 |
-| `scheduler` | 3 / 120 | 2.5% | 95 | 22 | 0 |
-| `secretsmanager` | 6 / 194 | 3.1% | 134 | 54 | 0 |
-| `servicediscovery` | 11 / 74 | 14.9% | 10 | 53 | 0 |
-| `ses` | 1 / 120 | 0.8% | 56 | 63 | 0 |
-| `sesv2` | 0 / 120 | 0.0% | 1 | 119 | 0 |
-| `sns` | 3 / 245 | 1.2% | 221 | 21 | 0 |
-| `sqs` | 60 / 306 | 19.6% | 119 | 127 | 0 |
-| `ssm` | 2 / 270 | 0.7% | 208 | 60 | 0 |
-| `stepfunctions` | 10 / 520 | 1.9% | 445 | 65 | 0 |
-| `sts` | 5 / 145 | 3.4% | 97 | 43 | 0 |
+| `s3` | 62 / 478 | 13.0% | 78 | 338 | 3 |
+| `scheduler` | 25 / 120 | 20.8% | 7 | 88 | 0 |
+| `secretsmanager` | 6 / 194 | 3.1% | 126 | 62 | 0 |
+| `servicediscovery` | 15 / 74 | 20.3% | 15 | 44 | 0 |
+| `ses` | 1 / 120 | 0.8% | 60 | 59 | 0 |
+| `sesv2` | 0 / 120 | 0.0% | 87 | 33 | 0 |
+| `sns` | 16 / 245 | 6.5% | 88 | 141 | 0 |
+| `sqs` | 55 / 302 | 18.2% | 107 | 140 | 4 |
+| `ssm` | 2 / 270 | 0.7% | 210 | 58 | 0 |
+| `stepfunctions` | 18 / 520 | 3.5% | 295 | 207 | 0 |
+| `sts` | 11 / 145 | 7.6% | 59 | 75 | 0 |
 
-## What blocks the most tests
+## Progress
 
-Most failures happen in a test's setup, before it reaches the behaviour it
-is about. A few gaps account for most of them:
+| Run | Change | Passed / scored | Score |
+|---|---|---:|---:|
+| 2026-11-12 | First Fidelity workflow run (CI, 12 shards) | 308 / 12,855 | 2.4% |
+| 2026-11-12 | Same code, local run (the baseline for the rows below) | 290 / 12,717 | 2.3% |
+| 2026-11-12 | #25: tags on create, S3 bucket sub-resources, NotImplemented for unknown routes | 401 / 12,705 | 3.2% |
+| 2026-11-13 | #26: EC2 networking, CloudWatch alarms; #27: rebuilt DynamoDB engine | 879 / 12,691 | 6.9% |
+
+DynamoDB went from 26 to 339 passing (38%), CloudWatch from 15 to 153 (24%),
+S3 from 29 to 62, Scheduler from 3 to 25 and IAM from 35 to 54.
+
+## What blocks the most tests now
+
+The setup blockers this page used to list (tags, EC2 networking, S3
+sub-resources, DynamoDB sort keys, `PutMetricAlarm`) are fixed. Counting the
+operations that most often answer `NotImplemented`:
 
 | Gap | Tests blocked | Where |
 |---|---:|---|
-| Tags refused on create (`CreateRole`, `CreateStack`, `CreateTopic`) | 3,223 | IAM, CloudFormation, SNS |
-| No EC2 networking (`CreateVpc`, subnets, security groups) for tests that need a VPC | 1,161 | ELBv2, MSK, RDS, ElastiCache, ECS |
-| `PutBucketTagging` and other bucket sub-resource PUTs answered as `CreateBucket` | 637 | S3, and every test that tags a bucket |
-| Unknown routes answered with 404 or 400 instead of `NotImplemented` | 398 | SES v2, MSK |
-| DynamoDB tables with a sort key (`RANGE`) | 227 | DynamoDB |
-| `PutMetricAlarm` | 216 | CloudWatch |
-| FIFO queues and topics | 97 | SQS, SNS |
+| CloudFormation resource types and properties (`WaitConditionHandle`, `S3::Bucket`, `RDS::DBInstance`, `CloudWatch::Alarm`, `SQS::QueuePolicy`, `Number` parameters, ...) | 752 | CloudFormation and every cross-service test that deploys a stack |
+| ACM (`ImportCertificate`, ACME endpoints) | 291 | ACM, API Gateway custom domains |
+| IAM instance profiles, groups and service-linked roles | 186 | IAM, SSM, ECS |
+| Step Functions activities, versions and execution history | 186 | Step Functions |
+| Cognito auth flows, MFA and domains | 174 | Cognito |
+| SQS FIFO queues, KMS encryption and redrive validation | 84 | SQS |
+| RDS clusters and engine versions; ElastiCache subnet groups | 191 | RDS, ElastiCache |
+| DynamoDB PartiQL (`ExecuteStatement` and friends) | 65+ | DynamoDB |
 
-Stratus refuses what it does not implement instead of pretending, which is
-deliberate, but it means one missing parameter fails a whole workflow. The
-suite tags almost everything it creates, so accepting and storing tags is
-the single biggest lever.
+CloudFormation is the biggest lever left: one unsupported resource type
+fails the whole stack, and stacks are how most cross-service tests build
+their fixtures.
 
 Each run's reports name the failing operation and assertion, so
 `reports/<service>/<test>.json` is a ready-made, prioritised fidelity
