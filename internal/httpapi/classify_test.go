@@ -551,3 +551,34 @@ func TestClassifyEC2BySigningNameAndAction(t *testing.T) {
 		t.Fatalf("unsigned: %+v, %v", got, err)
 	}
 }
+
+func TestClassifyS3SubresourceOperations(t *testing.T) {
+	for _, tc := range []struct {
+		method, target, want string
+	}{
+		{http.MethodPut, "/audit/record.json?retention", "PutObjectRetention"},
+		{http.MethodGet, "/audit/record.json?retention", "GetObjectRetention"},
+		{http.MethodPut, "/audit/record.json?legal-hold", "PutObjectLegalHold"},
+		{http.MethodGet, "/audit/record.json?tagging", "GetObjectTagging"},
+		{http.MethodGet, "/audit/record.json?uploadId=u1", "ListParts"},
+		{http.MethodGet, "/audit/record.json?versionId=v1", "GetObject"},
+		{http.MethodDelete, "/audit/record.json?versionId=v1", "DeleteObject"},
+		{http.MethodPut, "/audit?object-lock", "PutObjectLockConfiguration"},
+		{http.MethodGet, "/audit?object-lock", "GetObjectLockConfiguration"},
+		{http.MethodPut, "/audit?tagging", "PutBucketTagging"},
+		{http.MethodPut, "/audit?versioning", "PutBucketVersioning"},
+		{http.MethodGet, "/audit?versions", "ListObjectVersions"},
+		{http.MethodPost, "/audit?delete", "DeleteObjects"},
+		{http.MethodPut, "/audit", "CreateBucket"},
+		{http.MethodPut, "/audit/record.json", "PutObject"},
+	} {
+		req := httptest.NewRequest(tc.method, "http://localhost:4566"+tc.target, nil)
+		got, err := Classify(req)
+		if err != nil {
+			t.Fatalf("classify %s %s: %v", tc.method, tc.target, err)
+		}
+		if got.Service != "s3" || got.Operation != tc.want {
+			t.Errorf("%s %s = %s %s, want s3 %s", tc.method, tc.target, got.Service, got.Operation, tc.want)
+		}
+	}
+}

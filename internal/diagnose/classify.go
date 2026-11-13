@@ -82,6 +82,11 @@ func explain(f failure) Explanation {
 			fmt.Sprintf("Stratus does not emulate %s yet; this is an emulator gap, not a bug in your code", op),
 			"avoid this call in local tests, stub it, or report the gap; do not change application code to work around it",
 			false}
+	case isMissingObjectLock(f):
+		return Explanation{CategoryMissingResource,
+			fmt.Sprintf("%s needs Object Lock on the bucket, and the bucket has none. S3 only has it when the bucket was created with Object Lock enabled (ObjectLockEnabledForBucket, the x-amz-bucket-object-lock-enabled header) or got PutObjectLockConfiguration while versioned. If your setup does create the bucket that way, the gap is in the emulator, not your code: Stratus 0.2.0 and earlier ignored that header", op),
+			"check with `aws s3api get-object-lock-configuration --bucket <bucket>`; if setup already creates the bucket with Object Lock, upgrade Stratus (0.3.0 or later) and recreate the bucket rather than changing application code",
+			false}
 	case containsAny(lower, "throttl", "slowdown", "throughputexceeded", "toomanyrequests", "limitexceeded"):
 		return Explanation{CategoryThrottling,
 			"the request was rate limited",
@@ -122,6 +127,20 @@ func explain(f failure) Explanation {
 			"read the error message and check the request",
 			true}
 	}
+}
+
+// isMissingObjectLock matches the errors S3 returns when a request needs a
+// bucket's Object Lock configuration and there is none. Whether that is the
+// caller's setup or the emulator cannot be told from the failure alone, so
+// it is not reported as a bug in the code under test.
+func isMissingObjectLock(f failure) bool {
+	switch f.code {
+	case "ObjectLockConfigurationNotFoundError":
+		return true
+	case "InvalidRequest":
+		return strings.Contains(strings.ToLower(f.message), "object lock configuration")
+	}
+	return false
 }
 
 func describeOp(service, operation string) string {

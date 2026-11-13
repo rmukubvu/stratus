@@ -120,21 +120,34 @@ func (a *Authorizer) Authorize(r *http.Request, md httpapi.RequestMetadata) erro
 	if err != nil {
 		return err
 	}
+	for _, act := range append([]string{action}, additionalActions(service, r)...) {
+		req.Action = act
+		if err := a.decide(docs, md, caller, req); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// decide evaluates one action against the caller's identity policies and
+// the resource's policy.
+func (a *Authorizer) decide(docs []iampolicy.Document, md httpapi.RequestMetadata, caller Caller, req iampolicy.Request) error {
+	action, resource, protocol := req.Action, req.Resource, md.Classification.Protocol
 	identity := iampolicy.Evaluate(docs, req, false)
-	resourceDecision, err := a.resourceDecision(md.Scope, service, req)
+	resourceDecision, err := a.resourceDecision(md.Scope, md.Classification.Service, req)
 	if err != nil {
 		return err
 	}
 	switch {
 	case identity.Outcome == iampolicy.ExplicitDeny:
-		return a.refuse(accessDenied(md.Classification.Protocol, caller, action, resource, "with an explicit deny in an identity-based policy"), caller, action, resource)
+		return a.refuse(accessDenied(protocol, caller, action, resource, "with an explicit deny in an identity-based policy"), caller, action, resource)
 	case resourceDecision.Outcome == iampolicy.ExplicitDeny:
-		return a.refuse(accessDenied(md.Classification.Protocol, caller, action, resource, "with an explicit deny in a resource-based policy"), caller, action, resource)
+		return a.refuse(accessDenied(protocol, caller, action, resource, "with an explicit deny in a resource-based policy"), caller, action, resource)
 	case identity.Outcome == iampolicy.Allowed, resourceDecision.Outcome == iampolicy.Allowed:
 		// Within an account, either kind of policy can grant access.
 		return nil
 	}
-	return a.refuse(accessDenied(md.Classification.Protocol, caller, action, resource, "because no identity-based policy allows the "+action+" action"), caller, action, resource)
+	return a.refuse(accessDenied(protocol, caller, action, resource, "because no identity-based policy allows the "+action+" action"), caller, action, resource)
 }
 
 // resourceDecision evaluates the policy attached to the request's resource,

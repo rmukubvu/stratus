@@ -52,7 +52,7 @@ requests refused when their caller's policies do not allow them.
 `stratus` currently includes first-class support for 34 service families:
 
 - STS
-- S3
+- S3, including versioning and enforced Object Lock retention and legal holds ([docs/s3-object-lock.md](docs/s3-object-lock.md))
 - Lambda
 - SSM
 - DynamoDB: sort keys, secondary indexes, the expression languages, conditional writes, batches and transactions ([docs/dynamodb.md](docs/dynamodb.md))

@@ -34,6 +34,8 @@ type bucketConfig struct {
 	deletable      bool
 	putStatus      int
 	validate       func(body []byte, resource string) error
+	// guard checks a PUT against the bucket's other state.
+	guard func(s *Service, bucket string, body []byte, resource string) error
 }
 
 // bucketConfigs are the sub-resources served from stored documents.
@@ -44,7 +46,7 @@ var bucketConfigs = map[string]bucketConfig{
 	},
 	"versioning": {
 		rootElement: "VersioningConfiguration", defaultDoc: `<VersioningConfiguration xmlns="` + xmlNamespace + `"/>`,
-		putStatus: http.StatusOK,
+		putStatus: http.StatusOK, guard: (*Service).guardVersioningChange,
 	},
 	"lifecycle": {
 		rootElement: "LifecycleConfiguration", missingCode: "NoSuchLifecycleConfiguration",
@@ -65,6 +67,7 @@ var bucketConfigs = map[string]bucketConfig{
 	"object-lock": {
 		rootElement: "ObjectLockConfiguration", missingCode: "ObjectLockConfigurationNotFoundError",
 		missingMessage: "Object Lock configuration does not exist for this bucket", putStatus: http.StatusOK,
+		guard: (*Service).guardLockConfiguration,
 	},
 	"encryption": {
 		rootElement: "ServerSideEncryptionConfiguration", deletable: true, putStatus: http.StatusOK,
@@ -101,9 +104,9 @@ var bucketConfigs = map[string]bucketConfig{
 // plain bucket or object request (a PUT ?acl must never create a bucket or
 // overwrite an object).
 var unsupportedSubresources = []string{
-	"acl", "analytics", "attributes", "intelligent-tiering", "inventory", "legal-hold",
-	"metadataConfiguration", "metadataTable", "metrics", "restore", "retention",
-	"select", "torrent", "versions", "abac",
+	"acl", "analytics", "attributes", "intelligent-tiering", "inventory",
+	"metadataConfiguration", "metadataTable", "metrics", "restore",
+	"select", "torrent", "abac",
 }
 
 // bucketSubresource names the sub-resource a bucket-level request targets.
@@ -155,6 +158,11 @@ func (s *Service) handleBucketSubresource(w http.ResponseWriter, r *http.Request
 		}
 		if config.validate != nil {
 			if err := config.validate(body, resource); err != nil {
+				return err
+			}
+		}
+		if config.guard != nil {
+			if err := config.guard(s, bucket, body, resource); err != nil {
 				return err
 			}
 		}

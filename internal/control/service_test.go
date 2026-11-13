@@ -150,7 +150,7 @@ func TestResetOneServiceLeavesOthersAlone(t *testing.T) {
 	if !f.state.buckets["sqs-queues"] || !f.state.buckets["dynamodb-streams"] {
 		t.Fatalf("unrelated buckets were cleared: %v", f.state.buckets)
 	}
-	if !reflect.DeepEqual(f.blobs.deletedNS, []string{"s3"}) || f.blobs.clearCalls != 0 {
+	if !reflect.DeepEqual(f.blobs.deletedNS, []string{"s3", "s3-versions", "s3-multipart"}) || f.blobs.clearCalls != 0 {
 		t.Fatalf("blob namespaces: %v clear=%d", f.blobs.deletedNS, f.blobs.clearCalls)
 	}
 	if f.runtime.resets != 0 || res.RuntimeRecycled {

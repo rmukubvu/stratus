@@ -416,7 +416,65 @@ func stripPort(host string) string {
 	return host
 }
 
+// s3BucketSubresources names the S3 API operation for a bucket request that
+// carries a sub-resource query parameter, by parameter and method.
+var s3BucketSubresources = map[string]map[string]string{
+	"tagging":           {http.MethodPut: "PutBucketTagging", http.MethodGet: "GetBucketTagging", http.MethodDelete: "DeleteBucketTagging"},
+	"versioning":        {http.MethodPut: "PutBucketVersioning", http.MethodGet: "GetBucketVersioning"},
+	"lifecycle":         {http.MethodPut: "PutBucketLifecycleConfiguration", http.MethodGet: "GetBucketLifecycleConfiguration", http.MethodDelete: "DeleteBucketLifecycle"},
+	"cors":              {http.MethodPut: "PutBucketCors", http.MethodGet: "GetBucketCors", http.MethodDelete: "DeleteBucketCors"},
+	"website":           {http.MethodPut: "PutBucketWebsite", http.MethodGet: "GetBucketWebsite", http.MethodDelete: "DeleteBucketWebsite"},
+	"replication":       {http.MethodPut: "PutBucketReplication", http.MethodGet: "GetBucketReplication", http.MethodDelete: "DeleteBucketReplication"},
+	"object-lock":       {http.MethodPut: "PutObjectLockConfiguration", http.MethodGet: "GetObjectLockConfiguration"},
+	"encryption":        {http.MethodPut: "PutBucketEncryption", http.MethodGet: "GetBucketEncryption", http.MethodDelete: "DeleteBucketEncryption"},
+	"ownershipControls": {http.MethodPut: "PutBucketOwnershipControls", http.MethodGet: "GetBucketOwnershipControls", http.MethodDelete: "DeleteBucketOwnershipControls"},
+	"publicAccessBlock": {http.MethodPut: "PutPublicAccessBlock", http.MethodGet: "GetPublicAccessBlock", http.MethodDelete: "DeletePublicAccessBlock"},
+	"notification":      {http.MethodPut: "PutBucketNotificationConfiguration", http.MethodGet: "GetBucketNotificationConfiguration"},
+	"logging":           {http.MethodPut: "PutBucketLogging", http.MethodGet: "GetBucketLogging"},
+	"accelerate":        {http.MethodPut: "PutBucketAccelerateConfiguration", http.MethodGet: "GetBucketAccelerateConfiguration"},
+	"requestPayment":    {http.MethodPut: "PutBucketRequestPayment", http.MethodGet: "GetBucketRequestPayment"},
+	"policy":            {http.MethodPut: "PutBucketPolicy", http.MethodGet: "GetBucketPolicy", http.MethodDelete: "DeleteBucketPolicy"},
+	"acl":               {http.MethodPut: "PutBucketAcl", http.MethodGet: "GetBucketAcl"},
+	"location":          {http.MethodGet: "GetBucketLocation"},
+	"versions":          {http.MethodGet: "ListObjectVersions"},
+	"uploads":           {http.MethodGet: "ListMultipartUploads"},
+	"delete":            {http.MethodPost: "DeleteObjects"},
+}
+
+// s3ObjectSubresources does the same for object requests.
+var s3ObjectSubresources = map[string]map[string]string{
+	"tagging":    {http.MethodPut: "PutObjectTagging", http.MethodGet: "GetObjectTagging", http.MethodDelete: "DeleteObjectTagging"},
+	"retention":  {http.MethodPut: "PutObjectRetention", http.MethodGet: "GetObjectRetention"},
+	"legal-hold": {http.MethodPut: "PutObjectLegalHold", http.MethodGet: "GetObjectLegalHold"},
+	"acl":        {http.MethodPut: "PutObjectAcl", http.MethodGet: "GetObjectAcl"},
+	"attributes": {http.MethodGet: "GetObjectAttributes"},
+	"restore":    {http.MethodPost: "RestoreObject"},
+}
+
+// s3SubresourceOperation names a sub-resource request, so a PUT ?retention
+// is PutObjectRetention rather than PutObject. ok is false when the request
+// names no known sub-resource.
+func s3SubresourceOperation(r *http.Request, bucket, key string) (string, bool) {
+	if bucket == "" {
+		return "", false
+	}
+	table := s3BucketSubresources
+	if key != "" {
+		table = s3ObjectSubresources
+	}
+	query := r.URL.Query()
+	for name, methods := range table {
+		if query.Has(name) {
+			return methods[r.Method], true
+		}
+	}
+	return "", false
+}
+
 func classifyS3Operation(r *http.Request, bucket, key string) string {
+	if operation, ok := s3SubresourceOperation(r, bucket, key); ok {
+		return operation
+	}
 	query := r.URL.Query()
 	switch {
 	case bucket == "" && key == "" && r.Method == http.MethodGet:
@@ -439,6 +497,8 @@ func classifyS3Operation(r *http.Request, bucket, key string) string {
 		return "CompleteMultipartUpload"
 	case bucket != "" && key != "" && r.Method == http.MethodDelete && query.Get("uploadId") != "":
 		return "AbortMultipartUpload"
+	case bucket != "" && key != "" && r.Method == http.MethodGet && query.Get("uploadId") != "":
+		return "ListParts"
 	case bucket != "" && key != "" && r.Method == http.MethodPut && r.Header.Get("X-Amz-Copy-Source") != "":
 		return "CopyObject"
 	case bucket != "" && key != "" && r.Method == http.MethodPut:

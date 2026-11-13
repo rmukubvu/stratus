@@ -48,6 +48,11 @@ func TestAction(t *testing.T) {
 		{"s3", "", "GET", "/b?versioning", "", "s3:GetBucketVersioning"},
 		{"s3", "", "POST", "/b?delete", "", "s3:DeleteObject"},
 		{"s3", "", "PUT", "/b/k?tagging", "k", "s3:PutObjectTagging"},
+		{"s3", "", "PUT", "/b/k?retention", "k", "s3:PutObjectRetention"},
+		{"s3", "", "GET", "/b/k?legal-hold", "k", "s3:GetObjectLegalHold"},
+		{"s3", "", "PUT", "/b?object-lock", "", "s3:PutBucketObjectLockConfiguration"},
+		{"s3", "DeleteObject", "DELETE", "/b/k?versionId=v1", "k", "s3:DeleteObjectVersion"},
+		{"s3", "GetObject", "GET", "/b/k?versionId=v1", "k", "s3:GetObjectVersion"},
 		{"apigateway", "", "POST", "/restapis", "", "apigateway:POST"},
 		{"ecs", "", "POST", "/", "", "ecs:*"},
 	}
@@ -303,5 +308,37 @@ func TestTrustPolicies(t *testing.T) {
 		if got := code(assumeRoleCall(a, tc.key, tc.role)); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestGovernanceBypassNeedsItsOwnPermission(t *testing.T) {
+	callers := Callers{Keys: fakeKeys{
+		"AKIAOPS":   {Account: "111111111111", UserName: "ops", UserARN: "arn:aws:iam::111111111111:user/ops", Status: "Active"},
+		"AKIAADMIN": {Account: "111111111111", UserName: "admin", UserARN: "arn:aws:iam::111111111111:user/admin", Status: "Active"},
+	}}
+	policies := fakePolicies{users: map[string][]string{
+		"111111111111/ops":   {`{"Statement":[{"Effect":"Allow","Action":"s3:DeleteObjectVersion","Resource":"*"}]}`},
+		"111111111111/admin": {`{"Statement":[{"Effect":"Allow","Action":["s3:DeleteObjectVersion","s3:BypassGovernanceRetention"],"Resource":"*"}]}`},
+	}}
+	a := New(Enforce, callers, policies, nil, nil)
+	deleteVersion := func(key string, bypass bool) error {
+		r := httptest.NewRequest(http.MethodDelete, "/audit/record?versionId=v1", nil)
+		if bypass {
+			r.Header.Set("X-Amz-Bypass-Governance-Retention", "true")
+		}
+		return a.Authorize(r, httpapi.RequestMetadata{
+			Classification: httpapi.Classification{Protocol: httpapi.ProtocolS3, Service: "s3", Operation: "DeleteObject", Bucket: "audit", Key: "record"},
+			SigV4:          &awscompat.SigV4Identity{AccessKeyID: key, Region: acct.Region},
+			Scope:          acct,
+		})
+	}
+	if err := deleteVersion("AKIAOPS", false); err != nil {
+		t.Fatalf("delete without bypass: %v", err)
+	}
+	if got := code(deleteVersion("AKIAOPS", true)); got != "AccessDenied" {
+		t.Fatalf("bypass without s3:BypassGovernanceRetention: got %q", got)
+	}
+	if err := deleteVersion("AKIAADMIN", true); err != nil {
+		t.Fatalf("bypass with permission: %v", err)
 	}
 }
