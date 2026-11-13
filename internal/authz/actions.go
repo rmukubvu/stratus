@@ -68,6 +68,10 @@ func Action(service, operation string, r *http.Request, objectKey string) string
 	case "apigateway", "apigatewayv2":
 		// API Gateway's management actions are the HTTP verbs.
 		operation = r.Method
+	case "sqs":
+		// SQS batch operations are authorised as their single-message
+		// action: SendMessageBatch needs sqs:SendMessage.
+		operation = strings.TrimSuffix(operation, "Batch")
 	}
 	if operation == "" {
 		operation = "*"
