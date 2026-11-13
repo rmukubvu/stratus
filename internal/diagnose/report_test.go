@@ -50,6 +50,25 @@ func TestExplainCategories(t *testing.T) {
 	}
 }
 
+func TestMissingObjectLockIsNotBlamedOnTheCaller(t *testing.T) {
+	for _, f := range []failure{
+		{service: "s3", operation: "GetObjectLockConfiguration", code: "ObjectLockConfigurationNotFoundError", status: 404, message: "Object Lock configuration does not exist for this bucket"},
+		{service: "s3", operation: "PutObjectRetention", code: "InvalidRequest", status: 400, message: "Bucket is missing Object Lock Configuration"},
+	} {
+		got := explain(f)
+		if got.YourBug {
+			t.Errorf("%s %s: blamed the code under test: %+v", f.operation, f.code, got)
+		}
+		if !strings.Contains(got.LikelyCause, "Object Lock") || !strings.Contains(got.LikelyCause, f.operation) || !strings.Contains(got.NextStep, "get-object-lock-configuration") {
+			t.Errorf("%s: advice does not explain the missing Object Lock: %+v", f.code, got)
+		}
+	}
+	// Other InvalidRequest errors keep the generic client-error advice.
+	if got := explain(failure{service: "s3", operation: "PutObject", code: "InvalidRequest", status: 400, message: "something else"}); got.Category != CategoryClient || !got.YourBug {
+		t.Errorf("unrelated InvalidRequest: %+v", got)
+	}
+}
+
 func TestMissingResourceSuggestsListCommand(t *testing.T) {
 	got := explain(failure{service: "sqs", operation: "SendMessage", code: "QueueDoesNotExist", status: 400})
 	if !strings.Contains(got.NextStep, "aws sqs list-queues") {

@@ -76,6 +76,14 @@ func TestAWSCLIS3ObjectLock(t *testing.T) {
 		runAWS(t, h.baseURL, "s3api", "delete-object", "--bucket", "audit", "--key", "held.json", "--version-id", out.VersionId)
 	})
 
+	t.Run("if-none-match", func(t *testing.T) {
+		runAWS(t, h.baseURL, "s3api", "put-object", "--bucket", "audit", "--key", "checkpoint-1", "--body", bodyPath, "--if-none-match", "*")
+		out := runAWSExpectingFailure(t, h.baseURL, "s3api", "put-object", "--bucket", "audit", "--key", "checkpoint-1", "--body", bodyPath, "--if-none-match", "*")
+		if !strings.Contains(out, "PreconditionFailed") {
+			t.Fatalf("expected PreconditionFailed on a second If-None-Match write: %s", out)
+		}
+	})
+
 	versions := runAWS(t, h.baseURL, "s3api", "list-object-versions", "--bucket", "audit", "--output", "json")
 	if !strings.Contains(string(versions), "compliance.json") || !strings.Contains(string(versions), "DeleteMarkers") {
 		t.Fatalf("list-object-versions should show the locked version and its delete marker: %s", versions)

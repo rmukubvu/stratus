@@ -54,3 +54,18 @@ Retention is evaluated against the Stratus server clock.
 With `STRATUS_IAM=enforce`, a request that sends the bypass header also needs
 `s3:BypassGovernanceRetention`, and deleting or reading a specific version
 needs `s3:DeleteObjectVersion` / `s3:GetObjectVersion`, as in AWS.
+
+## Conditional writes
+
+`PutObject` and `CompleteMultipartUpload` honour the S3 conditional-write
+headers, which pair well with audit and checkpoint buckets:
+
+- `If-None-Match: *` writes only when the key has no current object (a key
+  whose latest version is a delete marker counts as absent); otherwise
+  `412 PreconditionFailed`. Any other `If-None-Match` value is
+  `501 NotImplemented`, as in S3.
+- `If-Match: <etag>` writes only over the object with that ETag; a different
+  object is `412 PreconditionFailed` and a missing key is `NoSuchKey`.
+
+Conditional writes to the same key are serialised, so when several writers
+race with `If-None-Match: *` exactly one wins.

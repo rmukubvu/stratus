@@ -43,6 +43,7 @@ type Service struct {
 	metadata store.Store
 	blobs    *fsblob.Store
 	now      func() time.Time
+	keyLocks keyLocks
 }
 
 type bucketMetadata struct {
@@ -390,6 +391,13 @@ func (s *Service) putObject(w http.ResponseWriter, r *http.Request, bucket, key 
 		return err
 	}
 
+	if isConditionalWrite(r) {
+		defer s.keyLocks.lock(bucket, key)()
+		if err := s.checkWritePreconditions(r, bucket, key); err != nil {
+			return err
+		}
+	}
+
 	chunked := strings.EqualFold(r.Header.Get("Content-Encoding"), "aws-chunked")
 	bodyReader := io.Reader(r.Body)
 	if chunked {
@@ -556,6 +564,12 @@ func (s *Service) completeMultipartUpload(w http.ResponseWriter, r *http.Request
 	}
 	if upload.Key != key {
 		return apiError(http.StatusNotFound, "NoSuchUpload", "The specified multipart upload does not exist.", "/"+bucket+"/"+key)
+	}
+	if isConditionalWrite(r) {
+		defer s.keyLocks.lock(bucket, key)()
+		if err := s.checkWritePreconditions(r, bucket, key); err != nil {
+			return err
+		}
 	}
 	parts, err := decodeCompletedParts(r.Body)
 	if err != nil {
