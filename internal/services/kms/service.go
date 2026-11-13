@@ -1,7 +1,6 @@
 package kms
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -46,6 +45,10 @@ type keyRecord struct {
 	KeyUsage    string    `json:"key_usage"`
 	MultiRegion bool      `json:"multi_region"`
 	Policy      string    `json:"policy,omitempty"`
+	// Material is the private key material: AES-256 bytes for symmetric
+	// keys, see generateMaterial for asymmetric ones. Keys created before
+	// material existed get it lazily on first cryptographic use.
+	Material []byte `json:"material,omitempty"`
 }
 
 type aliasRecord struct {
@@ -57,10 +60,12 @@ type aliasRecord struct {
 
 type createKeyInput struct {
 	Description string `json:"Description"`
-	KeySpec     string `json:"KeySpec"`
-	KeyUsage    string `json:"KeyUsage"`
-	MultiRegion bool   `json:"MultiRegion"`
-	Policy      string `json:"Policy"`
+	// CustomerMasterKeySpec is the deprecated name of KeySpec.
+	CustomerMasterKeySpec string `json:"CustomerMasterKeySpec"`
+	KeySpec               string `json:"KeySpec"`
+	KeyUsage              string `json:"KeyUsage"`
+	MultiRegion           bool   `json:"MultiRegion"`
+	Policy                string `json:"Policy"`
 }
 
 type describeKeyInput struct {
@@ -70,16 +75,6 @@ type describeKeyInput struct {
 type createAliasInput struct {
 	AliasName   string `json:"AliasName"`
 	TargetKeyID string `json:"TargetKeyId"`
-}
-
-type encryptInput struct {
-	KeyID     string `json:"KeyId"`
-	Plaintext []byte `json:"Plaintext"`
-}
-
-type decryptInput struct {
-	CiphertextBlob []byte `json:"CiphertextBlob"`
-	KeyID          string `json:"KeyId"`
 }
 
 func NewService(metadata store.Store) *Service {
@@ -108,6 +103,18 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.encrypt(w, r)
 	case "Decrypt":
 		return s.decrypt(w, r)
+	case "GenerateDataKey":
+		return s.generateDataKey(w, r, true)
+	case "GenerateDataKeyWithoutPlaintext":
+		return s.generateDataKey(w, r, false)
+	case "GenerateRandom":
+		return s.generateRandom(w, r)
+	case "Sign":
+		return s.sign(w, r)
+	case "Verify":
+		return s.verify(w, r)
+	case "GetPublicKey":
+		return s.getPublicKey(w, r)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
@@ -123,47 +130,52 @@ func (s *Service) createKey(w http.ResponseWriter, r *http.Request) error {
 		return validation("request body is not valid JSON")
 	}
 	if input.KeySpec == "" {
-		input.KeySpec = "SYMMETRIC_DEFAULT"
+		input.KeySpec = input.CustomerMasterKeySpec
 	}
-	if input.KeyUsage == "" {
-		input.KeyUsage = "ENCRYPT_DECRYPT"
-	}
-	if input.KeySpec != "SYMMETRIC_DEFAULT" || input.KeyUsage != "ENCRYPT_DECRYPT" {
-		return notImplemented("only symmetric ENCRYPT_DECRYPT KMS keys are supported")
-	}
-
-	keyID := uuid.NewString()
-	record := keyRecord{
-		Arn:         s.keyARN(keyID),
-		CreatedAt:   s.now().UTC(),
+	record, err := s.newKey(CreateKeyInput{
 		Description: input.Description,
-		Enabled:     true,
-		KeyID:       keyID,
 		KeySpec:     input.KeySpec,
-		KeyState:    "Enabled",
 		KeyUsage:    input.KeyUsage,
 		MultiRegion: input.MultiRegion,
 		Policy:      input.Policy,
-	}
-	if err := s.putKey(record); err != nil {
+	})
+	if err != nil {
 		return err
 	}
-
 	writeJSON(w, http.StatusOK, map[string]any{
 		"KeyMetadata": s.keyMetadata(record),
 	})
 	return nil
 }
 
+// CreateKey creates a key for in-process callers such as CloudFormation and
+// returns its ID and ARN.
 func (s *Service) CreateKey(input CreateKeyInput) (string, string, error) {
+	record, err := s.newKey(input)
+	if err != nil {
+		return "", "", err
+	}
+	return record.KeyID, record.Arn, nil
+}
+
+// newKey validates the spec/usage pair, generates key material and stores
+// the key. KeySpec defaults to SYMMETRIC_DEFAULT and KeyUsage to
+// ENCRYPT_DECRYPT, as in AWS, so an asymmetric signing key must name
+// SIGN_VERIFY explicitly.
+func (s *Service) newKey(input CreateKeyInput) (keyRecord, error) {
 	if input.KeySpec == "" {
-		input.KeySpec = "SYMMETRIC_DEFAULT"
+		input.KeySpec = specSymmetricDefault
 	}
 	if input.KeyUsage == "" {
-		input.KeyUsage = "ENCRYPT_DECRYPT"
+		input.KeyUsage = usageEncryptDecrypt
 	}
-	if input.KeySpec != "SYMMETRIC_DEFAULT" || input.KeyUsage != "ENCRYPT_DECRYPT" {
-		return "", "", notImplemented("only symmetric ENCRYPT_DECRYPT KMS keys are supported")
+	spec, err := resolveKeySpec(input.KeySpec, input.KeyUsage)
+	if err != nil {
+		return keyRecord{}, err
+	}
+	material, err := generateMaterial(spec)
+	if err != nil {
+		return keyRecord{}, internal(err)
 	}
 	keyID := uuid.NewString()
 	record := keyRecord{
@@ -172,16 +184,17 @@ func (s *Service) CreateKey(input CreateKeyInput) (string, string, error) {
 		Description: input.Description,
 		Enabled:     true,
 		KeyID:       keyID,
-		KeySpec:     input.KeySpec,
+		KeySpec:     spec.name,
 		KeyState:    "Enabled",
 		KeyUsage:    input.KeyUsage,
 		MultiRegion: input.MultiRegion,
 		Policy:      input.Policy,
+		Material:    material,
 	}
 	if err := s.putKey(record); err != nil {
-		return "", "", err
+		return keyRecord{}, err
 	}
-	return keyID, record.Arn, nil
+	return record, nil
 }
 
 func (s *Service) CreateAlias(aliasName, targetKeyID string) error {
@@ -411,73 +424,6 @@ func (s *Service) listAliases(w http.ResponseWriter) error {
 	return nil
 }
 
-func (s *Service) encrypt(w http.ResponseWriter, r *http.Request) error {
-	var input encryptInput
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		return validation("request body is not valid JSON")
-	}
-	if len(input.Plaintext) == 0 {
-		return validation("Plaintext is required")
-	}
-	record, err := s.resolveKeyReference(input.KeyID)
-	if err != nil {
-		return err
-	}
-	ciphertext := []byte("stratuskms:v1:" + record.KeyID + ":" + base64.StdEncoding.EncodeToString(input.Plaintext))
-	writeJSON(w, http.StatusOK, map[string]any{
-		"CiphertextBlob":      ciphertext,
-		"EncryptionAlgorithm": "SYMMETRIC_DEFAULT",
-		"KeyId":               record.Arn,
-	})
-	return nil
-}
-
-func (s *Service) decrypt(w http.ResponseWriter, r *http.Request) error {
-	var input decryptInput
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		return validation("request body is not valid JSON")
-	}
-	parts := strings.SplitN(string(input.CiphertextBlob), ":", 4)
-	if len(parts) != 4 || parts[0] != "stratuskms" || parts[1] != "v1" {
-		return &apierror.Error{
-			StatusCode: http.StatusBadRequest,
-			Code:       "InvalidCiphertextException",
-			Message:    "ciphertext blob is not valid",
-		}
-	}
-	record, err := s.loadKey(parts[2])
-	if err != nil {
-		return err
-	}
-	if input.KeyID != "" {
-		requested, err := s.resolveKeyReference(input.KeyID)
-		if err != nil {
-			return err
-		}
-		if requested.KeyID != record.KeyID {
-			return &apierror.Error{
-				StatusCode: http.StatusBadRequest,
-				Code:       "IncorrectKeyException",
-				Message:    "ciphertext was encrypted under a different key",
-			}
-		}
-	}
-	plaintext, err := base64.StdEncoding.DecodeString(parts[3])
-	if err != nil {
-		return &apierror.Error{
-			StatusCode: http.StatusBadRequest,
-			Code:       "InvalidCiphertextException",
-			Message:    "ciphertext blob is not valid",
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"KeyId":               record.Arn,
-		"Plaintext":           plaintext,
-		"EncryptionAlgorithm": "SYMMETRIC_DEFAULT",
-	})
-	return nil
-}
-
 func (s *Service) putKey(record keyRecord) error {
 	payload, err := json.Marshal(record)
 	if err != nil {
@@ -546,25 +492,29 @@ func (s *Service) loadKeyByAlias(aliasName string) (keyRecord, error) {
 }
 
 func (s *Service) keyMetadata(record keyRecord) map[string]any {
-	algorithms := []string{}
-	if record.KeySpec == "SYMMETRIC_DEFAULT" {
-		algorithms = []string{"SYMMETRIC_DEFAULT"}
+	spec := keySpecs[record.KeySpec]
+	metadata := map[string]any{
+		"AWSAccountId":          s.scope.Account,
+		"Arn":                   record.Arn,
+		"CreationDate":          float64(record.CreatedAt.Unix()),
+		"CustomerMasterKeySpec": record.KeySpec,
+		"Description":           record.Description,
+		"Enabled":               record.Enabled,
+		"KeyId":                 record.KeyID,
+		"KeyManager":            "CUSTOMER",
+		"KeySpec":               record.KeySpec,
+		"KeyState":              record.KeyState,
+		"KeyUsage":              record.KeyUsage,
+		"MultiRegion":           record.MultiRegion,
+		"Origin":                "AWS_KMS",
 	}
-	return map[string]any{
-		"AWSAccountId":         s.scope.Account,
-		"Arn":                  record.Arn,
-		"CreationDate":         float64(record.CreatedAt.Unix()),
-		"Description":          record.Description,
-		"Enabled":              record.Enabled,
-		"EncryptionAlgorithms": algorithms,
-		"KeyId":                record.KeyID,
-		"KeyManager":           "CUSTOMER",
-		"KeySpec":              record.KeySpec,
-		"KeyState":             record.KeyState,
-		"KeyUsage":             record.KeyUsage,
-		"MultiRegion":          record.MultiRegion,
-		"Origin":               "AWS_KMS",
+	if algorithms := spec.encryptionAlgorithmsFor(record.KeyUsage); len(algorithms) > 0 {
+		metadata["EncryptionAlgorithms"] = algorithms
 	}
+	if algorithms := spec.signingAlgorithmsFor(record.KeyUsage); len(algorithms) > 0 {
+		metadata["SigningAlgorithms"] = algorithms
+	}
+	return metadata
 }
 
 func (s *Service) keyARN(keyID string) string {
@@ -601,6 +551,26 @@ func validation(message string) error {
 
 func notImplemented(message string) error {
 	return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: message}
+}
+
+func invalidKeyUsage(message string) error {
+	return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "InvalidKeyUsageException", Message: message}
+}
+
+func invalidCiphertext() error {
+	return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "InvalidCiphertextException", Message: "The ciphertext is invalid or was encrypted under a different key or encryption context."}
+}
+
+func unsupportedOperation(message string) error {
+	return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "UnsupportedOperationException", Message: message}
+}
+
+func incorrectKey() error {
+	return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "IncorrectKeyException", Message: "The key ID in the request does not identify a KMS key that can perform this operation."}
+}
+
+func dryRunSucceeded() error {
+	return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "DryRunOperationException", Message: "The request would have succeeded, but the DryRun option is set."}
 }
 
 func internal(err error) error {
