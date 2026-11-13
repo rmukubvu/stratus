@@ -41,6 +41,30 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Multi-arch image at ghcr.io/rmukubvu/stratus, tagged with the version and
+# latest. The release workflow logs in to GHCR and sets up buildx.
+dockers_v2:
+  - id: stratus
+    ids:
+      - stratus
+    dockerfile: build/container/Dockerfile
+    images:
+      - ghcr.io/rmukubvu/stratus
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: stratus
+      org.opencontainers.image.description: Fast local AWS emulator for tests, CI and coding agents
+      org.opencontainers.image.source: https://github.com/rmukubvu/stratus
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+      org.opencontainers.image.licenses: Apache-2.0
+
 release:
   github:
     owner: rmukubvu
