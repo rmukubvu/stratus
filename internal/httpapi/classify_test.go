@@ -597,3 +597,22 @@ func TestClassifyS3SubresourceOperations(t *testing.T) {
 		}
 	}
 }
+
+func TestClassifyLambdaConcurrencyAndAccountSettings(t *testing.T) {
+	cases := []struct{ method, path, want string }{
+		{http.MethodPut, "/2017-10-31/functions/demo/concurrency", "PutFunctionConcurrency"},
+		{http.MethodGet, "/2019-09-30/functions/demo/concurrency", "GetFunctionConcurrency"},
+		{http.MethodDelete, "/2017-10-31/functions/demo/concurrency", "DeleteFunctionConcurrency"},
+		{http.MethodGet, "/2016-08-19/account-settings/", "GetAccountSettings"},
+	}
+	for _, tc := range cases {
+		req, _ := http.NewRequest(tc.method, "http://localhost:4566"+tc.path, nil)
+		got, err := Classify(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", tc.method, tc.path, err)
+		}
+		if got.Service != "lambda" || got.Operation != tc.want {
+			t.Errorf("%s %s: got %s %s, want lambda %s", tc.method, tc.path, got.Service, got.Operation, tc.want)
+		}
+	}
+}

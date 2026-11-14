@@ -207,3 +207,12 @@ func TestHotPartitionThrottlesPointAtTheKey(t *testing.T) {
 		t.Fatalf("unexpected group: %+v", g)
 	}
 }
+
+func TestLambdaConcurrencyThrottlesAreExplained(t *testing.T) {
+	failures := []Failure{{Time: time.Now(), RequestID: "l", Service: "lambda", Operation: "Invoke", Status: 429, Code: "TooManyRequestsException"}}
+	injected := map[string]Injection{"l": {RuleID: "lambda-reserved-concurrency", Action: "concurrency", Source: SourceLimit}}
+	g := Diagnose(failures, injected, Options{}).Groups[0]
+	if g.Category != CategoryLimit || !strings.Contains(g.LikelyCause, "concurrent execution") || !strings.Contains(g.NextStep, "reserved concurrency") {
+		t.Fatalf("unexpected group: %+v", g)
+	}
+}

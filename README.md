@@ -467,7 +467,9 @@ stratus diagnose                   # throttles show up as limit_exceeded
 
 DynamoDB tables throttle on provisioned capacity, on-demand maximums and
 hot partition keys, with `UnprocessedItems` from batches and
-`ThrottlingError` from transactions.
+`ThrottlingError` from transactions. Lambda enforces reserved and account
+concurrency: synchronous calls get a 429, async events and event source
+mappings retry with backoff.
 
 See [docs/limits.md](docs/limits.md).
 

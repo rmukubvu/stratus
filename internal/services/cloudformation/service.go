@@ -2183,7 +2183,7 @@ func (s *Service) createLambdaFunction(stackName, logicalID string, properties m
 	} else {
 		return nil, resourceState{}, validationError("AWS::Lambda::Function Code must include ZipFile or S3Bucket/S3Key")
 	}
-	for _, unsupported := range []string{"Layers", "VpcConfig", "KmsKeyArn", "TracingConfig", "DeadLetterConfig", "ReservedConcurrentExecutions"} {
+	for _, unsupported := range []string{"Layers", "VpcConfig", "KmsKeyArn", "TracingConfig", "DeadLetterConfig"} {
 		if _, ok := properties[unsupported]; ok {
 			return nil, resourceState{}, notImplemented("AWS::Lambda::Function property " + unsupported + " is not implemented")
 		}
@@ -2201,6 +2201,16 @@ func (s *Service) createLambdaFunction(stackName, logicalID string, properties m
 	})
 	if err != nil {
 		return nil, resourceState{}, err
+	}
+	if raw, ok := properties["ReservedConcurrentExecutions"]; ok {
+		reserved, err := resolveInt(raw, ctx, 0)
+		if err != nil {
+			return nil, resourceState{}, err
+		}
+		if err := s.lambda.SetReservedConcurrency(name, reserved); err != nil {
+			_ = s.lambda.Delete(context.Background(), name)
+			return nil, resourceState{}, err
+		}
 	}
 	return []managedResource{{LogicalID: logicalID, Type: "AWS::Lambda::Function", Name: name}}, resourceState{
 		RefValue: name,

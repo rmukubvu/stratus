@@ -162,6 +162,7 @@ Common flags:
   --log-format <format>         auto, json, pretty
   --seed <dir>                  Initialise an empty data dir from a snapshot dir
   --limits <profile|file>       Enforce AWS quotas from the start (env STRATUS_LIMITS)
+  --lambda-containers <n>       Warm containers per Lambda function (default 4, env STRATUS_LAMBDA_CONTAINERS)
 
 Dev-only flags:
   --no-open                     Do not open the operator portal in the browser

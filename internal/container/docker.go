@@ -116,6 +116,12 @@ func (m *Manager) Close() error {
 	return m.pool.CloseAll(context.Background(), m.removeContainer)
 }
 
+// SetMaxContainers caps how many warm containers one function may have.
+func (m *Manager) SetMaxContainers(n int) { m.pool.SetMax(n) }
+
+// PoolStats reports how hard the warm pool is working.
+func (m *Manager) PoolStats() PoolStats { return m.pool.Stats() }
+
 // Reset stops every warm Lambda container. The next invocation of each
 // function starts a fresh container, so restored or reset state is picked up.
 func (m *Manager) Reset(ctx context.Context) error {
@@ -147,8 +153,8 @@ func (m *Manager) Invoke(ctx context.Context, spec lambdasvc.FunctionSpec, paylo
 		m.logger.Warn("warm pool expiration failed", "error", err)
 	}
 
-	warm, err := m.pool.GetOrCreate(ctx, runtimeKey(spec), func(ctx context.Context) (*WarmContainer, error) {
-		return m.startContainer(ctx, spec, rt, imageName)
+	warm, err := m.pool.Acquire(ctx, runtimeKey(spec), func(ctx context.Context, slot int) (*WarmContainer, error) {
+		return m.startContainer(ctx, spec, rt, imageName, slot)
 	}, func(ctx context.Context, existing *WarmContainer) (bool, error) {
 		return m.isHealthy(ctx, existing)
 	}, m.removeContainer)
@@ -158,17 +164,18 @@ func (m *Manager) Invoke(ctx context.Context, spec lambdasvc.FunctionSpec, paylo
 
 	result, err := m.invokeRIE(ctx, warm, spec, payload)
 	if err == nil {
+		m.pool.Release(warm)
 		return result, nil
 	}
 
 	var timedOut errRuntimeTimedOut
 	if errors.As(err, &timedOut) {
 		// Lambda discards the execution environment after a timeout.
-		_ = m.pool.Remove(context.Background(), runtimeKey(spec), m.removeContainer)
+		_ = m.pool.Discard(context.Background(), warm, m.removeContainer)
 		return lambdasvc.InvokeResult{Payload: timedOut.payload, FunctionError: functionErrorUnhandled}, nil
 	}
 
-	_ = m.pool.Remove(context.Background(), runtimeKey(spec), m.removeContainer)
+	_ = m.pool.Discard(context.Background(), warm, m.removeContainer)
 	var apiErr *apierror.Error
 	if errors.As(err, &apiErr) {
 		return lambdasvc.InvokeResult{}, err
@@ -202,8 +209,12 @@ func (m *Manager) ensureImage(ctx context.Context, imageName string) error {
 	return serviceError(http.StatusServiceUnavailable, "docker image inspection failed: "+err.Error())
 }
 
-func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpec, rt Runtime, imageName string) (*WarmContainer, error) {
+func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpec, rt Runtime, imageName string, slot int) (*WarmContainer, error) {
 	containerName := m.owner.ContainerName(runtimeKey(spec))
+	if slot > 0 {
+		// The first container keeps the name earlier versions used.
+		containerName = fmt.Sprintf("%s-%d", containerName, slot)
+	}
 	_ = m.removeNamedContainer(ctx, containerName)
 
 	spec.Credentials = m.roleCredentials(spec)
@@ -264,6 +275,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		ID:        resp.ID,
 		Name:      containerName,
 		Function:  runtimeKey(spec),
+		Slot:      slot,
 		HostPort:  hostPort,
 		LastUsed:  time.Now(),
 		CreatedAt: time.Now(),

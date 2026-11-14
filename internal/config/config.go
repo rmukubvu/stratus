@@ -25,6 +25,9 @@ type Config struct {
 	// (aws-default, strict) or the path of a JSON profile. Empty falls
 	// back to STRATUS_LIMITS; both empty leaves limits off.
 	Limits string
+	// LambdaContainers caps the warm containers one Lambda function may
+	// have; zero falls back to STRATUS_LAMBDA_CONTAINERS, then 4.
+	LambdaContainers int
 }
 
 func RegisterFlags(fs *flag.FlagSet) *Config {
@@ -35,6 +38,7 @@ func RegisterFlags(fs *flag.FlagSet) *Config {
 	fs.StringVar(&cfg.LogFormat, "log-format", defaultLogFormat, "Log format: auto, json, pretty")
 	fs.StringVar(&cfg.Seed, "seed", "", "Snapshot directory to initialise an empty data dir from")
 	fs.StringVar(&cfg.Limits, "limits", "", "Limits profile to apply at startup: aws-default, strict or a JSON file (default $STRATUS_LIMITS)")
+	fs.IntVar(&cfg.LambdaContainers, "lambda-containers", 0, "Most warm containers one Lambda function may run at once (default $STRATUS_LAMBDA_CONTAINERS, or 4)")
 	return cfg
 }
 
@@ -54,6 +58,9 @@ func (c *Config) Validate() error {
 	case "auto", "json", "pretty":
 	default:
 		return fmt.Errorf("invalid log format %q", c.LogFormat)
+	}
+	if c.LambdaContainers < 0 {
+		return fmt.Errorf("lambda containers must not be negative")
 	}
 	abs, err := filepath.Abs(c.DataDir)
 	if err != nil {

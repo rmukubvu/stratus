@@ -187,6 +187,13 @@ func explainLimit(ruleID, kind string) Explanation {
 			NextStep:    "spread writes across more partition key values (add a suffix or shard the key), cache hot reads, and retry throttled requests and UnprocessedItems with backoff",
 			YourBug:     false,
 		}
+	case "lambda-reserved-concurrency", "lambda-account-concurrency":
+		return Explanation{
+			Category:    CategoryLimit,
+			LikelyCause: "the Lambda function had no free concurrent execution (" + ruleID + "), as it would in AWS at this load",
+			NextStep:    "retry synchronous invokes with backoff or move them behind a queue; raise the function's reserved concurrency, free account concurrency, or make the handler faster so executions finish sooner",
+			YourBug:     false,
+		}
 	case "dynamodb-table-capacity":
 		return Explanation{
 			Category:    CategoryLimit,

@@ -172,6 +172,24 @@ export interface LimitsProfile {
   rates?: RateRule[];
   /** Table capacity; on with AWS defaults for aws-default and strict. */
   dynamodb?: DynamoDBCapacity;
+  /** Lambda concurrency; on with AWS defaults for aws-default and strict. */
+  lambda?: LambdaConcurrency;
+}
+
+/** Lambda concurrency: the account's concurrent executions. */
+export interface LambdaConcurrency {
+  disabled?: boolean;
+  /** Concurrent executions per account and region, before scaling (1000). */
+  account_concurrency?: number;
+}
+
+/** Stratus's own Lambda warm pool: queued counts invocations that waited for a container. */
+export interface LambdaPoolStats {
+  containers: number;
+  busy: number;
+  max_per_function: number;
+  cold_starts: number;
+  queued: number;
 }
 
 export interface TableCapacityStatus {
@@ -213,7 +231,10 @@ export interface LimitsStatus {
   rules: LimitsRuleStatus[];
   concurrency?: { rule_id: string; admitted: number; throttled: number }[];
   dynamodb?: DynamoDBCapacity;
+  lambda?: LambdaConcurrency;
   capacity?: TableCapacityStatus[];
+  /** Stratus's own load, to tell its ceiling from AWS's limits. */
+  emulator?: { lambda?: LambdaPoolStats };
   total_throttled: number;
   recent_breaches: LimitBreach[];
 }

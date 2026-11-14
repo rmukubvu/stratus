@@ -82,8 +82,16 @@ image's own settings.
 
 - **Warm containers.** A container stays warm for five minutes after its last
   invocation, so module-level state survives between invokes as on Lambda.
-  The emulator runs one invocation at a time, so concurrent invocations of one
-  function queue instead of scaling out.
+  Each container runs one invocation at a time; concurrent invocations of one
+  function start more containers, up to four per function
+  (`--lambda-containers` or `STRATUS_LAMBDA_CONTAINERS`). Past that they
+  queue for a free container, and `stratus limits status` counts them under
+  `emulator.lambda.queued`: that wait is Stratus's, not AWS's.
+- **Concurrency.** `PutFunctionConcurrency`, `GetFunctionConcurrency`,
+  `DeleteFunctionConcurrency`, `GetAccountSettings` and CloudFormation's
+  `ReservedConcurrentExecutions` work as in Lambda, including the rule that
+  100 executions stay unreserved. They are enforced when a limits profile is
+  applied; see [limits.md](limits.md#lambda-concurrency).
 - **Errors.** A raised exception, a runtime that exits, and a timeout all come
   back as `X-Amz-Function-Error: Unhandled` with Lambda's error document. After
   an error the emulator restarts the runtime, so module state resets; Lambda

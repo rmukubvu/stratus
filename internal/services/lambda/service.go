@@ -51,6 +51,7 @@ type Service struct {
 	queuePublisher QueuePublisher
 	topicPublisher TopicPublisher
 	faults         chaos.Gate
+	concurrency    ConcurrencyGate
 	now            func() time.Time
 }
 
@@ -290,6 +291,7 @@ type environmentOutput struct {
 type getFunctionResponse struct {
 	Code          codeResponse                  `json:"Code"`
 	Configuration functionConfigurationResponse `json:"Configuration"`
+	Concurrency   map[string]int                `json:"Concurrency,omitempty"`
 }
 
 type codeResponse struct {
@@ -390,6 +392,14 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.getPolicy(w, r)
 	case "RemovePermission":
 		return s.removePermission(w, r)
+	case "PutFunctionConcurrency":
+		return s.putFunctionConcurrency(w, r)
+	case "GetFunctionConcurrency":
+		return s.getFunctionConcurrency(w, r)
+	case "DeleteFunctionConcurrency":
+		return s.deleteFunctionConcurrency(w, r)
+	case "GetAccountSettings":
+		return s.getAccountSettings(w, r)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
@@ -451,6 +461,7 @@ func (s *Service) getFunction(w http.ResponseWriter, r *http.Request) error {
 	resp := getFunctionResponse{
 		Code:          code,
 		Configuration: s.configurationResponse(record),
+		Concurrency:   s.concurrencyResponse(record.FunctionName),
 	}
 	writeJSON(w, http.StatusOK, resp)
 	return nil
@@ -514,12 +525,7 @@ func (s *Service) invokeFunction(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		go func(body []byte, record functionRecord) {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(record.Timeout+5)*time.Second)
-			defer cancel()
-			result, err := s.invoker.Invoke(ctx, s.specFromRecord(record), body)
-			s.deliverAsyncResult(record, body, result, err)
-		}(append([]byte(nil), payload...), record)
+		go s.invokeAsync(record, append([]byte(nil), payload...))
 		w.Header().Set("X-Amz-Executed-Version", record.Version)
 		w.WriteHeader(http.StatusAccepted)
 		return nil
@@ -1022,6 +1028,9 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 	if err := s.metadata.DeletePrefix(permissionsBucket, permissionPrefix(name, "")); err != nil {
 		return internal(err)
 	}
+	if err := s.metadata.Delete(concurrencyBucket, name); err != nil {
+		return internal(err)
+	}
 	mappings, err := s.listEventSourceMappingRecords(name, "")
 	if err != nil {
 		return err
@@ -1070,13 +1079,15 @@ func (s *Service) InvokeAsyncByName(ctx context.Context, name string, payload []
 	if err != nil {
 		return err
 	}
-	go func(body []byte, record functionRecord) {
-		callCtx, cancel := context.WithTimeout(context.Background(), time.Duration(record.Timeout+5)*time.Second)
-		defer cancel()
-		result, err := s.invoker.Invoke(callCtx, s.specFromRecord(record), body)
-		s.deliverAsyncResult(record, body, result, err)
-	}(append([]byte(nil), payload...), record)
+	go s.invokeAsync(record, append([]byte(nil), payload...))
 	return nil
+}
+
+// invokeAsync runs an Event invocation, waiting out throttles as Lambda's
+// internal queue does, and delivers the result to its destinations.
+func (s *Service) invokeAsync(record functionRecord, payload []byte) {
+	result, err := s.executeWithRetry(context.Background(), record, payload, s.maxEventAge(record))
+	s.deliverAsyncResult(record, payload, result, err)
 }
 
 func (s *Service) recordFromRequest(r *http.Request) (functionRecord, error) {
@@ -1666,9 +1677,12 @@ func (s *Service) dispatchEventSource(ctx context.Context, eventSourceArn string
 				Async:     true,
 			}
 			_ = s.faults.Deliver(ctx, delivery, func(ctx context.Context) error {
-				callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-				defer cancel()
-				_, _, err := s.invokeByName(callCtx, mapping.FunctionName, "", body)
+				record, err := s.resolveRecord(mapping.FunctionName, "")
+				if err != nil {
+					return err
+				}
+				// A poller backs off and retries while the function is throttled.
+				_, err = s.executeWithRetry(ctx, record, body, s.maxEventAge(record))
 				return err
 			})
 		}(mapping, append([]byte(nil), body...))
@@ -1759,7 +1773,7 @@ func (s *Service) invokeByName(ctx context.Context, name, qualifier string, payl
 	if err != nil {
 		return functionRecord{}, InvokeResult{}, err
 	}
-	result, err := s.invoker.Invoke(ctx, s.specFromRecord(record), payload)
+	result, err := s.execute(ctx, record, payload)
 	if err != nil {
 		return functionRecord{}, InvokeResult{}, err
 	}
