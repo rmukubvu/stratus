@@ -55,6 +55,21 @@ func TestClassifySQSQueryPost(t *testing.T) {
 	}
 }
 
+func TestClassifyUnsignedSQSBatchQuery(t *testing.T) {
+	for _, action := range []string{"SendMessageBatch", "DeleteMessageBatch", "ChangeMessageVisibilityBatch"} {
+		req := httptest.NewRequest(http.MethodPost, "http://localhost:4566/", strings.NewReader("Action="+action+"&QueueUrl=http://localhost:4566/000000000000/q"))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		got, err := Classify(req)
+		if err != nil {
+			t.Fatalf("classify %s: %v", action, err)
+		}
+		if got.Service != "sqs" || got.Operation != action {
+			t.Fatalf("%s: unexpected classification: %+v", action, got)
+		}
+	}
+}
+
 func TestClassifyIAMQueryPost(t *testing.T) {
 	req, err := http.NewRequest(http.MethodPost, "http://localhost:4566/", strings.NewReader("Action=CreateRole&Version=2010-05-08&RoleName=test&AssumeRolePolicyDocument=%7B%7D"))
 	if err != nil {

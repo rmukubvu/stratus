@@ -59,7 +59,7 @@ requests refused when their caller's policies do not allow them.
 - DynamoDB Streams
 - CloudWatch Logs
 - CloudWatch Metrics and Alarms (metric and composite alarms, evaluated against the metrics you publish)
-- SQS
+- SQS: standard queues, batch send, delete and visibility changes, dead-letter queues and the limits AWS enforces ([docs/sqs.md](docs/sqs.md))
 - SNS
 - EventBridge
 - IAM

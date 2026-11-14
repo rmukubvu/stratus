@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -207,6 +208,9 @@ func (s *Service) SendMessageToARN(queueArn string, body string) error {
 }
 
 func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requestID string) error {
+	if op, ok := batchOperations[operation]; ok {
+		return s.handleBatch(w, r, op, requestID)
+	}
 	if isJSONTargetRequest(r) {
 		return s.handleJSON(w, r, operation, requestID)
 	}
@@ -685,49 +689,12 @@ func (s *Service) sendMessage(w http.ResponseWriter, r *http.Request, requestID 
 	if err != nil {
 		return err
 	}
-	body := form.Get("MessageBody")
-	if body == "" {
-		return badRequest("MissingParameter", "The request must contain the parameter MessageBody.")
-	}
 	if hasIndexedPrefix(form, "MessageAttribute.") {
-		return &apierror.Error{
-			StatusCode: http.StatusNotImplemented,
-			Code:       "NotImplemented",
-			Message:    "message attributes are not implemented",
-		}
+		return notImplemented("message attributes are not implemented")
 	}
-
-	delaySeconds := attributeInt(queue.Attributes, "DelaySeconds", 0)
-	if raw := form.Get("DelaySeconds"); raw != "" {
-		value, err := strconv.Atoi(raw)
-		if err != nil || value < 0 {
-			return badRequest("InvalidParameterValue", "DelaySeconds must be a non-negative integer.")
-		}
-		delaySeconds = value
-	}
-
-	record := messageRecord{
-		QueueName: queue.Name,
-		MessageID: uuid.NewString(),
-		Body:      body,
-		MD5OfBody: md5Hex(body),
-		SentAt:    s.now().UTC(),
-	}
-	if delaySeconds > 0 {
-		record.VisibilityDeadlineUTC = record.SentAt.Add(time.Duration(delaySeconds) * time.Second)
-	}
-	if err := s.putMessage(record); err != nil {
-		return internal(err)
-	}
-	if s.lambda != nil {
-		receiptHandle := record.ReceiptHandle
-		if receiptHandle == "" {
-			receiptHandle = uuid.NewString()
-		}
-		s.lambda.DispatchSQSEvent(context.Background(), s.queueARN(queue.Name), record.MessageID, receiptHandle, record.Body, map[string]string{
-			"ApproximateReceiveCount": "1",
-			"SentTimestamp":           strconv.FormatInt(record.SentAt.UnixMilli(), 10),
-		})
+	record, err := s.sendOne(queue, form.Get("MessageBody"), form.Get("DelaySeconds"))
+	if err != nil {
+		return err
 	}
 
 	writeXML(w, http.StatusOK, sendMessageResponse{
@@ -825,17 +792,11 @@ func (s *Service) changeMessageVisibility(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return err
 	}
-	receiptHandle := form.Get("ReceiptHandle")
-	if receiptHandle == "" {
+	if form.Get("ReceiptHandle") == "" {
 		return badRequest("MissingParameter", "The request must contain the parameter ReceiptHandle.")
 	}
-	timeoutRaw := form.Get("VisibilityTimeout")
-	if timeoutRaw == "" {
-		return badRequest("MissingParameter", "The request must contain the parameter VisibilityTimeout.")
-	}
-	timeout, err := strconv.Atoi(timeoutRaw)
-	if err != nil || timeout < 0 {
-		return badRequest("InvalidParameterValue", "VisibilityTimeout must be a non-negative integer.")
+	if _, err := parseVisibilityTimeout(form.Get("VisibilityTimeout")); err != nil {
+		return err
 	}
 
 	s.mu.Lock()
@@ -845,26 +806,18 @@ func (s *Service) changeMessageVisibility(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return err
 	}
-	records, err := s.loadMessages(queue.Name)
+	inflight, err := s.inflightMessages(queue.Name)
 	if err != nil {
 		return err
 	}
-	now := s.now().UTC()
-	for _, record := range records {
-		if record.ReceiptHandle != receiptHandle {
-			continue
-		}
-		record.VisibilityDeadlineUTC = now.Add(time.Duration(timeout) * time.Second)
-		if err := s.putMessage(record); err != nil {
-			return internal(err)
-		}
-		writeXML(w, http.StatusOK, changeMessageVisibilityResponse{
-			XMLNS:            namespace,
-			ResponseMetadata: responseMetadata{RequestID: requestID},
-		})
-		return nil
+	if err := s.changeVisibilityOne(inflight, form.Get("ReceiptHandle"), form.Get("VisibilityTimeout")); err != nil {
+		return err
 	}
-	return badRequest("ReceiptHandleIsInvalid", "The input receipt handle is invalid.")
+	writeXML(w, http.StatusOK, changeMessageVisibilityResponse{
+		XMLNS:            namespace,
+		ResponseMetadata: responseMetadata{RequestID: requestID},
+	})
+	return nil
 }
 
 func (s *Service) deleteMessage(w http.ResponseWriter, r *http.Request, requestID string) error {
@@ -880,29 +833,105 @@ func (s *Service) deleteMessage(w http.ResponseWriter, r *http.Request, requestI
 	if err != nil {
 		return err
 	}
-	receiptHandle := form.Get("ReceiptHandle")
-	if receiptHandle == "" {
-		return badRequest("MissingParameter", "The request must contain the parameter ReceiptHandle.")
-	}
-
-	records, err := s.loadMessages(queue.Name)
+	inflight, err := s.inflightMessages(queue.Name)
 	if err != nil {
 		return err
 	}
+	if err := s.deleteOne(inflight, form.Get("ReceiptHandle")); err != nil {
+		return err
+	}
+	writeXML(w, http.StatusOK, deleteMessageResponse{
+		XMLNS:            namespace,
+		ResponseMetadata: responseMetadata{RequestID: requestID},
+	})
+	return nil
+}
+
+// sendOne validates and stores one message, then hands it to any Lambda
+// event source mapping on the queue. The service lock must be held.
+func (s *Service) sendOne(queue queueRecord, body, rawDelay string) (messageRecord, error) {
+	if err := validateMessageBody(queue, body); err != nil {
+		return messageRecord{}, err
+	}
+	delaySeconds, err := parseDelaySeconds(queue, rawDelay)
+	if err != nil {
+		return messageRecord{}, err
+	}
+	record := messageRecord{
+		QueueName: queue.Name,
+		MessageID: uuid.NewString(),
+		Body:      body,
+		MD5OfBody: md5Hex(body),
+		SentAt:    s.now().UTC(),
+	}
+	if delaySeconds > 0 {
+		record.VisibilityDeadlineUTC = record.SentAt.Add(time.Duration(delaySeconds) * time.Second)
+	}
+	if err := s.putMessage(record); err != nil {
+		return messageRecord{}, internal(err)
+	}
+	if s.lambda != nil {
+		s.lambda.DispatchSQSEvent(context.Background(), s.queueARN(queue.Name), record.MessageID, uuid.NewString(), record.Body, map[string]string{
+			"ApproximateReceiveCount": "1",
+			"SentTimestamp":           strconv.FormatInt(record.SentAt.UnixMilli(), 10),
+		})
+	}
+	return record, nil
+}
+
+// inflightMessages indexes a queue's received messages by receipt handle,
+// so a batch looks each handle up without rescanning the queue.
+func (s *Service) inflightMessages(queueName string) (map[string]messageRecord, error) {
+	records, err := s.loadMessages(queueName)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]messageRecord, len(records))
 	for _, record := range records {
-		if record.ReceiptHandle == receiptHandle {
-			if err := s.metadata.Delete(messagesBucket, messageKey(queue.Name, record.MessageID)); err != nil {
-				return internal(err)
-			}
-			writeXML(w, http.StatusOK, deleteMessageResponse{
-				XMLNS:            namespace,
-				ResponseMetadata: responseMetadata{RequestID: requestID},
-			})
-			return nil
+		if record.ReceiptHandle != "" {
+			out[record.ReceiptHandle] = record
 		}
 	}
+	return out, nil
+}
 
-	return badRequest("ReceiptHandleIsInvalid", "The input receipt handle is invalid.")
+// deleteOne deletes the message a receipt handle names. The service lock
+// must be held.
+func (s *Service) deleteOne(inflight map[string]messageRecord, receiptHandle string) error {
+	if receiptHandle == "" {
+		return badRequest("MissingParameter", "The request must contain the parameter ReceiptHandle.")
+	}
+	record, ok := inflight[receiptHandle]
+	if !ok {
+		return badRequest("ReceiptHandleIsInvalid", "The input receipt handle is invalid.")
+	}
+	if err := s.metadata.Delete(messagesBucket, messageKey(record.QueueName, record.MessageID)); err != nil {
+		return internal(err)
+	}
+	delete(inflight, receiptHandle)
+	return nil
+}
+
+// changeVisibilityOne resets the visibility timeout of the message a
+// receipt handle names. The service lock must be held.
+func (s *Service) changeVisibilityOne(inflight map[string]messageRecord, receiptHandle, rawTimeout string) error {
+	if receiptHandle == "" {
+		return badRequest("MissingParameter", "The request must contain the parameter ReceiptHandle.")
+	}
+	timeout, err := parseVisibilityTimeout(rawTimeout)
+	if err != nil {
+		return err
+	}
+	record, ok := inflight[receiptHandle]
+	if !ok {
+		return badRequest("ReceiptHandleIsInvalid", "The input receipt handle is invalid.")
+	}
+	record.VisibilityDeadlineUTC = s.now().UTC().Add(time.Duration(timeout) * time.Second)
+	if err := s.putMessage(record); err != nil {
+		return internal(err)
+	}
+	inflight[receiptHandle] = record
+	return nil
 }
 
 func (s *Service) deleteQueue(w http.ResponseWriter, r *http.Request, requestID string) error {
@@ -1132,7 +1161,7 @@ func requestedAttributeNames(form url.Values) []string {
 func normalizeAttributes(input map[string]string) (map[string]string, error) {
 	attrs := map[string]string{
 		"DelaySeconds":                  "0",
-		"MaximumMessageSize":            "262144",
+		"MaximumMessageSize":            strconv.Itoa(defaultMaximumMessageSize),
 		"MessageRetentionPeriod":        "345600",
 		"ReceiveMessageWaitTimeSeconds": "0",
 		"VisibilityTimeout":             "30",
@@ -1140,8 +1169,8 @@ func normalizeAttributes(input map[string]string) (map[string]string, error) {
 	for name, value := range input {
 		switch name {
 		case "DelaySeconds", "MaximumMessageSize", "MessageRetentionPeriod", "ReceiveMessageWaitTimeSeconds", "VisibilityTimeout":
-			if _, err := strconv.Atoi(value); err != nil {
-				return nil, badRequest("InvalidAttributeValue", name+" must be an integer.")
+			if err := validateIntegerAttribute(name, value); err != nil {
+				return nil, err
 			}
 			attrs[name] = value
 		case "Policy":
@@ -1370,6 +1399,22 @@ func hasIndexedPrefix(form url.Values, prefix string) bool {
 
 func badRequest(code, message string) error {
 	return &apierror.Error{StatusCode: http.StatusBadRequest, Code: code, Message: message}
+}
+
+// asAPIError returns err as an API error, or nil.
+func asAPIError(err error) *apierror.Error {
+	var apiErr *apierror.Error
+	if errors.As(err, &apiErr) {
+		return apiErr
+	}
+	return nil
+}
+
+// isInternal reports whether err is a server-side failure, which fails a
+// batch as a whole rather than one entry.
+func isInternal(err error) bool {
+	apiErr := asAPIError(err)
+	return apiErr == nil || apiErr.StatusCode >= 500
 }
 
 func internal(err error) error {

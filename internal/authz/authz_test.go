@@ -37,6 +37,9 @@ func TestAction(t *testing.T) {
 		want                                    string
 	}{
 		{"sqs", "SendMessage", "POST", "/", "", "sqs:SendMessage"},
+		{"sqs", "SendMessageBatch", "POST", "/", "", "sqs:SendMessage"},
+		{"sqs", "DeleteMessageBatch", "POST", "/", "", "sqs:DeleteMessage"},
+		{"sqs", "ChangeMessageVisibilityBatch", "POST", "/", "", "sqs:ChangeMessageVisibility"},
 		{"stepfunctions", "StartExecution", "POST", "/", "", "states:StartExecution"},
 		{"monitoring", "PutMetricData", "POST", "/", "", "cloudwatch:PutMetricData"},
 		{"dynamodbstreams", "GetRecords", "POST", "/", "", "dynamodb:GetRecords"},
