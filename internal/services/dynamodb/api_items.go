@@ -124,6 +124,9 @@ func (s *Service) putItem(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.consumeOne(r, s.writeDemand(r, o, writeUnits(maxInt(itemSize(o.new), itemSize(o.old))))); err != nil {
+		return nil, err
+	}
 	if err := s.commitWrite(o); err != nil {
 		return nil, err
 	}
@@ -198,6 +201,9 @@ func (s *Service) getItem(r *http.Request) (any, error) {
 	}
 	t, it, err := s.readOne(in)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.consumeOne(r, s.demand(r, t, itemPartition(t, in.Key), readUnits(itemSize(it), in.ConsistentRead), false)); err != nil {
 		return nil, err
 	}
 	out := map[string]any{}
@@ -290,6 +296,9 @@ func (s *Service) updateItem(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.consumeOne(r, s.writeDemand(r, o, writeUnits(maxInt(itemSize(o.new), itemSize(o.old))))); err != nil {
+		return nil, err
+	}
 	if err := s.commitWrite(o); err != nil {
 		return nil, err
 	}
@@ -364,6 +373,9 @@ func (s *Service) deleteItem(r *http.Request) (any, error) {
 	}
 	o, err := s.prepareDelete(in)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.consumeOne(r, s.writeDemand(r, o, writeUnits(itemSize(o.old)))); err != nil {
 		return nil, err
 	}
 	if err := s.commitWrite(o); err != nil {

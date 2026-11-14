@@ -193,7 +193,7 @@ func validateProjection(p projection) error {
 	return nil
 }
 
-func sortedKeys(m map[string]string) []string {
+func sortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)

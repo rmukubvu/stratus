@@ -148,20 +148,51 @@ export interface RateRule {
   disabled?: boolean;
 }
 
+/** DynamoDB table capacity: partitions, on-demand maximums and burst. */
+export interface DynamoDBCapacity {
+  /** Turns capacity enforcement off while other limits apply. */
+  disabled?: boolean;
+  /** Units one partition serves per second, before scaling (3000 and 1000 in AWS). */
+  partition_read_units?: number;
+  partition_write_units?: number;
+  /** An on-demand table's maximum per second, before scaling (40000 each). */
+  on_demand_read_units?: number;
+  on_demand_write_units?: number;
+  /** Seconds of unused provisioned capacity a table banks; default 300. */
+  burst_seconds?: number;
+  /** Fixes the partition count of named tables. */
+  tables?: Record<string, { partitions?: number }>;
+}
+
 export interface LimitsProfile {
   /** Base quotas; defaults to aws-default. */
   profile?: LimitsBase;
   /** Multiplies every rate, so a small load reaches the same limits a large one would. */
   scale?: number;
   rates?: RateRule[];
+  /** Table capacity; on with AWS defaults for aws-default and strict. */
+  dynamodb?: DynamoDBCapacity;
+}
+
+export interface TableCapacityStatus {
+  table: string;
+  account: string;
+  region: string;
+  partitions: number;
+  read_units: number;
+  write_units: number;
+  read_throttled: number;
+  write_throttled: number;
 }
 
 export interface LimitBreach {
   time: string;
   rule_id: string;
-  kind: "rate" | "concurrency";
+  kind: "rate" | "concurrency" | "capacity";
   key: string;
   limit: number;
+  /** For capacity breaches, DynamoDB's throttling reason. */
+  reason?: string;
   request_id?: string;
   service: string;
   operation?: string;
@@ -181,6 +212,8 @@ export interface LimitsStatus {
   applied_at: string;
   rules: LimitsRuleStatus[];
   concurrency?: { rule_id: string; admitted: number; throttled: number }[];
+  dynamodb?: DynamoDBCapacity;
+  capacity?: TableCapacityStatus[];
   total_throttled: number;
   recent_breaches: LimitBreach[];
 }

@@ -48,7 +48,8 @@ func (s *Service) batchGetItem(r *http.Request) (any, error) {
 	}
 	sort.Strings(names)
 	unprocessed := map[string]any{}
-	responseBytes := 0
+	responseBytes, throttled := 0, 0
+	var firstThrottle error
 	for _, name := range names {
 		req := in.RequestItems[name]
 		var deferred []item
@@ -66,18 +67,27 @@ func (s *Service) batchGetItem(r *http.Request) (any, error) {
 				return nil, validation("Provided list of item keys contains duplicates")
 			}
 			seen[k] = true
-			if it == nil {
-				units += readUnits(0, req.ConsistentRead)
-				continue
-			}
 			// A response holds at most 16 MB; the rest come back unprocessed.
-			if size := itemSize(it); responseBytes+size > maxBatchGetResponse {
+			size := itemSize(it)
+			if it != nil && responseBytes+size > maxBatchGetResponse {
 				deferred = append(deferred, key)
 				continue
-			} else {
-				responseBytes += size
 			}
-			units += readUnits(itemSize(it), req.ConsistentRead)
+			// So do keys whose table or partition is out of capacity.
+			u := readUnits(size, req.ConsistentRead)
+			if err := s.consumeOne(r, s.demand(r, t, itemPartition(t, key), u, false)); err != nil {
+				deferred = append(deferred, key)
+				throttled++
+				if firstThrottle == nil {
+					firstThrottle = err
+				}
+				continue
+			}
+			units += u
+			if it == nil {
+				continue
+			}
+			responseBytes += size
 			responses[name] = append(responses[name], it)
 		}
 		if len(deferred) > 0 {
@@ -88,6 +98,10 @@ func (s *Service) batchGetItem(r *http.Request) (any, error) {
 		if cc := consumed(name, in.ReturnConsumedCapacity, units, true); cc != nil {
 			capacity = append(capacity, cc)
 		}
+	}
+	if throttled == total {
+		// Nothing fit at all: DynamoDB fails the whole call.
+		return nil, firstThrottle
 	}
 	out := map[string]any{"Responses": responses, "UnprocessedKeys": unprocessed}
 	if capacity != nil {
@@ -142,9 +156,9 @@ func (s *Service) batchWriteItem(r *http.Request) (any, error) {
 		return nil, validation("1 validation error detected: Value at 'requestItems' failed to satisfy constraint: Map value must satisfy constraint: [Member must have length less than or equal to 25, Member must have length greater than or equal to 1]")
 	}
 	// Validate everything first: a batch with an invalid request writes nothing.
-	var outcomes []writeOutcome
-	units := map[string]float64{}
-	for name, reqs := range in.RequestItems {
+	var writes []batchWrite
+	for _, name := range sortedKeys(in.RequestItems) {
+		reqs := in.RequestItems[name]
 		t, err := s.loadTable(name)
 		if err != nil {
 			return nil, err
@@ -152,6 +166,7 @@ func (s *Service) batchWriteItem(r *http.Request) (any, error) {
 		seen := map[string]bool{}
 		for _, req := range reqs {
 			var o writeOutcome
+			var retry map[string]any
 			switch {
 			case req.PutRequest != nil && req.DeleteRequest == nil:
 				// BatchWriteItem reports every key defect with the generic message.
@@ -167,6 +182,7 @@ func (s *Service) batchWriteItem(r *http.Request) (any, error) {
 					return nil, err
 				}
 				o = writeOutcome{table: t, key: key, old: old, new: cloneItem(req.PutRequest.Item)}
+				retry = map[string]any{"PutRequest": map[string]any{"Item": req.PutRequest.Item}}
 			case req.DeleteRequest != nil && req.PutRequest == nil:
 				if err := checkKeyArgument(t, req.DeleteRequest.Key); err != nil {
 					return nil, err
@@ -176,6 +192,7 @@ func (s *Service) batchWriteItem(r *http.Request) (any, error) {
 					return nil, err
 				}
 				o = writeOutcome{table: t, key: req.DeleteRequest.Key, old: old}
+				retry = map[string]any{"DeleteRequest": map[string]any{"Key": req.DeleteRequest.Key}}
 			default:
 				return nil, validation("Supplied AttributeValue has more than one datatypes set, must contain exactly one of the supported datatypes")
 			}
@@ -184,26 +201,45 @@ func (s *Service) batchWriteItem(r *http.Request) (any, error) {
 				return nil, validation("Provided list of item keys contains duplicates")
 			}
 			seen[k] = true
-			units[name] += writeUnits(maxInt(itemSize(o.new), itemSize(o.old)))
-			outcomes = append(outcomes, o)
+			writes = append(writes, batchWrite{table: name, outcome: o, retry: retry, units: writeUnits(maxInt(itemSize(o.new), itemSize(o.old)))})
 		}
 	}
-	for _, o := range outcomes {
-		if err := s.commitWrite(o); err != nil {
+	// Each write draws capacity on its own; those that don't fit come back
+	// in UnprocessedItems for the caller to retry with backoff.
+	units := map[string]float64{}
+	unprocessed := map[string][]map[string]any{}
+	var firstThrottle error
+	for _, w := range writes {
+		if err := s.consumeOne(r, s.writeDemand(r, w.outcome, w.units)); err != nil {
+			unprocessed[w.table] = append(unprocessed[w.table], w.retry)
+			if firstThrottle == nil {
+				firstThrottle = err
+			}
+			continue
+		}
+		if err := s.commitWrite(w.outcome); err != nil {
 			return nil, err
 		}
+		units[w.table] += w.units
 	}
-	out := map[string]any{"UnprocessedItems": map[string]any{}}
-	var capacity []map[string]any
-	for name, u := range units {
-		if cc := consumed(name, in.ReturnConsumedCapacity, u, false); cc != nil {
-			capacity = append(capacity, cc)
-		}
+	if firstThrottle != nil && len(units) == 0 {
+		// Nothing fit at all: DynamoDB fails the whole call.
+		return nil, firstThrottle
 	}
-	if capacity != nil {
+	out := map[string]any{"UnprocessedItems": unprocessed}
+	if capacity := capacityList(units, in.ReturnConsumedCapacity, false); capacity != nil {
 		out["ConsumedCapacity"] = capacity
 	}
 	return out, nil
+}
+
+// batchWrite is one validated BatchWriteItem request.
+type batchWrite struct {
+	table   string
+	outcome writeOutcome
+	// retry is the request as the caller sent it, for UnprocessedItems.
+	retry map[string]any
+	units float64
 }
 
 // ---- transactions ----
@@ -283,13 +319,20 @@ func (s *Service) transactWriteItems(r *http.Request) (any, error) {
 	if failed {
 		return nil, transactionCanceled(reasons)
 	}
+	demands := make([]CapacityDemand, len(outcomes))
+	for i, o := range outcomes {
+		// Transactional writes cost twice a standard write.
+		demands[i] = s.writeDemand(r, o, 2*writeUnits(maxInt(itemSize(o.new), itemSize(o.old))))
+	}
+	if err := s.consumeTransaction(r, demands); err != nil {
+		return nil, err
+	}
 	units := map[string]float64{}
-	for _, o := range outcomes {
+	for i, o := range outcomes {
 		if err := s.commitWrite(o); err != nil {
 			return nil, err
 		}
-		// Transactional writes cost twice a standard write.
-		units[o.table.TableName] += 2 * writeUnits(maxInt(itemSize(o.new), itemSize(o.old)))
+		units[o.table.TableName] += demands[i].Units
 	}
 	out := map[string]any{}
 	if capacity := capacityList(units, in.ReturnConsumedCapacity, false); capacity != nil {
@@ -473,6 +516,7 @@ func (s *Service) transactGetItems(r *http.Request) (any, error) {
 	}
 	units := map[string]float64{}
 	responses := make([]map[string]any, 0, len(in.TransactItems))
+	demands := make([]CapacityDemand, 0, len(in.TransactItems))
 	seen := map[string]bool{}
 	for _, ti := range in.TransactItems {
 		if ti.Get == nil {
@@ -492,7 +536,11 @@ func (s *Service) transactGetItems(r *http.Request) (any, error) {
 			entry["Item"] = it
 		}
 		responses = append(responses, entry)
+		demands = append(demands, s.demand(r, t, itemPartition(t, ti.Get.Key), 2*readUnits(itemSize(it), true), false))
 		units[t.TableName] += 2 * readUnits(itemSize(it), true)
+	}
+	if err := s.consumeTransaction(r, demands); err != nil {
+		return nil, err
 	}
 	out := map[string]any{"Responses": responses}
 	if capacity := capacityList(units, in.ReturnConsumedCapacity, true); capacity != nil {

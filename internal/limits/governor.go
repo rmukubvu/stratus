@@ -34,7 +34,9 @@ type state struct {
 	stats      []ruleStats
 	// concurrency counts admitted and throttled acquisitions per rule ID.
 	concurrency map[string]*ruleStats
-	breaches    []Breach
+	// capacity counts DynamoDB units per account/region/table.
+	capacity map[string]*capacityStats
+	breaches []Breach
 }
 
 // Governor applies a limits profile to traffic. At most one profile is
@@ -91,6 +93,7 @@ func (g *Governor) Apply(spec Spec) (Status, error) {
 		semaphores:  map[QuotaKey]*semaphore{},
 		stats:       make([]ruleStats, len(profile.Rates)),
 		concurrency: map[string]*ruleStats{},
+		capacity:    map[string]*capacityStats{},
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()

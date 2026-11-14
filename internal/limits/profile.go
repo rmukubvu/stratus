@@ -49,6 +49,9 @@ type Spec struct {
 	Scale float64 `json:"scale,omitempty"`
 	// Rates adds rules, or replaces base rules with the same ID.
 	Rates []RateRule `json:"rates,omitempty"`
+	// DynamoDB tunes table capacity. The aws-default and strict bases
+	// enforce it with AWS's defaults; the none base only when this is set.
+	DynamoDB *DynamoDBSpec `json:"dynamodb,omitempty"`
 }
 
 // Profile is a resolved, validated set of quotas.
@@ -58,6 +61,8 @@ type Profile struct {
 	Scale float64 `json:"scale"`
 	// Rates are the active rules, as declared (before scaling).
 	Rates []RateRule `json:"rates"`
+	// DynamoDB is the table capacity model; nil when it is off.
+	DynamoDB *DynamoDBSpec `json:"dynamodb,omitempty"`
 }
 
 // EffectiveRate is a rule's rate per second after scaling.
@@ -137,10 +142,34 @@ func Resolve(spec Spec, known map[string]bool) (Profile, error) {
 			active = append(active, r)
 		}
 	}
-	if len(active) == 0 {
+	dynamo, err := resolveDynamoDB(name, spec.DynamoDB)
+	if err != nil {
+		return Profile{}, err
+	}
+	if len(active) == 0 && dynamo == nil {
 		return Profile{}, invalid("InvalidLimitsProfile", "the profile has no active rules")
 	}
-	return Profile{Name: name, Scale: scale, Rates: active}, nil
+	return Profile{Name: name, Scale: scale, Rates: active, DynamoDB: dynamo}, nil
+}
+
+// resolveDynamoDB builds the table capacity model: on by default for the
+// AWS bases, off for none unless the spec has a dynamodb section.
+func resolveDynamoDB(base string, spec *DynamoDBSpec) (*DynamoDBSpec, error) {
+	var d DynamoDBSpec
+	switch {
+	case spec != nil:
+		d = *spec
+	case base == BaseNone:
+		return nil, nil
+	}
+	if d.Disabled {
+		return nil, nil
+	}
+	n, err := d.normalise()
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
 }
 
 func (r RateRule) normalise(index int, known map[string]bool) (RateRule, error) {

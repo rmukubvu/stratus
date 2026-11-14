@@ -33,6 +33,7 @@ type Service struct {
 	streams  *dynamodbstreams.Service
 	now      func() time.Time
 	mu       sync.Mutex
+	capacity CapacityGate
 
 	idempotency idempotencyLedger
 }

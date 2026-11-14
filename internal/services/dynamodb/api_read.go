@@ -341,7 +341,7 @@ func (p *readPlan) view(it item) item {
 
 // run pages through candidates (already ordered) from ExclusiveStartKey,
 // applying Limit, the 1 MB page cap, the filter and the projection.
-func (p *readPlan) run(candidates []item, start item, consistent bool, capacityMode string) (map[string]any, error) {
+func (p *readPlan) run(candidates []item, start item, consistent bool, capacityMode string) (map[string]any, float64, error) {
 	if start != nil {
 		for i, it := range candidates {
 			if sameKey(p.pageKey(it), start) {
@@ -365,7 +365,7 @@ func (p *readPlan) run(candidates []item, start item, consistent bool, capacityM
 		bytes += itemSize(it)
 		ok, err := check(p.exprs.filter, it, "FilterExpression")
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if ok {
 			items = append(items, project(p.view(it), p.paths))
@@ -381,10 +381,11 @@ func (p *readPlan) run(candidates []item, start item, consistent bool, capacityM
 	if last != nil {
 		out["LastEvaluatedKey"] = last
 	}
-	if cc := consumed(p.table.TableName, capacityMode, readUnits(bytes, consistent), true); cc != nil {
+	units := readUnits(bytes, consistent)
+	if cc := consumed(p.table.TableName, capacityMode, units, true); cc != nil {
 		out["ConsumedCapacity"] = cc
 	}
-	return out, nil
+	return out, units, nil
 }
 
 // after drops the candidates up to the position start would occupy, for a
@@ -439,7 +440,14 @@ func (s *Service) query(r *http.Request) (any, error) {
 		}
 	}
 	p.order(matched)
-	return p.run(matched, in.ExclusiveStartKey, in.ConsistentRead, in.ReturnConsumedCapacity)
+	out, units, err := p.run(matched, in.ExclusiveStartKey, in.ConsistentRead, in.ReturnConsumedCapacity)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.consumeOne(r, s.demand(r, p.table, p.partition(matched), units, false)); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // order sorts items by the read's key, honouring ScanIndexForward, with the
@@ -485,7 +493,28 @@ func (s *Service) scan(r *http.Request) (any, error) {
 		candidates = append(candidates, it)
 	}
 	p.order(candidates)
-	return p.run(candidates, in.ExclusiveStartKey, in.ConsistentRead, in.ReturnConsumedCapacity)
+	out, units, err := p.run(candidates, in.ExclusiveStartKey, in.ConsistentRead, in.ReturnConsumedCapacity)
+	if err != nil {
+		return nil, err
+	}
+	// A Scan spreads across every partition, so only the table cap applies.
+	if err := s.consumeOne(r, s.demand(r, p.table, "", units, false)); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// partition is the partition a Query reads: the one its key condition
+// names, on the index when it queries one. Empty when nothing matched.
+func (p *readPlan) partition(matched []item) string {
+	if len(matched) == 0 {
+		return ""
+	}
+	value := canonicalKey(matched[0][p.key.Hash])
+	if p.index != nil {
+		return p.index.Name + "|" + value
+	}
+	return value
 }
 
 // segmentOf assigns a partition to one of a parallel scan's segments.

@@ -84,8 +84,68 @@ Some of these differ by region or can be raised in AWS; override them to
 match your account. `strict` is the same set at 1% (`scale` 0.01), so
 missing retries and backoff show up with very little load.
 
-DynamoDB capacity and Lambda concurrency are not request rates; they are
-modelled separately and arrive in later releases.
+DynamoDB table capacity is not a request rate and has its own model,
+below. Lambda concurrency arrives in a later release.
+
+## DynamoDB capacity
+
+With `aws-default` or `strict`, every DynamoDB read and write draws read
+or write capacity units (the same units `ReturnConsumedCapacity` reports)
+from two token buckets:
+
+- **The table.** A provisioned table gets its `ProvisionedThroughput` per
+  second and banks up to 300 seconds of unused capacity for bursts, as in
+  AWS. An on-demand table is capped at its maximum throughput, 40,000
+  units per second by default. `UpdateTable` changes take effect on the
+  next request.
+- **The partition.** Each item's partition key hashes to one of the
+  table's partitions, and a partition serves 3,000 read units or 1,000
+  write units per second. A provisioned table has as many partitions as
+  it needs to serve what it was provisioned; an on-demand table has four.
+  A hot partition key is throttled while the table still has room.
+
+A request that doesn't fit gets what DynamoDB returns:
+
+| Operation | Throttled |
+| --- | --- |
+| Single-item reads and writes, Query, Scan | `ProvisionedThroughputExceededException` with `ThrottlingReasons` (`TableWriteKeyRangeThroughputExceeded`, `TableReadProvisionedThroughputExceeded`, ...); `ThrottlingException` when an on-demand table hits its maximum |
+| BatchWriteItem, BatchGetItem | The items that don't fit come back in `UnprocessedItems` / `UnprocessedKeys`; the call fails only when none fit |
+| TransactWriteItems, TransactGetItems | `TransactionCanceledException` with `ThrottlingError` for the throttled items; nothing is written |
+
+Scan spreads over every partition, so only the table cap applies to it.
+A query on a secondary index draws on that index's partition, against
+the table's capacity. A write larger than a whole bucket is admitted
+when the bucket is full and leaves it in debt, so it is slowed, never
+refused forever.
+
+`scale` applies to partition and on-demand capacity. Provisioned capacity
+is what you chose for the table, so it is never scaled. Tune the model in
+the profile:
+
+```json
+{
+  "profile": "aws-default",
+  "scale": 0.01,
+  "dynamodb": {
+    "burst_seconds": 1,
+    "tables": {"orders": {"partitions": 8}}
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `disabled` | Turns capacity off while the other limits apply. |
+| `partition_read_units`, `partition_write_units` | What one partition serves per second, before scaling. Default 3,000 and 1,000. |
+| `on_demand_read_units`, `on_demand_write_units` | An on-demand table's maximum per second, before scaling. Default 40,000 each. |
+| `burst_seconds` | Seconds of unused provisioned capacity a table banks. Default 300; use 1 to see throttles at once. |
+| `tables` | Fixes the partition count of named tables. |
+
+The `none` base enforces capacity only when the profile has a `dynamodb`
+section. `stratus limits status` lists each table's partitions, the units
+it consumed and the reads and writes it throttled. `stratus diagnose`
+explains partition throttles as a hot key and table throttles as
+exhausted capacity.
 
 ## The scale factor
 

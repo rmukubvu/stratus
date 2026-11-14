@@ -197,3 +197,13 @@ func TestLimitBreachesAreExplainedAndNeverExcluded(t *testing.T) {
 		t.Fatalf("unexpected summary: %q (healthy=%v)", r.Summary, r.Healthy)
 	}
 }
+
+func TestHotPartitionThrottlesPointAtTheKey(t *testing.T) {
+	now := time.Now()
+	failures := []Failure{{Time: now, RequestID: "hot", Service: "dynamodb", Operation: "PutItem", Status: 400, Code: "ProvisionedThroughputExceededException"}}
+	injected := map[string]Injection{"hot": {RuleID: "dynamodb-partition-capacity", Action: "capacity", Source: SourceLimit}}
+	g := Diagnose(failures, injected, Options{}).Groups[0]
+	if g.Category != CategoryLimit || !strings.Contains(g.LikelyCause, "hot partition") || !strings.Contains(g.NextStep, "partition key") {
+		t.Fatalf("unexpected group: %+v", g)
+	}
+}
