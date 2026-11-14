@@ -28,7 +28,7 @@ func TestRunCIParsesFlagsAndCommand(t *testing.T) {
 	r := &fakeCIRunner{code: 4}
 	var stderr bytes.Buffer
 	code := RunCI(context.Background(), []string{
-		"--seed", "snaps/seeded", "--keep-data", "--log-level", "debug", "--ready-timeout", "5s",
+		"--seed", "snaps/seeded", "--limits", "strict", "--keep-data", "--log-level", "debug", "--ready-timeout", "5s",
 		"--", "go", "test", "-run", "X", "./...",
 	}, r, &stderr)
 
@@ -38,6 +38,7 @@ func TestRunCIParsesFlagsAndCommand(t *testing.T) {
 	want := ci.Options{
 		Command:      []string{"go", "test", "-run", "X", "./..."},
 		Seed:         "snaps/seeded",
+		Limits:       "strict",
 		KeepData:     true,
 		LogLevel:     "debug",
 		ReadyTimeout: 5 * time.Second,

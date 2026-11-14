@@ -149,6 +149,9 @@ Control a running Stratus (for CI and agents; output is JSON):
   stratus chaos start <file|->          Start a seeded chaos experiment (JSON)
   stratus chaos status                  Show injected faults so far
   stratus chaos stop                    Stop and print the final report
+  stratus limits set <profile|file|->   Enforce AWS quotas (aws-default, strict or JSON)
+  stratus limits status                 Show per-rule counts and recent throttles
+  stratus limits clear                  Turn limits off
   stratus diagnose [--since 5m]         Explain recent failures (cause, next step)
   Control flags go before arguments: --endpoint <url> (env STRATUS_ENDPOINT)
 
@@ -158,6 +161,7 @@ Common flags:
   --log-level <level>           debug, info, warn, error
   --log-format <format>         auto, json, pretty
   --seed <dir>                  Initialise an empty data dir from a snapshot dir
+  --limits <profile|file>       Enforce AWS quotas from the start (env STRATUS_LIMITS)
 
 Dev-only flags:
   --no-open                     Do not open the operator portal in the browser
@@ -166,7 +170,7 @@ Key endpoints:
   /_stratus/                    Built-in operator portal
   /_stratus/health              Health check
   /_stratus/operator/bootstrap  Service inventory and quick-start data
-  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, chaos, diagnostics
+  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, chaos, limits, diagnostics
 `)
 }
 

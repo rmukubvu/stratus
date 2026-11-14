@@ -143,6 +143,21 @@ func (c *Client) StopChaos(ctx context.Context) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodDelete, "/chaos", nil)
 }
 
+// SetLimits applies a limits profile. spec is the profile JSON.
+func (c *Client) SetLimits(ctx context.Context, spec json.RawMessage) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPut, "/limits", spec)
+}
+
+// LimitsStatus describes the active limits profile and its counters.
+func (c *Client) LimitsStatus(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/limits", nil)
+}
+
+// ClearLimits turns limits off and returns the final status.
+func (c *Client) ClearLimits(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodDelete, "/limits", nil)
+}
+
 // Diagnose explains recent failures. query may set since, service,
 // exclude_injected and max_groups.
 func (c *Client) Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error) {

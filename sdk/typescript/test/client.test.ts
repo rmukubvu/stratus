@@ -146,6 +146,21 @@ describe("StratusClient", () => {
     assert.deepEqual(failing.calls.map((x) => x.method), ["PUT", "DELETE"]);
   });
 
+  test("limits set, status and clear call the limits endpoint", async () => {
+    const status = { profile: "strict", scale: 0.01, applied_at: "t", rules: [], total_throttled: 0, recent_breaches: [] };
+    const f = fakeFetch({ body: status }, { body: status }, { body: status });
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch: f.fetch });
+    assert.equal((await c.limits.set({ profile: "strict" })).profile, "strict");
+    await c.limits.status();
+    await c.limits.clear();
+    assert.deepEqual(
+      f.calls.map((x) => x.method),
+      ["PUT", "GET", "DELETE"],
+    );
+    assert.ok(f.calls.every((x) => x.url.endsWith("/_stratus/control/v1/limits")));
+    assert.deepEqual(f.calls[0]?.body, { profile: "strict" });
+  });
+
   test("awsConfig points an AWS SDK at Stratus", () => {
     const c = new StratusClient({ endpoint: "http://localhost:4566", region: "eu-west-1" });
     assert.deepEqual(c.awsConfig(), {

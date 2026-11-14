@@ -29,6 +29,9 @@ type ControlClient interface {
 	ChaosReport(ctx context.Context) (json.RawMessage, error)
 	StopChaos(ctx context.Context) (json.RawMessage, error)
 	Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error)
+	SetLimits(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
+	LimitsStatus(ctx context.Context) (json.RawMessage, error)
+	ClearLimits(ctx context.Context) (json.RawMessage, error)
 }
 
 // ClientFactory builds a client for an endpoint; tests substitute a fake.
@@ -95,6 +98,11 @@ func RunControl(ctx context.Context, mode Mode, args []string, newClient ClientF
 		out, err = c.Diagnose(ctx, q)
 	case ModeChaos:
 		out, err = runChaos(ctx, c, rest, stderr)
+		if errors.Is(err, errUsage) {
+			return 2
+		}
+	case ModeLimits:
+		out, err = runLimits(ctx, c, rest, stderr)
 		if errors.Is(err, errUsage) {
 			return 2
 		}
@@ -198,6 +206,55 @@ func runChaos(ctx context.Context, c ControlClient, args []string, stderr io.Wri
 		fmt.Fprintf(stderr, "stratus chaos: unknown command %q\n%s", verb, chaosUsage)
 		return nil, errUsage
 	}
+}
+
+const limitsUsage = `usage:
+  stratus limits set <aws-default | strict | profile.json | ->   apply a limits profile (replaces any current one)
+  stratus limits status                                         show per-rule counts and recent breaches
+  stratus limits clear                                          turn limits off and print the final status
+`
+
+func runLimits(ctx context.Context, c ControlClient, args []string, stderr io.Writer) (json.RawMessage, error) {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, limitsUsage)
+		return nil, errUsage
+	}
+	switch verb, rest := args[0], args[1:]; verb {
+	case "set", "apply":
+		if len(rest) != 1 {
+			fmt.Fprint(stderr, limitsUsage)
+			return nil, errUsage
+		}
+		spec, err := limitsSpec(rest[0])
+		if err != nil {
+			return nil, err
+		}
+		return c.SetLimits(ctx, spec)
+	case "status":
+		return c.LimitsStatus(ctx)
+	case "clear", "off":
+		return c.ClearLimits(ctx)
+	default:
+		fmt.Fprintf(stderr, "stratus limits: unknown command %q\n%s", verb, limitsUsage)
+		return nil, errUsage
+	}
+}
+
+// limitsSpec turns a base profile name into a spec, or reads a profile
+// file (or stdin for "-").
+func limitsSpec(arg string) (json.RawMessage, error) {
+	switch arg {
+	case "aws-default", "strict":
+		return json.Marshal(map[string]string{"profile": arg})
+	}
+	spec, err := readSpec(arg)
+	if err != nil {
+		return nil, err
+	}
+	if !json.Valid(spec) {
+		return nil, fmt.Errorf("%s is not valid JSON", arg)
+	}
+	return spec, nil
 }
 
 func readSpec(path string) ([]byte, error) {

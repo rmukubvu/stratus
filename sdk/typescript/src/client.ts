@@ -14,6 +14,8 @@ import type {
   Health,
   KafkaCluster,
   DnsResolution,
+  LimitsProfile,
+  LimitsStatus,
   ResetResult,
   SchedulerAdvance,
   SchedulerClock,
@@ -97,6 +99,26 @@ export class Chaos {
   /** Stops injecting and returns the final per-rule counts and hits. */
   stop(): Promise<ChaosReport> {
     return this.t.request("DELETE", "/chaos");
+  }
+}
+
+/** AWS service quotas: throttle the app the way AWS would at its load. */
+export class Limits {
+  constructor(private readonly t: Transport) {}
+
+  /** Applies a profile, replacing any active one. An empty profile applies aws-default. */
+  set(profile: LimitsProfile = {}): Promise<LimitsStatus> {
+    return this.t.request("PUT", "/limits", profile);
+  }
+
+  /** The active profile and its counters. Throws NoLimitsProfile if limits are off. */
+  status(): Promise<LimitsStatus> {
+    return this.t.request("GET", "/limits");
+  }
+
+  /** Turns limits off and returns the final status. */
+  clear(): Promise<LimitsStatus> {
+    return this.t.request("DELETE", "/limits");
   }
 }
 
@@ -256,6 +278,7 @@ export class StratusClient {
   readonly region: string;
   readonly snapshots: Snapshots;
   readonly chaos: Chaos;
+  readonly limits: Limits;
   readonly ses: Ses;
   readonly scheduler: Scheduler;
   readonly bedrock: Bedrock;
@@ -274,6 +297,7 @@ export class StratusClient {
       });
     this.snapshots = new Snapshots(this.t);
     this.chaos = new Chaos(this.t);
+    this.limits = new Limits(this.t);
     this.ses = new Ses(this.t);
     this.scheduler = new Scheduler(this.t);
     this.bedrock = new Bedrock(this.t);

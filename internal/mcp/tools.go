@@ -22,6 +22,9 @@ type ControlAPI interface {
 	StartChaos(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
 	ChaosReport(ctx context.Context) (json.RawMessage, error)
 	StopChaos(ctx context.Context) (json.RawMessage, error)
+	SetLimits(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
+	LimitsStatus(ctx context.Context) (json.RawMessage, error)
+	ClearLimits(ctx context.Context) (json.RawMessage, error)
 	Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error)
 	SESMessages(ctx context.Context, query url.Values) (json.RawMessage, error)
 	SchedulerAdvance(ctx context.Context, by, to string) (json.RawMessage, error)
@@ -272,6 +275,51 @@ func Tools(api ControlAPI) []Tool {
 			InputSchema: schema(map[string]any{}),
 			Handler: func(ctx context.Context, _ json.RawMessage) (any, error) {
 				return api.StopChaos(ctx)
+			},
+		},
+		{
+			Name: "stratus_limits_set",
+			Description: "Enforce AWS service quotas so the app meets throttling under load, with the same errors AWS returns (SlowDown for S3, ThrottlingException, TooManyRequestsException). " +
+				"profile is the base: aws-default (documented default quotas: S3 per prefix, SSM Get*, KMS crypto, Secrets Manager reads), strict (the same at 1%, to expose missing retries with little load) or none. " +
+				"scale multiplies every rate, so a laptop-sized load reaches the same limits a production load would. " +
+				"rates adds rules or replaces base rules by id; disabled turns a base rule off. Replaces any active profile; throttled requests carry X-Stratus-Limit and show as limit_exceeded in stratus_diagnose.",
+			InputSchema: schema(map[string]any{
+				"profile": map[string]any{"type": "string", "enum": []string{"aws-default", "strict", "none"}},
+				"scale":   map[string]any{"type": "number", "exclusiveMinimum": 0, "description": "Multiplies every rate; 0.01 makes 5,500/s into 55/s."},
+				"rates": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id":            str("Rule name; a base rule's id replaces it."),
+							"service":       str("AWS service such as \"ssm\" or \"s3\"."),
+							"operations":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Operations sharing the rule; empty means all."},
+							"per_second":    map[string]any{"type": "number", "exclusiveMinimum": 0, "description": "Sustained rate before scaling."},
+							"burst_seconds": map[string]any{"type": "number", "minimum": 0, "description": "Seconds of rate allowed at once; default 1."},
+							"per":           map[string]any{"type": "string", "enum": []string{"account", "resource", "prefix"}, "description": "What shares one bucket; prefix is for S3 only."},
+							"disabled":      map[string]any{"type": "boolean", "description": "Turn the base rule with this id off."},
+						},
+					},
+				},
+			}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				return api.SetLimits(ctx, raw)
+			},
+		},
+		{
+			Name:        "stratus_limits_status",
+			Description: "Report the active limits profile: each rule's effective rate, admitted and throttled counts, and the latest throttled requests with request IDs.",
+			InputSchema: schema(map[string]any{}),
+			Handler: func(ctx context.Context, _ json.RawMessage) (any, error) {
+				return api.LimitsStatus(ctx)
+			},
+		},
+		{
+			Name:        "stratus_limits_clear",
+			Description: "Turn limits off and return the final status of the profile.",
+			InputSchema: schema(map[string]any{}),
+			Handler: func(ctx context.Context, _ json.RawMessage) (any, error) {
+				return api.ClearLimits(ctx)
 			},
 		},
 		{

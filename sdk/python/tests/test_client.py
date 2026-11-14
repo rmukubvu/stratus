@@ -85,6 +85,14 @@ class ClientTest(unittest.TestCase):
         )
         self.assertRegex(t.calls[0][2]["name"], r"^sdk-tmp-[a-z0-9-]+$")
 
+    def test_limits_set_status_and_clear(self) -> None:
+        status = {"profile": "strict", "scale": 0.01, "applied_at": "t", "rules": [], "total_throttled": 0, "recent_breaches": []}
+        c, t = client(status, status, status)
+        self.assertEqual(c.limits.set({"profile": "strict"})["profile"], "strict")
+        c.limits.status()
+        c.limits.clear()
+        self.assertEqual(t.calls, [("PUT", "/limits", {"profile": "strict"}), ("GET", "/limits", None), ("DELETE", "/limits", None)])
+
     def test_chaos_experiment_always_stops_and_exposes_report(self) -> None:
         c, t = client(REPORT, REPORT)
         spec = {"seed": 1, "rules": [{"service": "s3", "action": "throttle"}]}

@@ -130,8 +130,64 @@ export interface ChaosReport {
   recent_hits: ChaosHit[];
 }
 
+export type LimitsBase = "aws-default" | "strict" | "none";
+
+/** A request-rate quota. Rules with a base rule's id replace it. */
+export interface RateRule {
+  id?: string;
+  service?: string;
+  /** Operations that share the rule's bucket; empty means every operation. */
+  operations?: string[];
+  /** Sustained rate per second, before scaling. */
+  per_second?: number;
+  /** Seconds of per_second allowed at once; default 1. */
+  burst_seconds?: number;
+  /** What shares one bucket: the account (default), each resource, or each S3 prefix. */
+  per?: "account" | "resource" | "prefix";
+  /** Turns the base rule with this id off. */
+  disabled?: boolean;
+}
+
+export interface LimitsProfile {
+  /** Base quotas; defaults to aws-default. */
+  profile?: LimitsBase;
+  /** Multiplies every rate, so a small load reaches the same limits a large one would. */
+  scale?: number;
+  rates?: RateRule[];
+}
+
+export interface LimitBreach {
+  time: string;
+  rule_id: string;
+  kind: "rate" | "concurrency";
+  key: string;
+  limit: number;
+  request_id?: string;
+  service: string;
+  operation?: string;
+  resource?: string;
+}
+
+export interface LimitsRuleStatus {
+  rule: RateRule;
+  effective_per_second: number;
+  admitted: number;
+  throttled: number;
+}
+
+export interface LimitsStatus {
+  profile: LimitsBase;
+  scale: number;
+  applied_at: string;
+  rules: LimitsRuleStatus[];
+  concurrency?: { rule_id: string; admitted: number; throttled: number }[];
+  total_throttled: number;
+  recent_breaches: LimitBreach[];
+}
+
 export type FailureCategory =
   | "injected_fault"
+  | "limit_exceeded"
   | "unsupported_operation"
   | "missing_resource"
   | "conflict"

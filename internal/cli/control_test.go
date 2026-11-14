@@ -50,6 +50,15 @@ func (f *fakeControl) ChaosReport(context.Context) (json.RawMessage, error) {
 func (f *fakeControl) StopChaos(context.Context) (json.RawMessage, error) {
 	return f.record("chaos-stop")
 }
+func (f *fakeControl) SetLimits(_ context.Context, spec json.RawMessage) (json.RawMessage, error) {
+	return f.record("limits-set " + string(spec))
+}
+func (f *fakeControl) LimitsStatus(context.Context) (json.RawMessage, error) {
+	return f.record("limits-status")
+}
+func (f *fakeControl) ClearLimits(context.Context) (json.RawMessage, error) {
+	return f.record("limits-clear")
+}
 func (f *fakeControl) Diagnose(_ context.Context, q url.Values) (json.RawMessage, error) {
 	return f.record("diagnose " + q.Encode())
 }
@@ -70,7 +79,7 @@ func run(t *testing.T, fake *fakeControl, args ...string) (int, string, string) 
 }
 
 func TestParseModeRecognisesControlCommands(t *testing.T) {
-	for _, m := range []Mode{ModeWait, ModeReset, ModeSnapshot, ModeChaos, ModeDiagnose} {
+	for _, m := range []Mode{ModeWait, ModeReset, ModeSnapshot, ModeChaos, ModeDiagnose, ModeLimits} {
 		got, rest := ParseMode([]string{string(m), "x"})
 		if got != m || !got.IsControl() || !reflect.DeepEqual(rest, []string{"x"}) {
 			t.Errorf("ParseMode(%s) = %s %v", m, got, rest)
@@ -188,6 +197,34 @@ func TestChaosStartRejectsMissingOrInvalidFile(t *testing.T) {
 	for _, args := range [][]string{{"chaos"}, {"chaos", "start"}, {"chaos", "explode"}} {
 		if code, _, _ := run(t, &fakeControl{}, args...); code != 2 {
 			t.Errorf("%v: code=%d, want usage error", args, code)
+		}
+	}
+}
+
+func TestLimitsCommands(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "limits.json")
+	if err := os.WriteFile(profile, []byte(`{"scale":0.1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		args []string
+		call string
+	}{
+		{[]string{"limits", "set", "strict"}, `limits-set {"profile":"strict"}`},
+		{[]string{"limits", "set", profile}, `limits-set {"scale":0.1}`},
+		{[]string{"limits", "status"}, "limits-status"},
+		{[]string{"limits", "clear"}, "limits-clear"},
+	}
+	for _, tc := range cases {
+		fake := &fakeControl{}
+		code, _, stderr := run(t, fake, tc.args...)
+		if code != 0 || len(fake.calls) != 1 || fake.calls[0] != tc.call {
+			t.Errorf("%v: code=%d calls=%v stderr=%s", tc.args, code, fake.calls, stderr)
+		}
+	}
+	for _, args := range [][]string{{"limits"}, {"limits", "set"}, {"limits", "explode"}} {
+		if code, _, _ := run(t, &fakeControl{}, args...); code != 2 {
+			t.Errorf("%v: exit %d, want 2", args, code)
 		}
 	}
 }

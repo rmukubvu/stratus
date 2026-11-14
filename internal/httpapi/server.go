@@ -113,6 +113,9 @@ type Options struct {
 	Operator   *operator.Service
 	// Faults, when set, injects chaos faults into AWS API requests.
 	Faults FaultDecider
+	// Limits, when set, throttles requests that exceed the active limits
+	// profile's quotas, after faults and before authorization.
+	Limits LimitGate
 	// ColdStart discards a Lambda function's warm container. Used by the
 	// chaos cold_start action.
 	ColdStart func(ctx context.Context, functionName string) error
@@ -132,6 +135,7 @@ type Server struct {
 	control    http.Handler
 	gate       *control.Gate
 	faults     FaultDecider
+	limits     LimitGate
 	coldStart  func(ctx context.Context, functionName string) error
 	authorizer Authorizer
 }
@@ -153,6 +157,7 @@ func NewServer(opts Options) *Server {
 		control:    opts.Control,
 		gate:       opts.Gate,
 		faults:     opts.Faults,
+		limits:     opts.Limits,
 		coldStart:  opts.ColdStart,
 	}
 }
@@ -225,6 +230,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// Abort without a response: the client sees a reset connection.
 			panic(http.ErrAbortHandler)
 		}
+	}
+	if err == nil && outcome == faultProceed {
+		err = s.admitLimits(recorder, r, metadata)
 	}
 	if err == nil && outcome == faultProceed && s.authorizer != nil {
 		err = s.authorizer.Authorize(r, metadata)

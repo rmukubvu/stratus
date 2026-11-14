@@ -22,6 +22,8 @@ from .types import (
     Health,
     DnsResolution,
     KafkaCluster,
+    LimitsProfile,
+    LimitsStatus,
     ResetResult,
     SchedulerAdvance,
     SchedulerClock,
@@ -74,6 +76,25 @@ class Chaos:
     def stop(self) -> ChaosReport:
         """Stop injecting and return the final per-rule counts and hits."""
         return cast(ChaosReport, self._t.request("DELETE", "/chaos"))
+
+
+class Limits:
+    """AWS service quotas: throttle the app the way AWS would at its load."""
+
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def set(self, profile: Optional[LimitsProfile] = None) -> LimitsStatus:
+        """Apply a profile, replacing any active one. No profile applies aws-default."""
+        return cast(LimitsStatus, self._t.request("PUT", "/limits", profile or {}))
+
+    def status(self) -> LimitsStatus:
+        """The active profile and its counters. Raises NoLimitsProfile if limits are off."""
+        return cast(LimitsStatus, self._t.request("GET", "/limits"))
+
+    def clear(self) -> LimitsStatus:
+        """Turn limits off and return the final status."""
+        return cast(LimitsStatus, self._t.request("DELETE", "/limits"))
 
 
 class Ses:
@@ -286,6 +307,7 @@ class StratusClient:
         self._t: Transport = transport or UrllibTransport(self.endpoint, timeout)
         self.snapshots = Snapshots(self._t)
         self.chaos = Chaos(self._t)
+        self.limits = Limits(self._t)
         self.ses = Ses(self._t)
         self.scheduler = Scheduler(self._t)
         self.bedrock = Bedrock(self._t)

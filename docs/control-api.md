@@ -100,6 +100,17 @@ Invocation filters: `model` (pattern with `*`), `contains` (prompt
 substring), `outcome` (`replayed`, `recorded`, `synthesized`, `missed`,
 `failed`) and `limit`. See [bedrock.md](bedrock.md).
 
+## Limits
+
+```
+PUT    /_stratus/control/v1/limits    apply a limits profile (an empty body applies aws-default)
+GET    /_stratus/control/v1/limits    the active profile, per-rule counts and recent breaches
+DELETE /_stratus/control/v1/limits    turn limits off and return the final status
+```
+
+`GET` and `DELETE` answer `NoLimitsProfile` (404) when limits are off. See
+[limits.md](limits.md).
+
 ## MSK clusters
 
 ```
@@ -132,7 +143,8 @@ Every error has a stable code and a hint:
 
 Codes: `UnknownService`, `InvalidSnapshotName`, `InvalidRequestBody`,
 `SnapshotNotFound`, `SnapshotAlreadyExists`, `Busy`,
-`UnknownControlEndpoint`, `InternalError`.
+`UnknownControlEndpoint`, `InternalError`, `InvalidLimitsProfile`,
+`InvalidRateRule`, `NoLimitsProfile`.
 
 ## CLI
 
