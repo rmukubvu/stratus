@@ -176,6 +176,14 @@ describe("StratusClient", () => {
     assert.deepEqual(f.calls[0]?.body, { name: "load.js", limits: { profile: "strict" } });
   });
 
+  test("runs.findings reads the latest run's findings", async () => {
+    const finding = { detector: "missing_queue", severity: "high", title: "t", detail: "d", suggestion: "s" };
+    const f = fakeFetch({ body: { id: "run-1", findings: [finding] } });
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch: f.fetch });
+    assert.deepEqual(await c.runs.findings(), [finding]);
+    assert.ok(f.calls[0]?.url.endsWith("/runs/latest"));
+  });
+
   test("runs.during stops the run even when the test throws", async () => {
     const summary = { id: "run-2", status: "running", started_at: "t", duration_seconds: 0, totals: {}, timeline: [], operations: [] };
     const f = fakeFetch({ status: 201, body: summary }, { body: summary });

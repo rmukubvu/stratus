@@ -29,10 +29,17 @@ so a failure the test did not plan for stands out.
 ## Look at a run afterwards
 
 ```sh
+stratus load report               # findings and what to do, as Markdown
 stratus load list                 # recent runs
 stratus load status latest        # summary, per-second timeline, operations
 stratus diagnose                  # why requests failed, with next steps
 ```
+
+With `--limits strict`, expect a `hot_partition` finding for `customer#hot`
+and a `missing_queue` finding for the throttled `PutItem` writes. You'll
+also see two low notes: `chatty_calls`, because `BatchWriteItem` was never
+used, and `missing_retries`, because k6 calls DynamoDB without an AWS SDK
+and so sends no retry headers.
 
 k6 gets `STRATUS_ENDPOINT` and `STRATUS_RUN_ID` from `stratus load run`, so
 the script calls the right Stratus and can tag its own output with the run.

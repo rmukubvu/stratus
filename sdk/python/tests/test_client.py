@@ -106,6 +106,12 @@ class ClientTest(unittest.TestCase):
         )
         self.assertEqual(t.calls[0][2], {"name": "load.js", "limits": {"profile": "strict"}})
 
+    def test_runs_findings_reads_the_latest_run(self) -> None:
+        finding = {"detector": "missing_queue", "severity": "high", "title": "t", "detail": "d", "suggestion": "s"}
+        c, t = client({"id": "run-1", "findings": [finding]})
+        self.assertEqual(c.runs.findings(), [finding])
+        self.assertEqual(t.calls[0][:2], ("GET", "/runs/latest"))
+
     def test_runs_recording_always_stops(self) -> None:
         c, t = client({"id": "run-2", "status": "running"}, {"id": "run-2", "status": "finished"})
         with self.assertRaises(ValueError):

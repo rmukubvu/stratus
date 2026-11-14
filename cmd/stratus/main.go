@@ -154,6 +154,7 @@ Control a running Stratus (for CI and agents; output is JSON):
   stratus limits clear                  Turn limits off
   stratus load run [flags] -- <cmd>     Record a load run around a command, e.g. k6 run load.js
   stratus load start|status|stop|list   Drive load runs yourself (flags: --name, --limits, --chaos)
+  stratus load report [run-id]          Findings (hot partitions, missing retries or queues) as Markdown
   stratus diagnose [--since 5m]         Explain recent failures (cause, next step)
   Control flags go before arguments: --endpoint <url> (env STRATUS_ENDPOINT)
 

@@ -116,7 +116,8 @@ DELETE /_stratus/control/v1/limits    turn limits off and return the final statu
 ```
 POST /_stratus/control/v1/runs              start a run, optionally with limits and chaos
 GET  /_stratus/control/v1/runs              list runs, newest first
-GET  /_stratus/control/v1/runs/{id}         a run's summary and timeline (current, latest or an ID)
+GET  /_stratus/control/v1/runs/{id}         a run's summary, timeline and findings (current, latest or an ID)
+GET  /_stratus/control/v1/runs/{id}/report  the same as a Markdown report
 POST /_stratus/control/v1/runs/{id}/stop    stop a run and undo its limits and chaos
 ```
 

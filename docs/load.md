@@ -63,12 +63,43 @@ no allocation, and memory stays flat however long a run lasts.
 One run records at a time; starting another answers `RunInProgress` (409).
 The last 20 finished runs are kept in memory until Stratus restarts.
 
+## Findings
+
+When a run stops, Stratus looks over its traffic for the problems that
+usually surface under load, and says what to do about each one:
+
+```sh
+stratus load report                       # the latest run, as Markdown
+stratus load report run-3 > report.md     # paste it into a pull request
+stratus load run --fail-on high -- k6 run load.js   # exit 4 on a high finding
+```
+
+| Detector | Spots | Severity |
+| --- | --- | --- |
+| `hot_partition` | A DynamoDB partition key taking a quarter or more of a table's requests, or most of its throttles. Keys are tracked whether or not limits are on. | high when the key was throttled, else medium |
+| `missing_queue` | Synchronous writes (DynamoDB writes, synchronous Lambda invokes, Kinesis puts) throttled in five or more seconds of the run while almost no work went through SQS, SNS, EventBridge, Firehose or async invokes. | high |
+| `missing_retries` | AWS SDK calls that failed for good: with retries turned off (max attempts 1), or still throttled on their last attempt. Also, as low, throttles and 5xx errors from clients that send no SDK retry headers. | high, or low |
+| `retry_storm` | Retries making up a fifth or more of all requests. | medium |
+| `cacheable_reads` | Configuration and metadata reads (SSM parameters, secrets, `GetCallerIdentity`, `DescribeTable`, `GetQueueUrl`...) at five or more a second. | high when throttled, else medium |
+| `chatty_calls` | Single-item calls (`PutItem`, `SendMessage`, `Publish`...) at 20 or more a second while their batch API was barely used. | medium when throttled, else low |
+
+Retries are followed across attempts with the `amz-sdk-invocation-id` and
+`amz-sdk-request` headers every AWS SDK sends, so this works for any
+language. The detectors are deterministic rules, not a model: the same
+traffic always gives the same findings, which keeps `--fail-on` safe in CI.
+Each keeps bounded state (at most 32 keys per table, 200,000 SDK calls), so
+a long run costs no more memory than a short one.
+
+`--fail-on low|medium|high` works on `load run`, `load stop` and `load
+report`. When `load run`'s command fails, its exit code wins over 4.
+
 ## Control API
 
 ```
 POST /_stratus/control/v1/runs              start a run: {"name", "limits", "chaos"}, all optional
 GET  /_stratus/control/v1/runs              list runs, newest first
-GET  /_stratus/control/v1/runs/{id}         a run's summary and timeline; id may be current or latest
+GET  /_stratus/control/v1/runs/{id}         a run's summary, timeline and findings; id may be current or latest
+GET  /_stratus/control/v1/runs/{id}/report  the same as a Markdown report
 POST /_stratus/control/v1/runs/{id}/stop    stop a run, undo its limits and chaos, return the summary
 ```
 
@@ -90,5 +121,7 @@ print(rec.summary["totals"]["throttle_rate"])
 ```
 
 Both SDKs also have `runs.start()`, `runs.status()`, `runs.stop()` and
-`runs.list()`. Agents use the `stratus_load_start`, `stratus_load_status`
-and `stratus_load_stop` MCP tools.
+`runs.list()`, and `runs.findings()` for the latest run's findings. Agents
+use the `stratus_load_start`, `stratus_load_status`, `stratus_load_stop`
+and `stratus_load_report` MCP tools; the report gives an agent the findings
+and totals without the per-second timeline.

@@ -453,6 +453,23 @@ class LoadTotals(LoadCounts):
     error_rate: float
 
 
+class _LoadFindingBase(TypedDict):
+    detector: str
+    severity: str
+    title: str
+    detail: str
+    suggestion: str
+
+
+class LoadFinding(_LoadFindingBase, total=False):
+    """A problem spotted in a load run's traffic, with what to do about it."""
+
+    service: str
+    operation: str
+    resource: str
+    evidence: Dict[str, Any]
+
+
 class _LoadRunSummaryBase(TypedDict):
     id: str
     status: str
@@ -461,6 +478,7 @@ class _LoadRunSummaryBase(TypedDict):
     totals: LoadTotals
     timeline: List[LoadSecond]
     operations: List[LoadOperation]
+    findings: List[LoadFinding]
 
 
 class LoadRunSummary(_LoadRunSummaryBase, total=False):

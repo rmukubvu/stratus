@@ -63,6 +63,8 @@ type Summary struct {
 	Totals          Totals           `json:"totals"`
 	Timeline        []Second         `json:"timeline"`
 	Operations      []OperationStats `json:"operations"`
+	// Findings are problems spotted in the traffic, most severe first.
+	Findings []Finding `json:"findings"`
 	// Limits is the limits profile's status: live while the run is
 	// running, final once the run stopped and cleared it.
 	Limits *limits.Status `json:"limits,omitempty"`
@@ -109,6 +111,10 @@ func NewRecorder(l LimitsController, c ChaosController, clock Clock) *Recorder {
 	}
 	return &Recorder{limits: l, chaos: c, clock: clock}
 }
+
+// Listening reports whether a run is recording, so the HTTP layer only
+// collects request details when they will be used.
+func (r *Recorder) Listening() bool { return r.active.Load() != nil }
 
 // Observe counts a request against the active run, if any.
 func (r *Recorder) Observe(o Observation) {
@@ -196,11 +202,12 @@ func (r *Recorder) Stop(id string) (Summary, error) {
 	return ru.summary(now), nil
 }
 
-// Get describes a run by ID ("" or "current" for the active one).
+// Get describes a run by ID: "" or "current" for the active one, and
+// "latest" for the newest run, active or finished.
 func (r *Recorder) Get(id string) (Summary, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if ru := r.active.Load(); ru != nil && (id == "" || id == "current" || id == ru.id) {
+	if ru := r.active.Load(); ru != nil && (id == "" || id == "current" || id == "latest" || id == ru.id) {
 		r.refresh(ru)
 		return ru.summary(r.clock.Now()), nil
 	}
@@ -278,7 +285,8 @@ func (ru *run) summary(now time.Time) Summary {
 		ID: ru.id, Name: ru.name, Status: ru.status(), StartedAt: ru.startedAt.UTC(),
 		DurationSeconds: round(now.Sub(ru.startedAt).Seconds()),
 		Totals:          ru.tally.totals(now), Timeline: ru.tally.seconds(), Operations: ru.tally.operationStats(),
-		Limits: ru.limits, Chaos: ru.chaos,
+		Findings: ru.tally.findings(now),
+		Limits:   ru.limits, Chaos: ru.chaos,
 	}
 	if !ru.endedAt.IsZero() {
 		end := ru.endedAt.UTC()

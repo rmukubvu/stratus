@@ -357,6 +357,29 @@ func Tools(api ControlAPI) []Tool {
 			},
 		},
 		{
+			Name: "stratus_load_report",
+			Description: "Analyse a load run's traffic: hot DynamoDB partitions, chatty calls with a batch API, config reads that should be cached, " +
+				"missing or exhausted retries, retry storms and throttled writes with no queue in front. Returns findings ranked by severity, " +
+				"each with what to do, plus the run's totals. id defaults to the latest run.",
+			InputSchema: schema(map[string]any{"id": str("Run ID, current or latest.")}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var in struct {
+					ID string `json:"id"`
+				}
+				if err := json.Unmarshal(raw, &in); err != nil {
+					return nil, err
+				}
+				if in.ID == "" {
+					in.ID = "latest"
+				}
+				out, err := api.GetRun(ctx, in.ID)
+				if err != nil {
+					return nil, err
+				}
+				return loadReport(out)
+			},
+		},
+		{
 			Name:        "stratus_load_stop",
 			Description: "Stop the current load run, clear the limits and chaos it set up, and return its final summary.",
 			InputSchema: schema(map[string]any{}),
@@ -543,4 +566,20 @@ func Tools(api ControlAPI) []Tool {
 			},
 		},
 	}
+}
+
+// loadReport trims a run summary to what an agent needs to act on: the
+// findings and totals, without the per-second timeline or operations.
+func loadReport(raw json.RawMessage) (any, error) {
+	var s map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, err
+	}
+	out := map[string]json.RawMessage{}
+	for _, k := range []string{"id", "name", "status", "duration_seconds", "totals", "findings"} {
+		if v, ok := s[k]; ok {
+			out[k] = v
+		}
+	}
+	return out, nil
 }

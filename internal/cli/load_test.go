@@ -120,3 +120,56 @@ func TestRunReportSummarisesARun(t *testing.T) {
 		t.Fatal("a broken summary was reported")
 	}
 }
+
+const runWithFindings = `{"id":"run-5","status":"finished","totals":{"requests":10},
+	"findings":[{"detector":"missing_queue","severity":"high","title":"dynamodb PutItem throttled for 9 seconds with no queue in front","detail":"d","suggestion":"Put an SQS queue in front."},
+		{"detector":"chatty_calls","severity":"low","title":"chatty","detail":"d","suggestion":"batch"}]}`
+
+func TestLoadReportPrintsMarkdownForTheLatestRun(t *testing.T) {
+	fake := &fakeControl{body: runWithFindings}
+	code, stdout, stderr := run(t, fake, "load", "report")
+	if code != 0 || fake.calls[0] != "run-get latest" {
+		t.Fatalf("exit %d, calls %v: %s", code, fake.calls, stderr)
+	}
+	for _, want := range []string{"# Load run run-5", "### HIGH: dynamodb PutItem throttled", "**What to do:** Put an SQS queue in front."} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("report lacks %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestFailOnExitsFourForSevereFindings(t *testing.T) {
+	cases := []struct {
+		args []string
+		want int
+	}{
+		{[]string{"load", "report", "--fail-on", "high", "run-5"}, 4},
+		{[]string{"load", "stop", "--fail-on", "low"}, 4},
+		{[]string{"load", "report", "--json", "--fail-on", "medium"}, 4},
+		{[]string{"load", "report", "--fail-on", "urgent"}, 2},
+	}
+	for _, tc := range cases {
+		if code, _, stderr := run(t, &fakeControl{body: runWithFindings}, tc.args...); code != tc.want {
+			t.Errorf("%v: exit %d, want %d (%s)", tc.args, code, tc.want, stderr)
+		}
+	}
+	clean := `{"id":"run-6","status":"finished","totals":{},"findings":[{"severity":"low","title":"t"}]}`
+	if code, _, _ := run(t, &fakeControl{body: clean}, "load", "report", "--fail-on", "medium"); code != 0 {
+		t.Fatalf("a low finding failed --fail-on medium: exit %d", code)
+	}
+}
+
+func TestLoadRunFailOnKeepsTheCommandsCode(t *testing.T) {
+	codeToReturn := 0
+	commandRunner = func(context.Context, []string, []string, io.Writer, io.Writer) (int, error) { return codeToReturn, nil }
+	t.Cleanup(func() { commandRunner = defaultCommandRunner })
+
+	code, stdout, _ := run(t, &fakeControl{body: runWithFindings}, "load", "run", "--fail-on", "high", "--", "k6")
+	if code != 4 || !strings.Contains(stdout, "findings:") || !strings.Contains(stdout, "stratus load report run-5") {
+		t.Fatalf("exit %d, stdout %q", code, stdout)
+	}
+	codeToReturn = 3
+	if code, _, _ := run(t, &fakeControl{body: runWithFindings}, "load", "run", "--fail-on", "high", "--", "k6"); code != 3 {
+		t.Fatalf("exit %d: the command's own failure must win", code)
+	}
+}

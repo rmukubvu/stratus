@@ -18,10 +18,15 @@ type fakeControl struct {
 	calls    []string
 	err      error
 	endpoint string
+	// body, when set, is returned instead of {"ok":true}.
+	body string
 }
 
 func (f *fakeControl) record(call string) (json.RawMessage, error) {
 	f.calls = append(f.calls, call)
+	if f.body != "" {
+		return json.RawMessage(f.body), f.err
+	}
 	return json.RawMessage(`{"ok":true}`), f.err
 }
 

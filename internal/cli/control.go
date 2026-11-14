@@ -123,6 +123,14 @@ func RunControl(ctx context.Context, mode Mode, args []string, newClient ClientF
 			}
 			return failed.code
 		}
+		var findings errFindings
+		if errors.As(err, &findings) {
+			if len(out) > 0 {
+				fmt.Fprintln(stdout, string(out))
+			}
+			fmt.Fprintf(stderr, "stratus load: %v\n", findings)
+			return exitFindings
+		}
 	default:
 		fmt.Fprintf(stderr, "stratus: %q is not a control command\n", mode)
 		return 2

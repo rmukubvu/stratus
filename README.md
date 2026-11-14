@@ -467,6 +467,10 @@ stratus diagnose                   # throttles show up as limit_exceeded
 `stratus load run` records a load run around k6: requests per second,
 throttles, chaos faults, real errors and latency, per second and per
 operation, with the limits profile and chaos experiment undone at the end.
+It then flags hot partitions, missing retries, throttled writes with no
+queue in front, chatty calls and uncached config reads, each with what to
+do; `stratus load report` prints them as Markdown and `--fail-on high`
+fails CI on them.
 See [docs/load.md](docs/load.md) and [examples/k6-load](examples/k6-load).
 
 DynamoDB tables throttle on provisioned capacity, on-demand maximums and
