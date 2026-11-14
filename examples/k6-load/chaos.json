@@ -1,0 +1,7 @@
+{
+  "seed": 42,
+  "rules": [
+    { "id": "slow-writes", "service": "dynamodb", "operation": "PutItem", "action": "latency", "probability": 0.1, "latency": { "delay_ms": 200, "jitter_ms": 100 } },
+    { "id": "flaky-writes", "service": "dynamodb", "operation": "PutItem", "action": "internal_error", "probability": 0.02 }
+  ]
+}

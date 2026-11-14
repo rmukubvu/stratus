@@ -24,7 +24,9 @@ stratus limits status                      # per-rule counts and recent throttle
 stratus limits clear                       # turn limits off
 ```
 
-`stratus ci --limits strict -- go test ./...` applies a profile to a CI run.
+`stratus ci --limits strict -- go test ./...` applies a profile to a CI run,
+and `stratus load run --limits strict -- k6 run load.js` to a
+[load run](load.md), which also records what the profile did.
 Over the control API it is `PUT`, `GET` and `DELETE` on
 `/_stratus/control/v1/limits`; an empty `PUT` applies `aws-default`. Agents
 get the same through the `stratus_limits_set`, `stratus_limits_status` and

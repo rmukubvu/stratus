@@ -460,10 +460,14 @@ profile throttles the application the way AWS would, with the same errors,
 and a scale factor brings real quotas down to the load a laptop can drive:
 
 ```sh
-stratus serve --limits strict      # or: stratus limits set ./limits.json
-k6 run load.js                     # drive your app; it calls Stratus
+stratus load run --limits strict --chaos chaos.json -- k6 run load.js
 stratus diagnose                   # throttles show up as limit_exceeded
 ```
+
+`stratus load run` records a load run around k6: requests per second,
+throttles, chaos faults, real errors and latency, per second and per
+operation, with the limits profile and chaos experiment undone at the end.
+See [docs/load.md](docs/load.md) and [examples/k6-load](examples/k6-load).
 
 DynamoDB tables throttle on provisioned capacity, on-demand maximums and
 hot partition keys, with `UnprocessedItems` from batches and

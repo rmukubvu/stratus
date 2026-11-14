@@ -32,6 +32,10 @@ type ControlClient interface {
 	SetLimits(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
 	LimitsStatus(ctx context.Context) (json.RawMessage, error)
 	ClearLimits(ctx context.Context) (json.RawMessage, error)
+	StartRun(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
+	GetRun(ctx context.Context, id string) (json.RawMessage, error)
+	StopRun(ctx context.Context, id string) (json.RawMessage, error)
+	ListRuns(ctx context.Context) (json.RawMessage, error)
 }
 
 // ClientFactory builds a client for an endpoint; tests substitute a fake.
@@ -105,6 +109,19 @@ func RunControl(ctx context.Context, mode Mode, args []string, newClient ClientF
 		out, err = runLimits(ctx, c, rest, stderr)
 		if errors.Is(err, errUsage) {
 			return 2
+		}
+	case ModeLoad:
+		out, err = runLoad(ctx, c, *endpoint, rest, stdout, stderr)
+		if errors.Is(err, errUsage) {
+			return 2
+		}
+		var failed errCommandFailed
+		if errors.As(err, &failed) {
+			// The run still has a summary; print it and pass the code on.
+			if len(out) > 0 {
+				fmt.Fprintln(stdout, string(out))
+			}
+			return failed.code
 		}
 	default:
 		fmt.Fprintf(stderr, "stratus: %q is not a control command\n", mode)

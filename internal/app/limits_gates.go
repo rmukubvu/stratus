@@ -6,6 +6,7 @@ import (
 
 	"github.com/stratus/internal/httpapi"
 	"github.com/stratus/internal/limits"
+	"github.com/stratus/internal/loadrun"
 	"github.com/stratus/internal/services/dynamodb"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 )
@@ -61,4 +62,14 @@ func (g concurrencyGate) Acquire(ctx context.Context, inv lambdasvc.Invocation) 
 		return release, &lambdasvc.ConcurrencyThrottle{Reason: breach.Reason}
 	}
 	return release, nil
+}
+
+// runObserver adapts load runs to the HTTP server's observer port.
+type runObserver struct{ runs *loadrun.Recorder }
+
+func (o runObserver) Observe(r httpapi.RequestOutcome) {
+	o.runs.Observe(loadrun.Observation{
+		Time: r.Time, Service: r.Service, Operation: r.Operation, Status: r.Status, Code: r.Code,
+		Duration: r.Duration, Fault: r.Fault, LimitRule: r.LimitRule,
+	})
 }

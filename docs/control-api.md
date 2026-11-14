@@ -111,6 +111,18 @@ DELETE /_stratus/control/v1/limits    turn limits off and return the final statu
 `GET` and `DELETE` answer `NoLimitsProfile` (404) when limits are off. See
 [limits.md](limits.md).
 
+## Load runs
+
+```
+POST /_stratus/control/v1/runs              start a run, optionally with limits and chaos
+GET  /_stratus/control/v1/runs              list runs, newest first
+GET  /_stratus/control/v1/runs/{id}         a run's summary and timeline (current, latest or an ID)
+POST /_stratus/control/v1/runs/{id}/stop    stop a run and undo its limits and chaos
+```
+
+A second start while a run records answers `RunInProgress` (409); an
+unknown run answers `NoSuchRun` (404). See [load.md](load.md).
+
 ## MSK clusters
 
 ```

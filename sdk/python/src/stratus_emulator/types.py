@@ -414,3 +414,69 @@ class DnsResolution(TypedDict):
     answers: List[DnsAnswer]
     #: False for NXDOMAIN or when the name has no records of that type.
     found: bool
+
+
+class LoadRunInput(TypedDict, total=False):
+    """A load run to start: its limits and chaos last until the run stops."""
+
+    name: str
+    limits: LimitsProfile
+    chaos: ChaosExperiment
+
+
+class LoadCounts(TypedDict):
+    """Requests by outcome; ``errors`` failed for reasons other than throttling or chaos."""
+
+    requests: int
+    ok: int
+    throttled: int
+    faults: int
+    errors: int
+    p50_ms: float
+    p95_ms: float
+    p99_ms: float
+    max_ms: float
+
+
+class LoadSecond(LoadCounts):
+    t: int
+
+
+class LoadOperation(LoadCounts):
+    service: str
+    operation: str
+
+
+class LoadTotals(LoadCounts):
+    per_second: float
+    throttle_rate: float
+    error_rate: float
+
+
+class _LoadRunSummaryBase(TypedDict):
+    id: str
+    status: str
+    started_at: str
+    duration_seconds: float
+    totals: LoadTotals
+    timeline: List[LoadSecond]
+    operations: List[LoadOperation]
+
+
+class LoadRunSummary(_LoadRunSummaryBase, total=False):
+    name: str
+    ended_at: str
+    limits: LimitsStatus
+    chaos: ChaosReport
+
+
+class _LoadRunInfoBase(TypedDict):
+    id: str
+    status: str
+    started_at: str
+    requests: int
+
+
+class LoadRunInfo(_LoadRunInfoBase, total=False):
+    name: str
+    ended_at: str

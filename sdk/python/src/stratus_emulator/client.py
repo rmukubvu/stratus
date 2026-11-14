@@ -24,6 +24,9 @@ from .types import (
     KafkaCluster,
     LimitsProfile,
     LimitsStatus,
+    LoadRunInfo,
+    LoadRunInput,
+    LoadRunSummary,
     ResetResult,
     SchedulerAdvance,
     SchedulerClock,
@@ -95,6 +98,47 @@ class Limits:
     def clear(self) -> LimitsStatus:
         """Turn limits off and return the final status."""
         return cast(LimitsStatus, self._t.request("DELETE", "/limits"))
+
+
+class LoadRecording:
+    """Handle yielded by :meth:`Runs.recording`; ``summary`` is the final summary after the block."""
+
+    def __init__(self, started: LoadRunSummary) -> None:
+        self.started = started
+        self.summary: Optional[LoadRunSummary] = None
+
+
+class Runs:
+    """Load runs: count every AWS request per second and per operation during a load test."""
+
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def start(self, run: Optional[LoadRunInput] = None) -> LoadRunSummary:
+        """Start recording. Raises RunInProgress if a run is already recording."""
+        return cast(LoadRunSummary, self._t.request("POST", "/runs", run or {}))
+
+    def status(self, run_id: str = "current") -> LoadRunSummary:
+        """A run's summary and timeline: ``current`` (default), ``latest`` or an ID."""
+        return cast(LoadRunSummary, self._t.request("GET", f"/runs/{urllib.parse.quote(run_id, safe='')}"))
+
+    def stop(self, run_id: str = "current") -> LoadRunSummary:
+        """Stop a run, undoing its limits and chaos, and return the final summary."""
+        return cast(LoadRunSummary, self._t.request("POST", f"/runs/{urllib.parse.quote(run_id, safe='')}/stop"))
+
+    def list(self) -> List[LoadRunInfo]:
+        """Recent runs, newest first."""
+        out = cast(Dict[str, Any], self._t.request("GET", "/runs"))
+        return cast(List[LoadRunInfo], out.get("runs") or [])
+
+    @contextmanager
+    def recording(self, run: Optional[LoadRunInput] = None) -> Iterator[LoadRecording]:
+        """Record the block as a load run and always stop it on exit."""
+        rec = LoadRecording(self.start(run))
+        try:
+            yield rec
+        finally:
+            rec.summary = self.stop(rec.started["id"])
 
 
 class Ses:
@@ -308,6 +352,7 @@ class StratusClient:
         self.snapshots = Snapshots(self._t)
         self.chaos = Chaos(self._t)
         self.limits = Limits(self._t)
+        self.runs = Runs(self._t)
         self.ses = Ses(self._t)
         self.scheduler = Scheduler(self._t)
         self.bedrock = Bedrock(self._t)

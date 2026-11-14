@@ -161,6 +161,30 @@ describe("StratusClient", () => {
     assert.deepEqual(f.calls[0]?.body, { profile: "strict" });
   });
 
+  test("runs start, status, stop and list call the runs endpoints", async () => {
+    const summary = { id: "run-1", status: "running", started_at: "t", duration_seconds: 0, totals: {}, timeline: [], operations: [] };
+    const f = fakeFetch({ status: 201, body: summary }, { body: summary }, { body: { ...summary, status: "finished" } }, { body: { runs: [] } });
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch: f.fetch });
+    assert.equal((await c.runs.start({ name: "load.js", limits: { profile: "strict" } })).id, "run-1");
+    await c.runs.status();
+    assert.equal((await c.runs.stop("run-1")).status, "finished");
+    assert.deepEqual(await c.runs.list(), []);
+    assert.deepEqual(
+      f.calls.map((x) => `${x.method} ${x.url.replace("http://stratus.test:4566/_stratus/control/v1", "")}`),
+      ["POST /runs", "GET /runs/current", "POST /runs/run-1/stop", "GET /runs"],
+    );
+    assert.deepEqual(f.calls[0]?.body, { name: "load.js", limits: { profile: "strict" } });
+  });
+
+  test("runs.during stops the run even when the test throws", async () => {
+    const summary = { id: "run-2", status: "running", started_at: "t", duration_seconds: 0, totals: {}, timeline: [], operations: [] };
+    const f = fakeFetch({ status: 201, body: summary }, { body: summary });
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch: f.fetch });
+    await assert.rejects(c.runs.during({}, () => Promise.reject(new Error("boom"))), /boom/);
+    assert.deepEqual(f.calls.map((x) => x.method), ["POST", "POST"]);
+    assert.ok(f.calls[1]?.url.endsWith("/runs/run-2/stop"));
+  });
+
   test("awsConfig points an AWS SDK at Stratus", () => {
     const c = new StratusClient({ endpoint: "http://localhost:4566", region: "eu-west-1" });
     assert.deepEqual(c.awsConfig(), {

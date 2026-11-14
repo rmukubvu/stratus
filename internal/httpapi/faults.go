@@ -97,6 +97,9 @@ func (s *Server) recordDropped(start time.Time, r *http.Request, md RequestMetad
 		"operation", md.Classification.Operation,
 		"path", r.URL.Path,
 	)
+	dropped := http.Header{}
+	dropped.Set(FaultHeader, "drop")
+	s.observe(start, md, 0, "ConnectionDropped", dropped)
 	if s.operator == nil {
 		return
 	}

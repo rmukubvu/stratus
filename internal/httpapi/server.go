@@ -116,6 +116,8 @@ type Options struct {
 	// Limits, when set, throttles requests that exceed the active limits
 	// profile's quotas, after faults and before authorization.
 	Limits LimitGate
+	// Observer is told about every finished AWS request; nil skips it.
+	Observer RequestObserver
 	// ColdStart discards a Lambda function's warm container. Used by the
 	// chaos cold_start action.
 	ColdStart func(ctx context.Context, functionName string) error
@@ -136,6 +138,7 @@ type Server struct {
 	gate       *control.Gate
 	faults     FaultDecider
 	limits     LimitGate
+	observer   RequestObserver
 	coldStart  func(ctx context.Context, functionName string) error
 	authorizer Authorizer
 }
@@ -158,6 +161,7 @@ func NewServer(opts Options) *Server {
 		gate:       opts.Gate,
 		faults:     opts.Faults,
 		limits:     opts.Limits,
+		observer:   opts.Observer,
 		coldStart:  opts.ColdStart,
 	}
 }
@@ -260,6 +264,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	s.observe(start, metadata, recorder.statusCode, errorCode(apiErr), recorder.Header())
 	durationMS := time.Since(start).Milliseconds()
 	s.logger.Info("request complete",
 		"request_id", metadata.RequestID,

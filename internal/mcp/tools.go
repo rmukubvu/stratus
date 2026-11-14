@@ -25,6 +25,9 @@ type ControlAPI interface {
 	SetLimits(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
 	LimitsStatus(ctx context.Context) (json.RawMessage, error)
 	ClearLimits(ctx context.Context) (json.RawMessage, error)
+	StartRun(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
+	GetRun(ctx context.Context, id string) (json.RawMessage, error)
+	StopRun(ctx context.Context, id string) (json.RawMessage, error)
 	Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error)
 	SESMessages(ctx context.Context, query url.Values) (json.RawMessage, error)
 	SchedulerAdvance(ctx context.Context, by, to string) (json.RawMessage, error)
@@ -320,6 +323,45 @@ func Tools(api ControlAPI) []Tool {
 			InputSchema: schema(map[string]any{}),
 			Handler: func(ctx context.Context, _ json.RawMessage) (any, error) {
 				return api.ClearLimits(ctx)
+			},
+		},
+		{
+			Name: "stratus_load_start",
+			Description: "Start recording a load run before driving traffic (for example with k6). Stratus counts every AWS request per second and per operation: " +
+				"ok, throttled, failed by chaos, failed for real, and p50/p95/p99 latency. limits (a stratus_limits_set profile) and chaos (a stratus_chaos_start experiment) " +
+				"are applied for the run and undone when it stops. One run records at a time.",
+			InputSchema: schema(map[string]any{
+				"name":   str("Label for the run, such as the load script."),
+				"limits": map[string]any{"type": "object", "description": "Limits profile for the run, as stratus_limits_set takes it."},
+				"chaos":  map[string]any{"type": "object", "description": "Chaos experiment for the run, as stratus_chaos_start takes it."},
+			}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				return api.StartRun(ctx, raw)
+			},
+		},
+		{
+			Name:        "stratus_load_status",
+			Description: "Report a load run: totals, a per-second timeline and the busiest operations, with live limits and chaos counters. id defaults to the current run; latest is the last finished one.",
+			InputSchema: schema(map[string]any{"id": str("Run ID, current or latest.")}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var in struct {
+					ID string `json:"id"`
+				}
+				if err := json.Unmarshal(raw, &in); err != nil {
+					return nil, err
+				}
+				if in.ID == "" {
+					in.ID = "current"
+				}
+				return api.GetRun(ctx, in.ID)
+			},
+		},
+		{
+			Name:        "stratus_load_stop",
+			Description: "Stop the current load run, clear the limits and chaos it set up, and return its final summary.",
+			InputSchema: schema(map[string]any{}),
+			Handler: func(ctx context.Context, _ json.RawMessage) (any, error) {
+				return api.StopRun(ctx, "current")
 			},
 		},
 		{
