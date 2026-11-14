@@ -174,3 +174,26 @@ func TestParseSince(t *testing.T) {
 		}
 	}
 }
+
+func TestLimitBreachesAreExplainedAndNeverExcluded(t *testing.T) {
+	now := time.Now()
+	failures := []Failure{
+		{Time: now, RequestID: "lim", Service: "ssm", Operation: "GetParameter", Status: 400, Code: "ThrottlingException"},
+		{Time: now, RequestID: "chaos", Service: "ssm", Operation: "GetParameter", Status: 400, Code: "ThrottlingException"},
+	}
+	injected := map[string]Injection{
+		"lim":   {RuleID: "ssm-get-parameters", Action: "rate", Source: SourceLimit},
+		"chaos": {RuleID: "throttle-ssm", Action: "throttle"},
+	}
+	r := Diagnose(failures, injected, Options{ExcludeInjected: true})
+	if r.Failures != 1 || len(r.Groups) != 1 {
+		t.Fatalf("got %d failures in %d groups, want the limit breach only", r.Failures, len(r.Groups))
+	}
+	g := r.Groups[0]
+	if g.Category != CategoryLimit || g.YourBug || !strings.Contains(g.LikelyCause, "ssm-get-parameters") {
+		t.Fatalf("unexpected group: %+v", g)
+	}
+	if r.Healthy || !strings.Contains(r.Summary, "limits-profile quota") {
+		t.Fatalf("unexpected summary: %q (healthy=%v)", r.Summary, r.Healthy)
+	}
+}

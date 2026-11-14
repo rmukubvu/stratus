@@ -453,6 +453,20 @@ do against AWS. See [docs/chaos.md](docs/chaos.md).
 Already have AWS Fault Injection Service templates? Point the FIS SDK or
 `aws fis` at Stratus and run them unchanged; see [docs/fis.md](docs/fis.md).
 
+## AWS Limits
+
+Load-test against AWS's quotas instead of an emulator with none. A limits
+profile throttles the application the way AWS would, with the same errors,
+and a scale factor brings real quotas down to the load a laptop can drive:
+
+```sh
+stratus serve --limits strict      # or: stratus limits set ./limits.json
+k6 run load.js                     # drive your app; it calls Stratus
+stratus diagnose                   # throttles show up as limit_exceeded
+```
+
+See [docs/limits.md](docs/limits.md).
+
 ## AI Coding Agents
 
 `stratus mcp` is an MCP server, so agents get health, reset, snapshots, chaos

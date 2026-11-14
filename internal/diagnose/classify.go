@@ -27,6 +27,9 @@ const (
 	CategoryConflict Category = "conflict"
 	// CategoryInvalidRequest failures were rejected as malformed.
 	CategoryInvalidRequest Category = "invalid_request"
+	// CategoryLimit failures were throttled by the active limits profile,
+	// as AWS would throttle them at this load.
+	CategoryLimit Category = "limit_exceeded"
 	// CategoryThrottling failures were rate limited.
 	CategoryThrottling Category = "throttling"
 	// CategoryAuth failures were rejected for identity or permission reasons.
@@ -174,6 +177,20 @@ var listCommands = map[string]string{
 func listHint(service string) string { return listCommands[service] }
 
 // explainInjected describes a failure that a chaos rule caused.
+// explainLimit explains a throttle from the limits profile.
+func explainLimit(ruleID, kind string) Explanation {
+	what := "request rate"
+	if kind == "concurrency" {
+		what = "concurrency"
+	}
+	return Explanation{
+		Category:    CategoryLimit,
+		LikelyCause: fmt.Sprintf("the request exceeded the %s quota of limits rule %q, as it would in AWS at this load; the throttle itself is expected", what, ruleID),
+		NextStep:    "check the caller retried with backoff (AWS SDKs do by default); if the work still failed, add retries, batch or cache the calls, or put a queue in front; raise the quota in the profile only if AWS would allow it (`stratus limits status` shows the rule)",
+		YourBug:     false,
+	}
+}
+
 func explainInjected(ruleID, action string) Explanation {
 	next := "this is expected during a chaos experiment; check that the code under test handles it"
 	switch action {

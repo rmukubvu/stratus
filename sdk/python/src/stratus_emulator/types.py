@@ -12,6 +12,7 @@ ChaosAction = Literal[
 ChaosScope = Literal["api", "event", "all"]
 FailureCategory = Literal[
     "injected_fault",
+    "limit_exceeded",
     "unsupported_operation",
     "missing_resource",
     "conflict",
@@ -139,6 +140,59 @@ class _ChaosReportBase(TypedDict):
 class ChaosReport(_ChaosReportBase, total=False):
     ends_at: str
     duration_seconds: int
+
+
+LimitsBase = Literal["aws-default", "strict", "none"]
+
+
+class RateRule(TypedDict, total=False):
+    """A request-rate quota; a rule with a base rule's id replaces it."""
+
+    id: str
+    service: str
+    operations: List[str]
+    per_second: float
+    burst_seconds: float
+    per: Literal["account", "resource", "prefix"]
+    disabled: bool
+
+
+class LimitsProfile(TypedDict, total=False):
+    profile: LimitsBase
+    scale: float
+    rates: List[RateRule]
+
+
+class LimitBreach(TypedDict, total=False):
+    time: str
+    rule_id: str
+    kind: Literal["rate", "concurrency"]
+    key: str
+    limit: float
+    request_id: str
+    service: str
+    operation: str
+    resource: str
+
+
+class LimitsRuleStatus(TypedDict):
+    rule: RateRule
+    effective_per_second: float
+    admitted: int
+    throttled: int
+
+
+class _LimitsStatusBase(TypedDict):
+    profile: LimitsBase
+    scale: float
+    applied_at: str
+    rules: List[LimitsRuleStatus]
+    total_throttled: int
+    recent_breaches: List[LimitBreach]
+
+
+class LimitsStatus(_LimitsStatusBase, total=False):
+    concurrency: List[Dict[str, Any]]
 
 
 class DiagnosisGroup(TypedDict, total=False):

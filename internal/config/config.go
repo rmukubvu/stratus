@@ -21,6 +21,10 @@ type Config struct {
 	// Seed is an optional snapshot directory used to initialise an empty
 	// data directory at startup.
 	Seed string
+	// Limits applies a limits profile at startup: a base profile name
+	// (aws-default, strict) or the path of a JSON profile. Empty falls
+	// back to STRATUS_LIMITS; both empty leaves limits off.
+	Limits string
 }
 
 func RegisterFlags(fs *flag.FlagSet) *Config {
@@ -30,6 +34,7 @@ func RegisterFlags(fs *flag.FlagSet) *Config {
 	fs.StringVar(&cfg.LogLevel, "log-level", defaultLogLevel, "Log level: debug, info, warn, error")
 	fs.StringVar(&cfg.LogFormat, "log-format", defaultLogFormat, "Log format: auto, json, pretty")
 	fs.StringVar(&cfg.Seed, "seed", "", "Snapshot directory to initialise an empty data dir from")
+	fs.StringVar(&cfg.Limits, "limits", "", "Limits profile to apply at startup: aws-default, strict or a JSON file (default $STRATUS_LIMITS)")
 	return cfg
 }
 

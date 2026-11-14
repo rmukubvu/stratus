@@ -20,11 +20,25 @@ type Failure struct {
 	Message   string
 }
 
-// Injection says a chaos rule caused a request's failure.
+// Injection says what Stratus did on purpose to fail a request: a chaos
+// rule injected a fault, or the limits profile throttled it.
 type Injection struct {
 	RuleID string
 	Action string
+	// Source is SourceChaos (the zero value) or SourceLimit.
+	Source Source
 }
+
+// Source says which Stratus feature failed a request on purpose.
+type Source string
+
+const (
+	// SourceChaos is a fault injected by a chaos rule.
+	SourceChaos Source = ""
+	// SourceLimit is a throttle from the active limits profile: what AWS
+	// would do at this load, not a fault.
+	SourceLimit Source = "limit"
+)
 
 // Group is a set of failures with the same service, operation and code.
 type Group struct {
@@ -86,7 +100,7 @@ func Diagnose(failures []Failure, injected map[string]Injection, opts Options) R
 			continue
 		}
 		inj, wasInjected := injected[f.RequestID]
-		if wasInjected && opts.ExcludeInjected {
+		if wasInjected && inj.Source == SourceChaos && opts.ExcludeInjected {
 			continue
 		}
 
@@ -97,9 +111,12 @@ func Diagnose(failures []Failure, injected map[string]Injection, opts Options) R
 		g, ok := groups[key]
 		if !ok {
 			var exp Explanation
-			if wasInjected {
+			switch {
+			case wasInjected && inj.Source == SourceLimit:
+				exp = explainLimit(inj.RuleID, inj.Action)
+			case wasInjected:
 				exp = explainInjected(inj.RuleID, inj.Action)
-			} else {
+			default:
 				exp = explain(failure{service: f.Service, operation: f.Operation, code: f.Code, message: f.Message, status: f.Status})
 			}
 			g = &Group{
@@ -168,7 +185,7 @@ func (g *Group) add(f Failure) {
 
 var categoryOrder = []Category{
 	CategoryEmulator, CategoryUnsupported, CategoryMissingResource, CategoryConflict,
-	CategoryInvalidRequest, CategoryAuth, CategoryThrottling, CategoryConnection,
+	CategoryInvalidRequest, CategoryAuth, CategoryLimit, CategoryThrottling, CategoryConnection,
 	CategoryClient, CategoryInjected,
 }
 
@@ -179,6 +196,7 @@ var categoryLabel = map[Category]string{
 	CategoryConflict:        "conflict",
 	CategoryInvalidRequest:  "invalid request",
 	CategoryAuth:            "auth failure",
+	CategoryLimit:           "over a limits-profile quota",
 	CategoryThrottling:      "throttled",
 	CategoryConnection:      "dropped connection",
 	CategoryClient:          "other client error",

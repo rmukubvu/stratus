@@ -35,6 +35,13 @@ func (f *fakeAPI) StartChaos(_ context.Context, spec json.RawMessage) (json.RawM
 }
 func (f *fakeAPI) ChaosReport(context.Context) (json.RawMessage, error) { return f.rec("chaos-status") }
 func (f *fakeAPI) StopChaos(context.Context) (json.RawMessage, error)   { return f.rec("chaos-stop") }
+func (f *fakeAPI) SetLimits(_ context.Context, spec json.RawMessage) (json.RawMessage, error) {
+	return f.rec("limits-set " + string(spec))
+}
+func (f *fakeAPI) LimitsStatus(context.Context) (json.RawMessage, error) {
+	return f.rec("limits-status")
+}
+func (f *fakeAPI) ClearLimits(context.Context) (json.RawMessage, error) { return f.rec("limits-clear") }
 func (f *fakeAPI) Diagnose(_ context.Context, q url.Values) (json.RawMessage, error) {
 	return f.rec("diagnose " + q.Encode())
 }
@@ -90,6 +97,9 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_chaos_start", `{"rules":[{"service":"s3","action":"drop"}]}`, `chaos-start {"rules":[{"service":"s3","action":"drop"}]}`},
 		{"stratus_chaos_status", `{}`, "chaos-status"},
 		{"stratus_chaos_stop", `{}`, "chaos-stop"},
+		{"stratus_limits_set", `{"profile":"strict","scale":0.5}`, `limits-set {"profile":"strict","scale":0.5}`},
+		{"stratus_limits_status", `{}`, "limits-status"},
+		{"stratus_limits_clear", `{}`, "limits-clear"},
 		{"stratus_diagnose", `{"since":"5m","service":"sqs","exclude_injected":true,"max_groups":3}`, "diagnose exclude_injected=true&max_groups=3&service=sqs&since=5m"},
 		{"stratus_ses_inbox", `{}`, "ses-messages "},
 		{"stratus_ses_inbox", `{"to":"ada@b.example","subject":"Welcome","since":"5m","limit":2}`, "ses-messages limit=2&since=5m&subject=Welcome&to=ada%40b.example"},

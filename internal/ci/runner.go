@@ -26,6 +26,8 @@ type Options struct {
 	Command []string
 	// Seed is an optional snapshot directory to start from.
 	Seed string
+	// Limits is an optional limits profile: a base name or a JSON file.
+	Limits string
 	// KeepData leaves the data directory on disk for debugging.
 	KeepData bool
 	// LogLevel for the Stratus server.
@@ -43,6 +45,7 @@ type ServerConfig struct {
 	DataDir  string
 	Seed     string
 	LogLevel string
+	Limits   string
 }
 
 // Server is a running Stratus instance.
@@ -97,7 +100,7 @@ func (r Runner) Run(ctx context.Context, opts Options) (code int, err error) {
 		}
 	}()
 
-	server, err := r.Start(ctx, ServerConfig{DataDir: dataDir, Seed: opts.Seed, LogLevel: opts.LogLevel})
+	server, err := r.Start(ctx, ServerConfig{DataDir: dataDir, Seed: opts.Seed, LogLevel: opts.LogLevel, Limits: opts.Limits})
 	if err != nil {
 		return ExitRunnerFailed, fmt.Errorf("start stratus: %w", err)
 	}

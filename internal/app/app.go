@@ -19,6 +19,7 @@ import (
 	"github.com/stratus/internal/control"
 	"github.com/stratus/internal/diagnose"
 	"github.com/stratus/internal/httpapi"
+	"github.com/stratus/internal/limits"
 	"github.com/stratus/internal/operator"
 	"github.com/stratus/internal/services/bedrock"
 	"github.com/stratus/internal/services/iam"
@@ -78,6 +79,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	chaosEngine := chaos.NewEngine(control.DefaultCatalog().Names(), nil)
+	governor, err := newGovernor(cfg, logger)
+	if err != nil {
+		return nil, err
+	}
 	blobStore := fsblob.New(blobRoot)
 	iamKeys := iam.NewKeyDirectory(metaStore)
 	stsService := sts.NewService(metaStore, iamKeys)
@@ -129,6 +134,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	// brokers, DNS) serve the default account and region.
 	controlHandler := control.NewHandler(controlService)
 	chaos.RegisterRoutes(controlHandler, chaosEngine)
+	limits.RegisterRoutes(controlHandler, governor)
 	ses.RegisterRoutes(controlHandler, defaults.ses)
 	scheduler.RegisterRoutes(controlHandler, defaults.scheduler)
 	bedrock.RegisterRoutes(controlHandler, defaults.services.Bedrock)
@@ -136,7 +142,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	route53.RegisterRoutes(controlHandler, defaults.route53)
 	diagnose.RegisterRoutes(controlHandler, diagnose.NewService(
 		failuresFrom(operatorStore),
-		injectionsFrom(chaosEngine),
+		attributionsFrom(chaosEngine, governor),
 		nil,
 	))
 
@@ -150,6 +156,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Control:    controlHandler,
 		Gate:       controlService.Gate(),
 		Faults:     chaosEngine,
+		Limits:     governor,
 		ColdStart:  lambdaRuntime.CleanupFunction,
 	})
 
@@ -292,11 +299,18 @@ func failuresFrom(store *operator.Store) diagnose.FailureSource {
 	}
 }
 
-// injectionsFrom adapts chaos hits to the diagnosis port.
-func injectionsFrom(engine *chaos.Engine) diagnose.InjectionSource {
+// attributionsFrom adapts chaos hits and limit breaches to the diagnosis
+// port, so a failure Stratus caused on purpose is explained as such.
+func attributionsFrom(engine *chaos.Engine, governor *limits.Governor) diagnose.InjectionSource {
 	return func() map[string]diagnose.Injection {
 		hits := engine.Hits()
-		out := make(map[string]diagnose.Injection, len(hits))
+		breaches := governor.Breaches()
+		out := make(map[string]diagnose.Injection, len(hits)+len(breaches))
+		for _, b := range breaches {
+			if b.RequestID != "" {
+				out[b.RequestID] = diagnose.Injection{RuleID: b.RuleID, Action: string(b.Kind), Source: diagnose.SourceLimit}
+			}
+		}
 		for _, h := range hits {
 			// Latency and cold starts don't fail a request by themselves, so
 			// a failure after one of them is not attributed to chaos. Event
@@ -308,4 +322,24 @@ func injectionsFrom(engine *chaos.Engine) diagnose.InjectionSource {
 		}
 		return out
 	}
+}
+
+// newGovernor builds the limits governor and applies the startup profile
+// from --limits or STRATUS_LIMITS, if any.
+func newGovernor(cfg config.Config, logger *slog.Logger) (*limits.Governor, error) {
+	governor := limits.NewGovernor(control.DefaultCatalog().Names(), nil)
+	setting := cfg.Limits
+	if setting == "" {
+		setting = os.Getenv("STRATUS_LIMITS")
+	}
+	spec, ok, err := limits.ParseSetting(setting, os.ReadFile)
+	if err != nil || !ok {
+		return governor, err
+	}
+	status, err := governor.Apply(spec)
+	if err != nil {
+		return nil, fmt.Errorf("limits profile: %w", err)
+	}
+	logger.Info("limits profile applied", "profile", status.Profile, "scale", status.Scale, "rules", len(status.Rules))
+	return governor, nil
 }
