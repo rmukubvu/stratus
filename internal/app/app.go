@@ -100,10 +100,11 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 			Mode:       bedrockConfig.Mode,
 			Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
 		}),
-		sts:     stsService,
-		iamKeys: iamKeys,
-		getenv:  os.Getenv,
-		logger:  logger,
+		sts:      stsService,
+		iamKeys:  iamKeys,
+		getenv:   os.Getenv,
+		logger:   logger,
+		capacity: capacityGate{governor: governor},
 	})
 	defaults := stacks.Default()
 	if err := stacks.Restore(); err != nil {

@@ -89,4 +89,7 @@ type Breach struct {
 	Service   string    `json:"service"`
 	Operation string    `json:"operation,omitempty"`
 	Resource  string    `json:"resource,omitempty"`
+	// Reason refines a capacity breach, as DynamoDB's ThrottlingReasons
+	// do: TableWriteKeyRangeThroughputExceeded and the like.
+	Reason string `json:"reason,omitempty"`
 }

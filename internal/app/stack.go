@@ -67,6 +67,8 @@ type platform struct {
 	iamKeys *iam.KeyDirectory
 	getenv  func(string) string
 	logger  *slog.Logger
+	// capacity enforces DynamoDB table capacity; nil leaves it off.
+	capacity dynamodb.CapacityGate
 }
 
 // accountServices are global AWS services: one instance per account, shared
@@ -281,6 +283,7 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 	lambdaService.SetTopicPublisher(snsService)
 	streamsService.SetLambda(lambdaService)
 	dynamoDBService.SetStreams(streamsService)
+	dynamoDBService.SetCapacity(p.capacity)
 	eventsService.SetSNS(snsService)
 	eventsService.SetSQS(sqsService)
 	eventsService.SetStepFunctions(stepFunctionsService)

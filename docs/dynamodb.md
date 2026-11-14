@@ -27,5 +27,14 @@ PartiQL (`ExecuteStatement`, `BatchExecuteStatement`, `ExecuteTransaction`),
 on-demand backups and restores, global tables, imports and exports, resource
 policies, and the legacy `Expected`, `AttributeUpdates`, `KeyConditions`,
 `QueryFilter` and `ScanFilter` parameters. Calls to these get an error that
-names what is missing. Capacity is reported but never throttles writes; use
-[chaos rules](chaos.md) to test throttling.
+names what is missing.
+
+## Capacity and throttling
+
+Capacity is reported and, by default, never throttles. Apply a limits
+profile (`stratus limits set aws-default`) to enforce provisioned and
+on-demand table capacity and per-partition limits, with
+`ProvisionedThroughputExceededException`, `UnprocessedItems` and
+`ThrottlingError` cancellations as DynamoDB returns them; see
+[limits.md](limits.md#dynamodb-capacity). [Chaos rules](chaos.md) inject
+throttles regardless of load.

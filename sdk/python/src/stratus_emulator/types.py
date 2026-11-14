@@ -157,18 +157,43 @@ class RateRule(TypedDict, total=False):
     disabled: bool
 
 
+class DynamoDBCapacity(TypedDict, total=False):
+    """DynamoDB table capacity: partitions, on-demand maximums and burst."""
+
+    disabled: bool
+    partition_read_units: float
+    partition_write_units: float
+    on_demand_read_units: float
+    on_demand_write_units: float
+    burst_seconds: float
+    tables: Dict[str, Dict[str, int]]
+
+
 class LimitsProfile(TypedDict, total=False):
     profile: LimitsBase
     scale: float
     rates: List[RateRule]
+    dynamodb: DynamoDBCapacity
+
+
+class TableCapacityStatus(TypedDict):
+    table: str
+    account: str
+    region: str
+    partitions: int
+    read_units: float
+    write_units: float
+    read_throttled: int
+    write_throttled: int
 
 
 class LimitBreach(TypedDict, total=False):
     time: str
     rule_id: str
-    kind: Literal["rate", "concurrency"]
+    kind: Literal["rate", "concurrency", "capacity"]
     key: str
     limit: float
+    reason: str
     request_id: str
     service: str
     operation: str
@@ -193,6 +218,8 @@ class _LimitsStatusBase(TypedDict):
 
 class LimitsStatus(_LimitsStatusBase, total=False):
     concurrency: List[Dict[str, Any]]
+    dynamodb: DynamoDBCapacity
+    capacity: List[TableCapacityStatus]
 
 
 class DiagnosisGroup(TypedDict, total=False):

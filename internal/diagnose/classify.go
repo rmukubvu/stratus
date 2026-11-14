@@ -179,6 +179,22 @@ func listHint(service string) string { return listCommands[service] }
 // explainInjected describes a failure that a chaos rule caused.
 // explainLimit explains a throttle from the limits profile.
 func explainLimit(ruleID, kind string) Explanation {
+	switch ruleID {
+	case "dynamodb-partition-capacity":
+		return Explanation{
+			Category:    CategoryLimit,
+			LikelyCause: "one DynamoDB partition ran out of capacity while the table had room: a hot partition key, as it would be in AWS",
+			NextStep:    "spread writes across more partition key values (add a suffix or shard the key), cache hot reads, and retry throttled requests and UnprocessedItems with backoff",
+			YourBug:     false,
+		}
+	case "dynamodb-table-capacity":
+		return Explanation{
+			Category:    CategoryLimit,
+			LikelyCause: "the DynamoDB table used up its provisioned (or on-demand maximum) capacity, as it would in AWS at this load",
+			NextStep:    "retry with backoff and resubmit UnprocessedItems; raise the table's capacity, switch it to on-demand, or smooth the load with a queue",
+			YourBug:     false,
+		}
+	}
 	what := "request rate"
 	if kind == "concurrency" {
 		what = "concurrency"

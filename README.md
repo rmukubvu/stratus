@@ -465,6 +465,10 @@ k6 run load.js                     # drive your app; it calls Stratus
 stratus diagnose                   # throttles show up as limit_exceeded
 ```
 
+DynamoDB tables throttle on provisioned capacity, on-demand maximums and
+hot partition keys, with `UnprocessedItems` from batches and
+`ThrottlingError` from transactions.
+
 See [docs/limits.md](docs/limits.md).
 
 ## AI Coding Agents
