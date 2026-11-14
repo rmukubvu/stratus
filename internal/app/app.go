@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/stratus/internal/authz"
@@ -87,6 +88,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	iamKeys := iam.NewKeyDirectory(metaStore)
 	stsService := sts.NewService(metaStore, iamKeys)
 	lambdaRuntime.SetCredentialIssuer(stsService)
+	if n := lambdaContainers(cfg); n > 0 {
+		lambdaRuntime.SetMaxContainers(n)
+	}
+	governor.SetEmulatorStats(func() any { return map[string]any{"lambda": lambdaRuntime.PoolStats()} })
 	stacks := newStacks(platform{
 		meta:    metaStore,
 		blobs:   blobStore,
@@ -100,11 +105,12 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 			Mode:       bedrockConfig.Mode,
 			Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
 		}),
-		sts:      stsService,
-		iamKeys:  iamKeys,
-		getenv:   os.Getenv,
-		logger:   logger,
-		capacity: capacityGate{governor: governor},
+		sts:         stsService,
+		iamKeys:     iamKeys,
+		getenv:      os.Getenv,
+		logger:      logger,
+		capacity:    capacityGate{governor: governor},
+		concurrency: concurrencyGate{governor: governor},
 	})
 	defaults := stacks.Default()
 	if err := stacks.Restore(); err != nil {
@@ -323,6 +329,16 @@ func attributionsFrom(engine *chaos.Engine, governor *limits.Governor) diagnose.
 		}
 		return out
 	}
+}
+
+// lambdaContainers reads --lambda-containers, then
+// STRATUS_LAMBDA_CONTAINERS; zero keeps the default.
+func lambdaContainers(cfg config.Config) int {
+	if cfg.LambdaContainers > 0 {
+		return cfg.LambdaContainers
+	}
+	n, _ := strconv.Atoi(os.Getenv("STRATUS_LAMBDA_CONTAINERS"))
+	return n
 }
 
 // newGovernor builds the limits governor and applies the startup profile

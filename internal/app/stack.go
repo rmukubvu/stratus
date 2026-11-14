@@ -69,6 +69,8 @@ type platform struct {
 	logger  *slog.Logger
 	// capacity enforces DynamoDB table capacity; nil leaves it off.
 	capacity dynamodb.CapacityGate
+	// concurrency enforces Lambda concurrency; nil leaves it off.
+	concurrency lambdasvc.ConcurrencyGate
 }
 
 // accountServices are global AWS services: one instance per account, shared
@@ -294,6 +296,7 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 	schedulerService.SetStepFunctions(stepFunctionsService)
 
 	lambdaService.SetFaults(p.faults)
+	lambdaService.SetConcurrency(p.concurrency)
 	snsService.SetFaults(p.faults)
 	eventsService.SetFaults(p.faults)
 	stepFunctionsService.SetFaults(p.faults)

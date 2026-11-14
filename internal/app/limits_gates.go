@@ -7,6 +7,7 @@ import (
 	"github.com/stratus/internal/httpapi"
 	"github.com/stratus/internal/limits"
 	"github.com/stratus/internal/services/dynamodb"
+	lambdasvc "github.com/stratus/internal/services/lambda"
 )
 
 // capacityGate adapts the limits governor to DynamoDB's capacity port.
@@ -40,4 +41,24 @@ func (g capacityGate) Consume(ctx context.Context, demands []dynamodb.CapacityDe
 		}
 	}
 	return out
+}
+
+// concurrencyGate adapts the limits governor to Lambda's concurrency port.
+type concurrencyGate struct{ governor *limits.Governor }
+
+func (g concurrencyGate) Acquire(ctx context.Context, inv lambdasvc.Invocation) (func(), *lambdasvc.ConcurrencyThrottle) {
+	if !g.governor.Enabled() {
+		return func() {}, nil
+	}
+	release, breach := g.governor.AcquireFunction(limits.FunctionRequest{
+		Request: limits.Request{
+			RequestID: httpapi.MetadataFromContext(ctx).RequestID, Account: inv.Account, Region: inv.Region,
+			Service: "lambda", Operation: "Invoke", Resource: inv.Function,
+		},
+		Reserved: inv.Reserved, ReservedTotal: inv.ReservedTotal,
+	})
+	if breach != nil {
+		return release, &lambdasvc.ConcurrencyThrottle{Reason: breach.Reason}
+	}
+	return release, nil
 }

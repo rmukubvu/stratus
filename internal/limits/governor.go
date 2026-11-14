@@ -51,6 +51,9 @@ type Governor struct {
 
 	mu    sync.Mutex
 	sinks []BreachSink
+	// emulator reports how loaded Stratus itself is, so a status can tell
+	// AWS's limits apart from the emulator's own.
+	emulator func() any
 	// lastBreaches keeps the breaches of the profile most recently
 	// cleared, so failures can still be explained after it ends.
 	lastBreaches []Breach
@@ -70,6 +73,21 @@ func NewGovernor(knownServices []string, clock Clock) *Governor {
 		clock = systemClock{}
 	}
 	return &Governor{known: known, clock: clock}
+}
+
+// SetEmulatorStats installs a report of Stratus's own load (such as its
+// Lambda containers) that Status includes.
+func (g *Governor) SetEmulatorStats(stats func() any) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.emulator = stats
+}
+
+func (g *Governor) withEmulator(s Status) Status {
+	if g.emulator != nil {
+		s.Emulator = g.emulator()
+	}
+	return s
 }
 
 // Subscribe adds a sink that receives every breach from now on.
@@ -98,7 +116,7 @@ func (g *Governor) Apply(spec Spec) (Status, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.active.Store(st)
-	return st.status(), nil
+	return g.withEmulator(st.status()), nil
 }
 
 // Clear turns limits off and returns the final status.
@@ -109,7 +127,7 @@ func (g *Governor) Clear() (Status, error) {
 	if st == nil {
 		return Status{}, noProfile()
 	}
-	status := st.status()
+	status := g.withEmulator(st.status())
 	g.lastBreaches = st.breaches
 	g.active.Store(nil)
 	return status, nil
@@ -123,7 +141,7 @@ func (g *Governor) Status() (Status, error) {
 	if st == nil {
 		return Status{}, noProfile()
 	}
-	return st.status(), nil
+	return g.withEmulator(st.status()), nil
 }
 
 // Enabled reports whether a profile is active.
@@ -195,6 +213,10 @@ func (g *Governor) Admit(req Request) *Breach {
 // breach when the quota is full. With no profile active it always
 // succeeds. Release is idempotent.
 func (g *Governor) Acquire(key QuotaKey, max int, req Request) (release func(), breach *Breach) {
+	return g.acquire(key, max, req, "")
+}
+
+func (g *Governor) acquire(key QuotaKey, max int, req Request, reason string) (release func(), breach *Breach) {
 	noop := func() {}
 	if g.active.Load() == nil {
 		return noop, nil
@@ -221,7 +243,7 @@ func (g *Governor) Acquire(key QuotaKey, max int, req Request) (release func(), 
 		b := Breach{
 			Time: g.clock.Now().UTC(), RuleID: key.RuleID, Kind: KindConcurrency, Key: key.String(),
 			Limit: float64(max), RequestID: req.RequestID,
-			Service: req.Service, Operation: req.Operation, Resource: req.Resource,
+			Service: req.Service, Operation: req.Operation, Resource: req.Resource, Reason: reason,
 		}
 		st.record(b)
 		sinks := g.sinks

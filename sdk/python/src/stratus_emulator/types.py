@@ -169,11 +169,25 @@ class DynamoDBCapacity(TypedDict, total=False):
     tables: Dict[str, Dict[str, int]]
 
 
-class LimitsProfile(TypedDict, total=False):
-    profile: LimitsBase
-    scale: float
-    rates: List[RateRule]
-    dynamodb: DynamoDBCapacity
+class LambdaConcurrency(TypedDict, total=False):
+    """Lambda concurrency: the account's concurrent executions."""
+
+    disabled: bool
+    account_concurrency: float
+
+
+# "lambda" is a Python keyword, so this TypedDict uses the functional form.
+LimitsProfile = TypedDict(
+    "LimitsProfile",
+    {
+        "profile": LimitsBase,
+        "scale": float,
+        "rates": List[RateRule],
+        "dynamodb": DynamoDBCapacity,
+        "lambda": LambdaConcurrency,
+    },
+    total=False,
+)
 
 
 class TableCapacityStatus(TypedDict):
@@ -220,6 +234,7 @@ class LimitsStatus(_LimitsStatusBase, total=False):
     concurrency: List[Dict[str, Any]]
     dynamodb: DynamoDBCapacity
     capacity: List[TableCapacityStatus]
+    emulator: Dict[str, Any]
 
 
 class DiagnosisGroup(TypedDict, total=False):

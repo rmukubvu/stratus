@@ -52,6 +52,9 @@ type Spec struct {
 	// DynamoDB tunes table capacity. The aws-default and strict bases
 	// enforce it with AWS's defaults; the none base only when this is set.
 	DynamoDB *DynamoDBSpec `json:"dynamodb,omitempty"`
+	// Lambda tunes concurrency. The aws-default and strict bases enforce
+	// it with AWS's defaults; the none base only when this is set.
+	Lambda *LambdaSpec `json:"lambda,omitempty"`
 }
 
 // Profile is a resolved, validated set of quotas.
@@ -63,6 +66,8 @@ type Profile struct {
 	Rates []RateRule `json:"rates"`
 	// DynamoDB is the table capacity model; nil when it is off.
 	DynamoDB *DynamoDBSpec `json:"dynamodb,omitempty"`
+	// Lambda is the concurrency model; nil when it is off.
+	Lambda *LambdaSpec `json:"lambda,omitempty"`
 }
 
 // EffectiveRate is a rule's rate per second after scaling.
@@ -146,10 +151,14 @@ func Resolve(spec Spec, known map[string]bool) (Profile, error) {
 	if err != nil {
 		return Profile{}, err
 	}
-	if len(active) == 0 && dynamo == nil {
+	lambda, err := resolveLambda(name, spec.Lambda)
+	if err != nil {
+		return Profile{}, err
+	}
+	if len(active) == 0 && dynamo == nil && lambda == nil {
 		return Profile{}, invalid("InvalidLimitsProfile", "the profile has no active rules")
 	}
-	return Profile{Name: name, Scale: scale, Rates: active, DynamoDB: dynamo}, nil
+	return Profile{Name: name, Scale: scale, Rates: active, DynamoDB: dynamo, Lambda: lambda}, nil
 }
 
 // resolveDynamoDB builds the table capacity model: on by default for the

@@ -168,6 +168,9 @@ var restPrefixToService = map[string]string{
 	"/2020-06-30/functions":             "lambda",
 	"/2015-03-31/event-source-mappings": "lambda",
 	"/2018-10-31/layers":                "lambda",
+	"/2017-10-31/functions":             "lambda",
+	"/2019-09-30/functions":             "lambda",
+	"/2016-08-19/account-settings":      "lambda",
 	"/restapis":                         "apigateway",
 	"/_aws/restapis/":                   "apigateway",
 	"/v2/apis":                          "apigatewayv2",
@@ -521,6 +524,14 @@ func classifyS3Operation(r *http.Request, bucket, key string) string {
 func classifyLambdaOperation(r *http.Request) string {
 	path := strings.TrimSuffix(r.URL.Path, "/")
 	switch {
+	case r.Method == http.MethodPut && strings.HasSuffix(path, "/concurrency"):
+		return "PutFunctionConcurrency"
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/concurrency"):
+		return "GetFunctionConcurrency"
+	case r.Method == http.MethodDelete && strings.HasSuffix(path, "/concurrency"):
+		return "DeleteFunctionConcurrency"
+	case r.Method == http.MethodGet && path == "/2016-08-19/account-settings":
+		return "GetAccountSettings"
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/2018-10-31/layers/") && !strings.Contains(path, "/versions/"):
 		return "PublishLayerVersion"
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/2018-10-31/layers/") && strings.HasSuffix(path, "/versions"):

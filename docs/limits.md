@@ -84,8 +84,8 @@ Some of these differ by region or can be raised in AWS; override them to
 match your account. `strict` is the same set at 1% (`scale` 0.01), so
 missing retries and backoff show up with very little load.
 
-DynamoDB table capacity is not a request rate and has its own model,
-below. Lambda concurrency arrives in a later release.
+DynamoDB table capacity and Lambda concurrency are not request rates and
+have their own models, below.
 
 ## DynamoDB capacity
 
@@ -146,6 +146,41 @@ section. `stratus limits status` lists each table's partitions, the units
 it consumed and the reads and writes it throttled. `stratus diagnose`
 explains partition throttles as a hot key and table throttles as
 exhausted capacity.
+
+## Lambda concurrency
+
+With `aws-default` or `strict`, each invocation takes one concurrent
+execution for as long as it runs:
+
+- A function with reserved concurrency (`PutFunctionConcurrency` or
+  CloudFormation's `ReservedConcurrentExecutions`) runs at most that many
+  at once. Reserved concurrency of 0 stops the function.
+- Every other function shares the account's unreserved pool: 1,000
+  executions per account and region, less what functions reserved.
+
+`scale` applies to the account pool, never to reserved concurrency, which
+you chose for the function. A scaled pool always admits one execution.
+
+| Invocation | Throttled |
+| --- | --- |
+| `Invoke` (`RequestResponse`), API Gateway, Step Functions, EventBridge Scheduler | `429 TooManyRequestsException` with `Reason` `ReservedFunctionConcurrentInvocationLimitExceeded` or `ConcurrentInvocationLimitExceeded` |
+| `Invoke` (`Event`), SNS, EventBridge | Accepted, then retried with backoff (100 ms doubling to 5 s) until the function's `MaximumEventAgeInSeconds`, default 6 hours |
+| Event source mappings (SQS, Kinesis, DynamoDB Streams) | Retried with backoff, as Lambda's pollers do |
+
+```json
+{"profile": "aws-default", "scale": 0.01, "lambda": {"account_concurrency": 1000}}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `disabled` | Turns concurrency off while the other limits apply. |
+| `account_concurrency` | Concurrent executions per account and region, before scaling. Default 1,000. |
+
+The `none` base enforces concurrency only when the profile has a `lambda`
+section. Real executions are capped by the warm pool, four containers per
+function by default (`--lambda-containers`); `stratus limits status` shows
+under `emulator.lambda` how many invocations queued for a container, so you
+can tell Stratus's own ceiling from the limits you are testing.
 
 ## The scale factor
 

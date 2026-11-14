@@ -43,8 +43,13 @@ type Status struct {
 	Concurrency []ConcurrencyStatus `json:"concurrency,omitempty"`
 	// DynamoDB is the table capacity model, when it is on.
 	DynamoDB *DynamoDBSpec `json:"dynamodb,omitempty"`
+	// Lambda is the concurrency model, when it is on.
+	Lambda *LambdaSpec `json:"lambda,omitempty"`
 	// Capacity counts each DynamoDB table that has seen traffic.
 	Capacity []CapacityStatus `json:"capacity,omitempty"`
+	// Emulator reports Stratus's own load, such as Lambda invocations
+	// that queued for a container: a bottleneck in the emulator, not AWS.
+	Emulator any `json:"emulator,omitempty"`
 	// TotalThrottled counts breaches of every kind.
 	TotalThrottled int `json:"total_throttled"`
 	// RecentBreaches holds the latest breaches, oldest first.
@@ -72,6 +77,7 @@ func (st *state) status() Status {
 	}
 	sort.Slice(s.Concurrency, func(i, j int) bool { return s.Concurrency[i].RuleID < s.Concurrency[j].RuleID })
 	s.DynamoDB = st.profile.DynamoDB
+	s.Lambda = st.profile.Lambda
 	for _, c := range st.capacity {
 		s.Capacity = append(s.Capacity, CapacityStatus{
 			Table: c.table, Account: c.account, Region: c.region, Partitions: c.partitions,
