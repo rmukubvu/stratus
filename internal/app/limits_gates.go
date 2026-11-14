@@ -67,9 +67,20 @@ func (g concurrencyGate) Acquire(ctx context.Context, inv lambdasvc.Invocation) 
 // runObserver adapts load runs to the HTTP server's observer port.
 type runObserver struct{ runs *loadrun.Recorder }
 
+func (o runObserver) Listening() bool { return o.runs.Listening() }
+
 func (o runObserver) Observe(r httpapi.RequestOutcome) {
+	var keys []loadrun.Key
+	if len(r.Keys) > 0 {
+		keys = make([]loadrun.Key, len(r.Keys))
+		for i, k := range r.Keys {
+			keys[i] = loadrun.Key{Resource: k.Resource, Partition: k.Partition}
+		}
+	}
 	o.runs.Observe(loadrun.Observation{
 		Time: r.Time, Service: r.Service, Operation: r.Operation, Status: r.Status, Code: r.Code,
 		Duration: r.Duration, Fault: r.Fault, LimitRule: r.LimitRule,
+		InvocationID: r.InvocationID, Attempt: r.Attempt, MaxAttempts: r.MaxAttempts,
+		InvocationType: r.InvocationType, Keys: keys,
 	})
 }

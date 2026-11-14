@@ -476,6 +476,19 @@ export interface LoadOperation extends LoadCounts {
   operation: string;
 }
 
+/** A problem spotted in a load run's traffic, with what to do about it. */
+export interface LoadFinding {
+  detector: "hot_partition" | "chatty_calls" | "cacheable_reads" | "missing_retries" | "retry_storm" | "missing_queue";
+  severity: "high" | "medium" | "low";
+  title: string;
+  detail: string;
+  suggestion: string;
+  service?: string;
+  operation?: string;
+  resource?: string;
+  evidence?: Record<string, unknown>;
+}
+
 export interface LoadRunSummary {
   id: string;
   name?: string;
@@ -486,6 +499,8 @@ export interface LoadRunSummary {
   totals: LoadCounts & { per_second: number; throttle_rate: number; error_rate: number };
   timeline: LoadSecond[];
   operations: LoadOperation[];
+  /** Problems spotted in the traffic, most severe first. */
+  findings: LoadFinding[];
   limits?: LimitsStatus;
   chaos?: ChaosReport;
 }

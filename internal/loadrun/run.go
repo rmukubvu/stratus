@@ -26,6 +26,21 @@ type Observation struct {
 	// LimitRule names the limits rule that throttled the request, when
 	// the HTTP layer throttled it.
 	LimitRule string
+	// InvocationID is shared by every attempt of one AWS SDK call, and
+	// Attempt and MaxAttempts number them; empty for other clients.
+	InvocationID         string
+	Attempt, MaxAttempts int
+	// InvocationType is a Lambda Invoke's invocation type.
+	InvocationType string
+	// Keys are the resources and partitions the request touched, as far
+	// as the service noted them (DynamoDB tables and partition keys).
+	Keys []Key
+}
+
+// Key is a resource and partition a request touched.
+type Key struct {
+	Resource  string
+	Partition string
 }
 
 // throttleCodes are the error codes AWS uses for throttling, so throttles
@@ -65,9 +80,9 @@ type counters struct {
 	latency                                 histogram
 }
 
-func (c *counters) add(o Observation) {
+func (c *counters) add(o Observation, oc outcome) {
 	c.requests++
-	switch classify(o) {
+	switch oc {
 	case outcomeOK:
 		c.ok++
 	case outcomeThrottled:
@@ -143,28 +158,34 @@ type tally struct {
 	total      counters
 	timeline   []*counters
 	operations map[opKey]*counters
+	detectors  []detector
 }
 
 func newTally(start time.Time) *tally {
-	return &tally{start: start, operations: map[opKey]*counters{}}
+	return &tally{start: start, operations: map[opKey]*counters{}, detectors: newDetectors()}
 }
 
 func (t *tally) add(o Observation) {
 	if o.Time.Before(t.start) {
 		return
 	}
-	t.total.add(o)
+	oc := classify(o)
+	t.total.add(o, oc)
 	if o.Time.After(t.last) {
 		t.last = o.Time
 	}
-	if sec := int(o.Time.Sub(t.start) / time.Second); sec < maxTimeline {
+	sec := int(o.Time.Sub(t.start) / time.Second)
+	for _, d := range t.detectors {
+		d.observe(o, oc, sec)
+	}
+	if sec < maxTimeline {
 		for len(t.timeline) <= sec {
 			t.timeline = append(t.timeline, nil)
 		}
 		if t.timeline[sec] == nil {
 			t.timeline[sec] = &counters{}
 		}
-		t.timeline[sec].add(o)
+		t.timeline[sec].add(o, oc)
 	}
 	k := opKey{o.Service, o.Operation}
 	c := t.operations[k]
@@ -172,7 +193,18 @@ func (t *tally) add(o Observation) {
 		c = &counters{}
 		t.operations[k] = c
 	}
-	c.add(o)
+	c.add(o, oc)
+}
+
+// findings runs every detector over the run so far, most severe first.
+func (t *tally) findings(end time.Time) []Finding {
+	facts := runFacts{seconds: end.Sub(t.start).Seconds(), total: &t.total, operations: t.operations}
+	out := []Finding{}
+	for _, d := range t.detectors {
+		out = append(out, d.findings(facts)...)
+	}
+	sortFindings(out)
+	return out
 }
 
 func (t *tally) totals(end time.Time) Totals {

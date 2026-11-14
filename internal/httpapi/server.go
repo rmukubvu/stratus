@@ -203,6 +203,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	recorder.Header().Set("x-amzn-requestid", metadata.RequestID)
 	r = r.WithContext(scope.WithScope(WithRequestMetadata(r.Context(), metadata), metadata.Scope))
+	r, tr := s.startTrace(r)
 	if metadata.Classification.Protocol == ProtocolQuery && metadata.Classification.Service != "" && metadata.Classification.Operation == "" {
 		s.logger.Debug("query request missing action",
 			"service", metadata.Classification.Service,
@@ -230,7 +231,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		outcome, err = s.injectFaults(recorder, r, metadata)
 		if outcome == faultDrop {
-			s.recordDropped(start, r, metadata)
+			s.recordDropped(start, r, metadata, tr)
 			// Abort without a response: the client sees a reset connection.
 			panic(http.ErrAbortHandler)
 		}
@@ -264,7 +265,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.observe(start, metadata, recorder.statusCode, errorCode(apiErr), recorder.Header())
+	s.observe(start, metadata, tr, recorder.statusCode, errorCode(apiErr), recorder.Header())
 	durationMS := time.Since(start).Milliseconds()
 	s.logger.Info("request complete",
 		"request_id", metadata.RequestID,

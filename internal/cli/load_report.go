@@ -51,6 +51,14 @@ func writeRunReport(w io.Writer, raw json.RawMessage) error {
 		_ = tw.Flush()
 	}
 
+	if len(s.Findings) > 0 {
+		fmt.Fprintf(w, "\nfindings:\n")
+		for _, f := range s.Findings {
+			fmt.Fprintf(w, "  %-6s  %s\n", strings.ToUpper(string(f.Severity)), f.Title)
+		}
+		fmt.Fprintf(w, "  what to do: stratus load report %s\n", s.ID)
+	}
+
 	if s.Limits != nil || s.Chaos != nil {
 		fmt.Fprintln(w)
 	}
@@ -62,6 +70,17 @@ func writeRunReport(w io.Writer, raw json.RawMessage) error {
 	}
 	fmt.Fprintf(w, "\nTimeline and full detail: stratus load status %s\n", s.ID)
 	return nil
+}
+
+// writeMarkdownReport prints a run as a Markdown report, findings and
+// what to do about them included.
+func writeMarkdownReport(w io.Writer, raw json.RawMessage) error {
+	var s loadrun.Summary
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return fmt.Errorf("reading run summary: %w", err)
+	}
+	_, err := io.WriteString(w, loadrun.Markdown(s))
+	return err
 }
 
 func errorsNote(t loadrun.Totals) string {

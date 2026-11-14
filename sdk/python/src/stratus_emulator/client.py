@@ -24,6 +24,7 @@ from .types import (
     KafkaCluster,
     LimitsProfile,
     LimitsStatus,
+    LoadFinding,
     LoadRunInfo,
     LoadRunInput,
     LoadRunSummary,
@@ -125,6 +126,10 @@ class Runs:
     def stop(self, run_id: str = "current") -> LoadRunSummary:
         """Stop a run, undoing its limits and chaos, and return the final summary."""
         return cast(LoadRunSummary, self._t.request("POST", f"/runs/{urllib.parse.quote(run_id, safe='')}/stop"))
+
+    def findings(self, run_id: str = "latest") -> List[LoadFinding]:
+        """Findings for a run, most severe first: ``latest`` (default), ``current`` or an ID."""
+        return self.status(run_id).get("findings") or []
 
     def list(self) -> List[LoadRunInfo]:
         """Recent runs, newest first."""

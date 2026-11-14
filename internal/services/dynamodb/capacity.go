@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/stratus/internal/apierror"
+	"github.com/stratus/internal/reqnote"
 )
 
 // CapacityGate decides whether tables have the read or write capacity a
@@ -67,8 +68,15 @@ func (s *Service) writeDemand(r *http.Request, o writeOutcome, units float64) Ca
 func itemPartition(t tableRecord, key item) string { return canonicalKey(key[t.key().Hash]) }
 
 // consume draws capacity for demands as one unit. It returns nil, or the
-// throttles of a request that must fail.
+// throttles of a request that must fail. It also notes which partitions
+// the request touched, so a load run can spot hot partitions whether or
+// not capacity is enforced.
 func (s *Service) consume(r *http.Request, demands ...CapacityDemand) []*CapacityThrottle {
+	for _, d := range demands {
+		if d.PartitionKey != "" {
+			reqnote.AddKey(r.Context(), d.Table, d.PartitionKey)
+		}
+	}
 	if s.capacity == nil || len(demands) == 0 {
 		return nil
 	}

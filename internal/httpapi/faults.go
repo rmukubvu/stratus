@@ -90,7 +90,7 @@ func writeFunctionError(w http.ResponseWriter, message string) {
 	})
 }
 
-func (s *Server) recordDropped(start time.Time, r *http.Request, md RequestMetadata) {
+func (s *Server) recordDropped(start time.Time, r *http.Request, md RequestMetadata, tr *trace) {
 	s.logger.Info("request dropped by chaos rule",
 		"request_id", md.RequestID,
 		"service", md.Classification.Service,
@@ -99,7 +99,7 @@ func (s *Server) recordDropped(start time.Time, r *http.Request, md RequestMetad
 	)
 	dropped := http.Header{}
 	dropped.Set(FaultHeader, "drop")
-	s.observe(start, md, 0, "ConnectionDropped", dropped)
+	s.observe(start, md, tr, 0, "ConnectionDropped", dropped)
 	if s.operator == nil {
 		return
 	}

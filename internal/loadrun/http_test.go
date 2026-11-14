@@ -78,6 +78,16 @@ func TestRunEndpoints(t *testing.T) {
 	if code, body := call(t, srv, http.MethodGet, "/runs/latest", ""); code != http.StatusOK || body["id"] != "run-1" {
 		t.Fatalf("latest: %d %v", code, body)
 	}
+	resp, err := http.Get(srv.URL + control.PathPrefix + "/runs/latest/report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	md, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/markdown") ||
+		!strings.Contains(string(md), "# Load run run-1 (smoke)") || !strings.Contains(string(md), "## Findings") {
+		t.Fatalf("report: %d %s\n%s", resp.StatusCode, resp.Header.Get("Content-Type"), md)
+	}
 	if code, _ := call(t, srv, http.MethodPost, "/runs", `{"limits":{"profile":"fast"}}`); code != http.StatusBadRequest {
 		t.Fatalf("bad limits: %d", code)
 	}

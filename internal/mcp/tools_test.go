@@ -113,6 +113,8 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_load_status", `{}`, "run-get current"},
 		{"stratus_load_status", `{"id":"latest"}`, "run-get latest"},
 		{"stratus_load_stop", `{}`, "run-stop current"},
+		{"stratus_load_report", `{}`, "run-get latest"},
+		{"stratus_load_report", `{"id":"run-2"}`, "run-get run-2"},
 		{"stratus_diagnose", `{"since":"5m","service":"sqs","exclude_injected":true,"max_groups":3}`, "diagnose exclude_injected=true&max_groups=3&service=sqs&since=5m"},
 		{"stratus_ses_inbox", `{}`, "ses-messages "},
 		{"stratus_ses_inbox", `{"to":"ada@b.example","subject":"Welcome","since":"5m","limit":2}`, "ses-messages limit=2&since=5m&subject=Welcome&to=ada%40b.example"},
@@ -170,5 +172,19 @@ func TestEveryToolHasDescriptionAndObjectSchema(t *testing.T) {
 		if tool.InputSchema["type"] != "object" {
 			t.Errorf("%s: schema type %v", tool.Name, tool.InputSchema["type"])
 		}
+	}
+}
+
+func TestLoadReportDropsTheTimeline(t *testing.T) {
+	out, err := loadReport(json.RawMessage(`{"id":"run-1","status":"finished","totals":{"requests":3},"timeline":[{"t":0}],"operations":[],"findings":[{"severity":"high"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(out)
+	if strings.Contains(string(b), "timeline") || strings.Contains(string(b), "operations") || !strings.Contains(string(b), `"findings":[{"severity":"high"}]`) {
+		t.Fatalf("report %s", b)
+	}
+	if _, err := loadReport(json.RawMessage(`[1]`)); err == nil {
+		t.Fatal("decoded a non-object")
 	}
 }

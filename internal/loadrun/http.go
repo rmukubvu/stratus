@@ -15,7 +15,8 @@ type Router interface {
 //
 //	POST /_stratus/control/v1/runs            start a run (optionally with limits and chaos)
 //	GET  /_stratus/control/v1/runs            list runs, newest first
-//	GET  /_stratus/control/v1/runs/{id}       a run's summary and timeline ("current", "latest")
+//	GET  /_stratus/control/v1/runs/{id}       a run's summary, timeline and findings ("current", "latest")
+//	GET  /_stratus/control/v1/runs/{id}/report the same as a Markdown report
 //	POST /_stratus/control/v1/runs/{id}/stop  stop a run and undo what it set up
 func RegisterRoutes(r Router, rec *Recorder) {
 	base := control.PathPrefix + "/runs"
@@ -46,6 +47,16 @@ func RegisterRoutes(r Router, rec *Recorder) {
 			return
 		}
 		control.WriteJSON(w, http.StatusOK, s)
+	})
+	r.HandleFunc("GET "+base+"/{id}/report", func(w http.ResponseWriter, req *http.Request) {
+		s, err := rec.Get(req.PathValue("id"))
+		if err != nil {
+			control.WriteError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(Markdown(s)))
 	})
 	r.HandleFunc("POST "+base+"/{id}/stop", func(w http.ResponseWriter, req *http.Request) {
 		s, err := rec.Stop(req.PathValue("id"))

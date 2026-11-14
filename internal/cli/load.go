@@ -10,17 +10,21 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/stratus/internal/loadrun"
 )
 
 const loadUsage = `usage:
   stratus load start [--name n] [--limits profile] [--chaos experiment.json]   start recording a load run
   stratus load status [run-id]                                                 the current (or a past) run's summary and timeline
-  stratus load stop [--json]                                                   stop the run, undo its limits and chaos, print a report
+  stratus load stop [--json] [--fail-on sev]                                   stop the run, undo its limits and chaos, print a report
+  stratus load report [run-id] [--json] [--fail-on sev]                        findings and what to do, as Markdown (default: the latest run)
   stratus load list                                                            recent runs
   stratus load run [--name n] [--limits profile] [--chaos file] -- <command>   start a run, run the command (e.g. k6 run load.js), stop the run
 
 --limits takes aws-default, strict or a profile file; --chaos a chaos experiment file;
---json prints the final summary as JSON instead of a report.
+--json prints the summary as JSON instead of a report; --fail-on low|medium|high
+exits 4 when the run has a finding at least that severe (run, stop and report).
 The command gets STRATUS_RUN_ID and STRATUS_ENDPOINT in its environment, and
 'stratus load run' exits with its exit code.
 `
@@ -63,12 +67,25 @@ func runLoad(ctx context.Context, c ControlClient, endpoint string, args []strin
 	case "status", "show":
 		return c.GetRun(ctx, runID(rest, "current"))
 	case "stop":
-		asJSON, rest := jsonFlag(rest)
+		opts, rest, err := parseOutputArgs(rest, stderr)
+		if err != nil {
+			return nil, err
+		}
 		summary, err := c.StopRun(ctx, runID(rest, "current"))
 		if err != nil {
 			return nil, err
 		}
-		return summaryOutput(summary, asJSON, stdout)
+		return summaryOutput(summary, opts, stdout, writeRunReport)
+	case "report":
+		opts, rest, err := parseOutputArgs(rest, stderr)
+		if err != nil {
+			return nil, err
+		}
+		summary, err := c.GetRun(ctx, runID(rest, "latest"))
+		if err != nil {
+			return nil, err
+		}
+		return summaryOutput(summary, opts, stdout, writeMarkdownReport)
 	case "list", "ls":
 		return c.ListRuns(ctx)
 	case "run":
@@ -84,7 +101,7 @@ func runLoad(ctx context.Context, c ControlClient, endpoint string, args []strin
 		if summary == nil {
 			return nil, err
 		}
-		out, reportErr := summaryOutput(summary, in.asJSON, stdout)
+		out, reportErr := summaryOutput(summary, in.output, stdout, writeRunReport)
 		return out, errors.Join(err, reportErr)
 	default:
 		fmt.Fprintf(stderr, "stratus load: unknown command %q\n%s", verb, loadUsage)
@@ -125,9 +142,39 @@ type loadArgs struct {
 	// spec is the run to start, as the control API takes it.
 	spec json.RawMessage
 	// argv is the command after the flags, for run.
-	argv []string
-	// asJSON prints the final summary as JSON instead of a report.
+	argv   []string
+	output outputOpts
+}
+
+// outputOpts say how to print a run's final summary.
+type outputOpts struct {
+	// asJSON prints the summary as JSON instead of a report.
 	asJSON bool
+	// failOn, when set, fails the command when a finding is at least
+	// this severe.
+	failOn loadrun.Severity
+}
+
+func (o *outputOpts) register(fs *flag.FlagSet) {
+	fs.BoolVar(&o.asJSON, "json", false, "Print the summary as JSON instead of a report")
+	fs.Func("fail-on", "Exit 4 when a finding is at least this severe: low, medium or high", func(v string) error {
+		s, err := loadrun.ParseSeverity(v)
+		o.failOn = s
+		return err
+	})
+}
+
+// parseOutputArgs parses stop's and report's flags and returns the
+// arguments after them (the run ID).
+func parseOutputArgs(args []string, stderr io.Writer) (outputOpts, []string, error) {
+	fs := flag.NewFlagSet("stratus load", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var o outputOpts
+	o.register(fs)
+	if err := fs.Parse(args); err != nil {
+		return o, nil, errUsage
+	}
+	return o, fs.Args(), nil
 }
 
 func parseLoadArgs(args []string, stderr io.Writer) (loadArgs, error) {
@@ -136,7 +183,8 @@ func parseLoadArgs(args []string, stderr io.Writer) (loadArgs, error) {
 	name := fs.String("name", "", "Label for the run, e.g. the script name")
 	limitsArg := fs.String("limits", "", "Limits profile for the run: aws-default, strict or a file")
 	chaosArg := fs.String("chaos", "", "Chaos experiment file to run during the run")
-	asJSON := fs.Bool("json", false, "Print the final summary as JSON instead of a report")
+	var output outputOpts
+	output.register(fs)
 	if err := fs.Parse(args); err != nil {
 		return loadArgs{}, errUsage
 	}
@@ -162,7 +210,7 @@ func parseLoadArgs(args []string, stderr io.Writer) (loadArgs, error) {
 		spec["chaos"] = raw
 	}
 	out, _ := json.Marshal(spec)
-	return loadArgs{spec: out, argv: fs.Args(), asJSON: *asJSON}, nil
+	return loadArgs{spec: out, argv: fs.Args(), output: output}, nil
 }
 
 func runID(args []string, fallback string) string {
@@ -172,25 +220,47 @@ func runID(args []string, fallback string) string {
 	return fallback
 }
 
-// jsonFlag strips a --json flag from args.
-func jsonFlag(args []string) (bool, []string) {
-	rest := make([]string, 0, len(args))
-	found := false
-	for _, a := range args {
-		if a == "--json" || a == "-json" {
-			found = true
-			continue
-		}
-		rest = append(rest, a)
-	}
-	return found, rest
+// errFindings fails a command whose run had findings at or above the
+// --fail-on severity.
+type errFindings struct {
+	count    int
+	severity loadrun.Severity
 }
 
-// summaryOutput prints a final run summary as a report and returns
-// nothing more to print, or returns the JSON for the caller to print.
-func summaryOutput(summary json.RawMessage, asJSON bool, stdout io.Writer) (json.RawMessage, error) {
-	if asJSON {
-		return summary, nil
+func (e errFindings) Error() string {
+	return fmt.Sprintf("%d finding(s) at or above %s severity", e.count, e.severity)
+}
+
+// exitFindings is the exit code for errFindings, distinct from usage (2)
+// and other errors (1).
+const exitFindings = 4
+
+// summaryOutput prints a run summary with render, or as JSON for the
+// caller to print, and applies --fail-on.
+func summaryOutput(summary json.RawMessage, opts outputOpts, stdout io.Writer, render func(io.Writer, json.RawMessage) error) (json.RawMessage, error) {
+	var out json.RawMessage
+	if opts.asJSON {
+		out = summary
+	} else if err := render(stdout, summary); err != nil {
+		return nil, err
 	}
-	return nil, writeRunReport(stdout, summary)
+	if opts.failOn == "" {
+		return out, nil
+	}
+	var s struct {
+		Findings []loadrun.Finding `json:"findings"`
+	}
+	if err := json.Unmarshal(summary, &s); err != nil {
+		return out, fmt.Errorf("reading run findings: %w", err)
+	}
+	n := 0
+	for _, f := range s.Findings {
+		if f.Severity.AtLeast(opts.failOn) {
+			n++
+		}
+	}
+	if n > 0 {
+		return out, errFindings{count: n, severity: opts.failOn}
+	}
+	return out, nil
 }

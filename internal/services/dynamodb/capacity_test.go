@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stratus/internal/reqnote"
 )
 
 // fakeGate throttles demands on hot partitions, recording every call.
@@ -181,5 +183,21 @@ func TestOperationOfReadsTheTargetHeader(t *testing.T) {
 	r.Header.Set("X-Amz-Target", "DynamoDB_20120810.PutItem")
 	if got := operationOf(r); got != "PutItem" {
 		t.Fatalf("operationOf = %q", got)
+	}
+}
+
+func TestRequestsNotePartitionsWithoutAGate(t *testing.T) {
+	h := newHarness(t)
+	h.ordersTable()
+	ctx, notes := reqnote.With(context.Background())
+	req := httptest.NewRequest("POST", "http://localhost:4566/", strings.NewReader(
+		`{"RequestItems":{"orders":[{"PutRequest":{"Item":{"customer":{"S":"ann"},"order":{"N":"1"}}}},{"PutRequest":{"Item":{"customer":{"S":"bob"},"order":{"N":"2"}}}}]}}`,
+	)).WithContext(ctx)
+	if err := h.svc.Handle(httptest.NewRecorder(), req, "BatchWriteItem"); err != nil {
+		t.Fatal(err)
+	}
+	keys := notes.Keys()
+	if len(keys) != 2 || keys[0].Resource != "orders" || keys[0].Partition != canonicalKey(map[string]any{"S": "ann"}) {
+		t.Fatalf("noted %+v", keys)
 	}
 }

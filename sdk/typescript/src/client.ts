@@ -16,6 +16,7 @@ import type {
   DnsResolution,
   LimitsProfile,
   LimitsStatus,
+  LoadFinding,
   LoadRunInfo,
   LoadRunInput,
   LoadRunSummary,
@@ -142,6 +143,11 @@ export class Runs {
   /** Stops a run, undoing its limits and chaos, and returns the final summary. */
   stop(id = "current"): Promise<LoadRunSummary> {
     return this.t.request("POST", `/runs/${encodeURIComponent(id)}/stop`);
+  }
+
+  /** Findings for a run, most severe first: "latest" (default), "current" or an ID. */
+  async findings(id = "latest"): Promise<LoadFinding[]> {
+    return (await this.status(id)).findings;
   }
 
   /** Recent runs, newest first. */
