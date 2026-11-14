@@ -140,6 +140,8 @@ export interface RateRule {
   operations?: string[];
   /** Sustained rate per second, before scaling. */
   per_second?: number;
+  /** Rates for named regions, overriding per_second there, e.g. { "us-east-1": 100000 }. */
+  region_per_second?: Record<string, number>;
   /** Seconds of per_second allowed at once; default 1. */
   burst_seconds?: number;
   /** What shares one bucket: the account (default), each resource, or each S3 prefix. */

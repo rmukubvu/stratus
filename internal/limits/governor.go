@@ -184,12 +184,13 @@ func (g *Governor) Admit(req Request) *Breach {
 			continue
 		}
 		key := r.keyFor(req)
-		b := st.bucket(key, st.profile.EffectiveRate(r), st.profile.capacity(r), now)
+		rate := st.profile.effectiveRateIn(r, req.Region)
+		b := st.bucket(key, rate, st.profile.capacity(r, req.Region), now)
 		if !b.has(now, 1) {
 			st.stats[i].throttled++
 			breach := Breach{
 				Time: now.UTC(), RuleID: r.ID, Kind: KindRate, Key: key.String(),
-				Limit: st.profile.EffectiveRate(r), RequestID: req.RequestID,
+				Limit: rate, RequestID: req.RequestID,
 				Service: req.Service, Operation: req.Operation, Resource: firstNonEmpty(req.Prefix, req.Resource),
 			}
 			st.record(breach)

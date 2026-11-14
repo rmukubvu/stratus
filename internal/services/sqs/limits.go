@@ -18,7 +18,7 @@ const (
 	// a queue may set.
 	maxPayloadBytes = 1 << 20
 	// defaultMaximumMessageSize is a new queue's MaximumMessageSize.
-	defaultMaximumMessageSize = 262144
+	defaultMaximumMessageSize = maxPayloadBytes
 	// maxDelaySeconds is the longest DelaySeconds, on a queue or a message.
 	maxDelaySeconds = 900
 	// maxVisibilityTimeout is the longest visibility timeout (12 hours).

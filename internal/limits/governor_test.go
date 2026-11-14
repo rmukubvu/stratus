@@ -249,3 +249,58 @@ func TestAdmitIsSafeForConcurrentUse(t *testing.T) {
 		t.Fatalf("admitted %d across goroutines, want exactly 100", admitted)
 	}
 }
+
+func TestRegionalRatesOverrideTheDefault(t *testing.T) {
+	g := NewGovernor(nil, newFakeClock())
+	if _, err := g.Apply(onlyRule(RateRule{ID: "kms", Service: "kms", PerSecond: 10, RegionPerSecond: map[string]float64{"us-east-1": 100}})); err != nil {
+		t.Fatal(err)
+	}
+	req := Request{Account: "111111111111", Region: "eu-north-1", Service: "kms", Operation: "Decrypt"}
+	if admitted, _ := admitN(g, req, 200); admitted != 10 {
+		t.Fatalf("eu-north-1 admitted %d, want the default 10", admitted)
+	}
+	req.Region = "us-east-1"
+	admitted, _ := admitN(g, req, 200)
+	if admitted != 100 {
+		t.Fatalf("us-east-1 admitted %d, want its regional 100", admitted)
+	}
+	if b := g.Admit(req); b == nil || b.Limit != 100 {
+		t.Fatalf("breach %+v should report the regional limit", b)
+	}
+	if _, err := g.Apply(onlyRule(RateRule{ID: "bad", Service: "kms", PerSecond: 1, RegionPerSecond: map[string]float64{"us-east-1": 0}})); err == nil {
+		t.Fatal("accepted a zero regional rate")
+	}
+}
+
+func TestAWSDefaultMatchesDocumentedQuotas(t *testing.T) {
+	p, err := Resolve(Spec{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]float64{
+		"s3-reads-per-prefix": 5500, "s3-writes-per-prefix": 3500, "ssm-get-parameters": 40,
+		"kms-cryptographic-operations": 10000, "secretsmanager-get-secret-value": 10000,
+		"secretsmanager-describe-secret": 40000, "secretsmanager-batch-get-secret-value": 100,
+	}
+	got := map[string]RateRule{}
+	for _, r := range p.Rates {
+		got[r.ID] = r
+	}
+	for id, rate := range want {
+		if got[id].PerSecond != rate {
+			t.Errorf("%s: %v per second, want %v", id, got[id].PerSecond, rate)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("aws-default has %d rules, want %d", len(got), len(want))
+	}
+	kms := got["kms-cryptographic-operations"]
+	if kms.RegionPerSecond["us-east-1"] != 100000 || kms.RegionPerSecond["eu-central-1"] != 20000 {
+		t.Errorf("kms regional rates %v", kms.RegionPerSecond)
+	}
+	for _, op := range kms.Operations {
+		if op == "Sign" || op == "GenerateDataKeyPair" {
+			t.Errorf("kms symmetric rule covers %s, which has its own quota", op)
+		}
+	}
+}

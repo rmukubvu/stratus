@@ -62,6 +62,7 @@ get the same through the `stratus_limits_set`, `stratus_limits_status` and
 | `service` | AWS service name, e.g. `ssm`, `s3`, `kms`. |
 | `operations` | Operations that share the rule's bucket. Empty means every operation of the service. |
 | `per_second` | Sustained rate, before scaling. |
+| `region_per_second` | Optional rates for named regions, e.g. `{"us-east-1": 100000}`, overriding `per_second` there. |
 | `burst_seconds` | How many seconds of `per_second` may arrive at once. Defaults to 1. |
 | `per` | What shares one bucket: `account` (default; one per account and region), `resource` (one per S3 bucket or Lambda function) or `prefix` (one per S3 key prefix). |
 
@@ -72,18 +73,28 @@ and regions always have separate buckets.
 ### Base profiles
 
 `aws-default` holds the default quotas AWS documents for the APIs most
-often called on a hot path:
+often called on a hot path (checked against the AWS documentation in
+November 2026):
 
 | Rule | Service | Operations | Rate | Per |
 | --- | --- | --- | --- | --- |
 | `s3-reads-per-prefix` | s3 | GetObject, HeadObject | 5,500/s | prefix |
 | `s3-writes-per-prefix` | s3 | PutObject, CopyObject, DeleteObject(s), multipart create and complete | 3,500/s | prefix |
 | `ssm-get-parameters` | ssm | GetParameter, GetParameters, GetParametersByPath | 40/s | account |
-| `kms-cryptographic-operations` | kms | Encrypt, Decrypt, GenerateDataKey and the other cryptographic operations | 5,500/s | account |
-| `secretsmanager-get-secret-value` | secretsmanager | GetSecretValue, DescribeSecret, BatchGetSecretValue | 10,000/s | account |
+| `kms-cryptographic-operations` | kms | Encrypt, Decrypt, ReEncrypt, GenerateDataKey(WithoutPlaintext), GenerateRandom, GenerateMac, VerifyMac on symmetric keys | 10,000/s; 20,000/s in us-east-2, ap-southeast-1, ap-southeast-2, ap-northeast-1, eu-central-1, eu-west-2 and eu-south-2; 100,000/s in us-east-1, us-west-2 and eu-west-1 | account |
+| `secretsmanager-get-secret-value` | secretsmanager | GetSecretValue | 10,000/s | account |
+| `secretsmanager-describe-secret` | secretsmanager | DescribeSecret | 40,000/s | account |
+| `secretsmanager-batch-get-secret-value` | secretsmanager | BatchGetSecretValue | 100/s | account |
 
-Some of these differ by region or can be raised in AWS; override them to
-match your account. `strict` is the same set at 1% (`scale` 0.01), so
+DynamoDB partitions serve 3,000 read and 1,000 write units a second, tables
+bank 300 seconds of unused capacity and on-demand tables are capped at
+40,000 units a second; Lambda allows 1,000 concurrent executions per region
+and keeps 100 unreserved. These match AWS's documented defaults too.
+
+Many quotas can be raised in AWS, and new AWS accounts start with lower
+Lambda concurrency; override the rules to match your account. Parameter
+Store's higher throughput setting, for example, is
+`{"id": "ssm-get-parameters", "service": "ssm", "operations": ["GetParameter"], "per_second": 10000}`. `strict` is the same set at 1% (`scale` 0.01), so
 missing retries and backoff show up with very little load.
 
 DynamoDB table capacity and Lambda concurrency are not request rates and

@@ -2,6 +2,7 @@ package limits
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 
@@ -30,6 +31,9 @@ type RateRule struct {
 	Operations []string `json:"operations,omitempty"`
 	// PerSecond is the sustained rate, before scaling.
 	PerSecond float64 `json:"per_second"`
+	// RegionPerSecond overrides PerSecond in the regions named, for
+	// quotas AWS sets higher in some regions.
+	RegionPerSecond map[string]float64 `json:"region_per_second,omitempty"`
 	// BurstSeconds is how many seconds of PerSecond may arrive at once;
 	// zero means 1.
 	BurstSeconds float64 `json:"burst_seconds,omitempty"`
@@ -70,13 +74,21 @@ type Profile struct {
 	Lambda *LambdaSpec `json:"lambda,omitempty"`
 }
 
-// EffectiveRate is a rule's rate per second after scaling.
+// EffectiveRate is a rule's default rate per second after scaling.
 func (p Profile) EffectiveRate(r RateRule) float64 { return r.PerSecond * p.Scale }
+
+// effectiveRateIn is a rule's rate per second in region, after scaling.
+func (p Profile) effectiveRateIn(r RateRule, region string) float64 {
+	if v, ok := r.RegionPerSecond[region]; ok {
+		return v * p.Scale
+	}
+	return p.EffectiveRate(r)
+}
 
 // capacity is the bucket size for a rule after scaling. It never drops
 // below one request, so a heavily scaled rule still admits something.
-func (p Profile) capacity(r RateRule) float64 {
-	return math.Max(1, p.EffectiveRate(r)*r.BurstSeconds)
+func (p Profile) capacity(r RateRule, region string) float64 {
+	return math.Max(1, p.effectiveRateIn(r, region)*r.BurstSeconds)
 }
 
 func invalid(code, format string, args ...any) *control.Error {
@@ -199,6 +211,11 @@ func (r RateRule) normalise(index int, known map[string]bool) (RateRule, error) 
 	if r.PerSecond <= 0 {
 		return RateRule{}, invalid("InvalidRateRule", "rule %q: per_second must be greater than 0", r.ID)
 	}
+	for region, v := range r.RegionPerSecond {
+		if v <= 0 {
+			return RateRule{}, invalid("InvalidRateRule", "rule %q: region_per_second for %s must be greater than 0", r.ID, region)
+		}
+	}
 	if r.BurstSeconds < 0 {
 		return RateRule{}, invalid("InvalidRateRule", "rule %q: burst_seconds must not be negative", r.ID)
 	}
@@ -217,6 +234,7 @@ func (r RateRule) normalise(index int, known map[string]bool) (RateRule, error) 
 		return RateRule{}, invalid("InvalidRateRule", "rule %q: per must be \"account\", \"resource\" or \"prefix\"", r.ID)
 	}
 	r.Operations = append([]string{}, r.Operations...)
+	r.RegionPerSecond = maps.Clone(r.RegionPerSecond)
 	return r, nil
 }
 
