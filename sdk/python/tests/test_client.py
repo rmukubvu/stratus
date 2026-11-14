@@ -93,6 +93,27 @@ class ClientTest(unittest.TestCase):
         c.limits.clear()
         self.assertEqual(t.calls, [("PUT", "/limits", {"profile": "strict"}), ("GET", "/limits", None), ("DELETE", "/limits", None)])
 
+    def test_runs_map_to_control_api(self) -> None:
+        summary = {"id": "run-1", "status": "running"}
+        c, t = client(summary, summary, {"id": "run-1", "status": "finished"}, {"runs": [summary]})
+        self.assertEqual(c.runs.start({"name": "load.js", "limits": {"profile": "strict"}})["id"], "run-1")
+        c.runs.status()
+        self.assertEqual(c.runs.stop("run-1")["status"], "finished")
+        self.assertEqual(c.runs.list(), [summary])
+        self.assertEqual(
+            [(m, p) for m, p, _ in t.calls],
+            [("POST", "/runs"), ("GET", "/runs/current"), ("POST", "/runs/run-1/stop"), ("GET", "/runs")],
+        )
+        self.assertEqual(t.calls[0][2], {"name": "load.js", "limits": {"profile": "strict"}})
+
+    def test_runs_recording_always_stops(self) -> None:
+        c, t = client({"id": "run-2", "status": "running"}, {"id": "run-2", "status": "finished"})
+        with self.assertRaises(ValueError):
+            with c.runs.recording({"name": "x"}) as rec:
+                raise ValueError("boom")
+        self.assertEqual(rec.summary, {"id": "run-2", "status": "finished"})
+        self.assertEqual(t.calls[1][:2], ("POST", "/runs/run-2/stop"))
+
     def test_chaos_experiment_always_stops_and_exposes_report(self) -> None:
         c, t = client(REPORT, REPORT)
         spec = {"seed": 1, "rules": [{"service": "s3", "action": "throttle"}]}

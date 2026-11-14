@@ -42,6 +42,15 @@ func (f *fakeAPI) LimitsStatus(context.Context) (json.RawMessage, error) {
 	return f.rec("limits-status")
 }
 func (f *fakeAPI) ClearLimits(context.Context) (json.RawMessage, error) { return f.rec("limits-clear") }
+func (f *fakeAPI) StartRun(_ context.Context, spec json.RawMessage) (json.RawMessage, error) {
+	return f.rec("run-start " + string(spec))
+}
+func (f *fakeAPI) GetRun(_ context.Context, id string) (json.RawMessage, error) {
+	return f.rec("run-get " + id)
+}
+func (f *fakeAPI) StopRun(_ context.Context, id string) (json.RawMessage, error) {
+	return f.rec("run-stop " + id)
+}
 func (f *fakeAPI) Diagnose(_ context.Context, q url.Values) (json.RawMessage, error) {
 	return f.rec("diagnose " + q.Encode())
 }
@@ -100,6 +109,10 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_limits_set", `{"profile":"strict","scale":0.5}`, `limits-set {"profile":"strict","scale":0.5}`},
 		{"stratus_limits_status", `{}`, "limits-status"},
 		{"stratus_limits_clear", `{}`, "limits-clear"},
+		{"stratus_load_start", `{"name":"smoke","limits":{"profile":"strict"}}`, `run-start {"name":"smoke","limits":{"profile":"strict"}}`},
+		{"stratus_load_status", `{}`, "run-get current"},
+		{"stratus_load_status", `{"id":"latest"}`, "run-get latest"},
+		{"stratus_load_stop", `{}`, "run-stop current"},
 		{"stratus_diagnose", `{"since":"5m","service":"sqs","exclude_injected":true,"max_groups":3}`, "diagnose exclude_injected=true&max_groups=3&service=sqs&since=5m"},
 		{"stratus_ses_inbox", `{}`, "ses-messages "},
 		{"stratus_ses_inbox", `{"to":"ada@b.example","subject":"Welcome","since":"5m","limit":2}`, "ses-messages limit=2&since=5m&subject=Welcome&to=ada%40b.example"},

@@ -15,13 +15,14 @@ const (
 	ModeMCP      Mode = "mcp"
 	ModeDiagnose Mode = "diagnose"
 	ModeLimits   Mode = "limits"
+	ModeLoad     Mode = "load"
 )
 
 // IsControl reports whether the mode talks to a running Stratus instead of
 // starting one.
 func (m Mode) IsControl() bool {
 	switch m {
-	case ModeWait, ModeReset, ModeSnapshot, ModeChaos, ModeDiagnose, ModeLimits:
+	case ModeWait, ModeReset, ModeSnapshot, ModeChaos, ModeDiagnose, ModeLimits, ModeLoad:
 		return true
 	default:
 		return false
@@ -35,7 +36,7 @@ func ParseMode(args []string) (Mode, []string) {
 
 	head := strings.TrimSpace(args[0])
 	switch Mode(head) {
-	case ModeDev, ModeServe, ModeWait, ModeReset, ModeSnapshot, ModeCI, ModeChaos, ModeMCP, ModeDiagnose, ModeLimits:
+	case ModeDev, ModeServe, ModeWait, ModeReset, ModeSnapshot, ModeCI, ModeChaos, ModeMCP, ModeDiagnose, ModeLimits, ModeLoad:
 		return Mode(head), args[1:]
 	default:
 		if strings.HasPrefix(head, "-") {

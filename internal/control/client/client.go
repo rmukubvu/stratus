@@ -158,6 +158,29 @@ func (c *Client) ClearLimits(ctx context.Context) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodDelete, "/limits", nil)
 }
 
+// StartRun starts recording a load run. spec may set name, limits and
+// chaos.
+func (c *Client) StartRun(ctx context.Context, spec json.RawMessage) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/runs", spec)
+}
+
+// GetRun returns a run's summary and timeline; id may be "current" or
+// "latest".
+func (c *Client) GetRun(ctx context.Context, id string) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/runs/"+url.PathEscape(id), nil)
+}
+
+// StopRun stops a run ("current" for the active one) and returns its
+// final summary.
+func (c *Client) StopRun(ctx context.Context, id string) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/runs/"+url.PathEscape(id)+"/stop", nil)
+}
+
+// ListRuns lists recent runs, newest first.
+func (c *Client) ListRuns(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/runs", nil)
+}
+
 // Diagnose explains recent failures. query may set since, service,
 // exclude_injected and max_groups.
 func (c *Client) Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error) {

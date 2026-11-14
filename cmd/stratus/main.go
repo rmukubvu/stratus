@@ -152,6 +152,8 @@ Control a running Stratus (for CI and agents; output is JSON):
   stratus limits set <profile|file|->   Enforce AWS quotas (aws-default, strict or JSON)
   stratus limits status                 Show per-rule counts and recent throttles
   stratus limits clear                  Turn limits off
+  stratus load run [flags] -- <cmd>     Record a load run around a command, e.g. k6 run load.js
+  stratus load start|status|stop|list   Drive load runs yourself (flags: --name, --limits, --chaos)
   stratus diagnose [--since 5m]         Explain recent failures (cause, next step)
   Control flags go before arguments: --endpoint <url> (env STRATUS_ENDPOINT)
 
@@ -171,7 +173,7 @@ Key endpoints:
   /_stratus/                    Built-in operator portal
   /_stratus/health              Health check
   /_stratus/operator/bootstrap  Service inventory and quick-start data
-  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, chaos, limits, diagnostics
+  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, chaos, limits, runs, diagnostics
 `)
 }
 

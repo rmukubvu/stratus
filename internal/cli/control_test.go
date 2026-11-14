@@ -228,3 +228,16 @@ func TestLimitsCommands(t *testing.T) {
 		}
 	}
 }
+func (f *fakeControl) StartRun(_ context.Context, spec json.RawMessage) (json.RawMessage, error) {
+	f.calls = append(f.calls, "run-start "+string(spec))
+	return json.RawMessage(`{"id":"run-1"}`), f.err
+}
+func (f *fakeControl) GetRun(_ context.Context, id string) (json.RawMessage, error) {
+	return f.record("run-get " + id)
+}
+func (f *fakeControl) StopRun(_ context.Context, id string) (json.RawMessage, error) {
+	return f.record("run-stop " + id)
+}
+func (f *fakeControl) ListRuns(context.Context) (json.RawMessage, error) {
+	return f.record("run-list")
+}

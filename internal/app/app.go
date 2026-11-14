@@ -21,6 +21,7 @@ import (
 	"github.com/stratus/internal/diagnose"
 	"github.com/stratus/internal/httpapi"
 	"github.com/stratus/internal/limits"
+	"github.com/stratus/internal/loadrun"
 	"github.com/stratus/internal/operator"
 	"github.com/stratus/internal/services/bedrock"
 	"github.com/stratus/internal/services/iam"
@@ -142,6 +143,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	controlHandler := control.NewHandler(controlService)
 	chaos.RegisterRoutes(controlHandler, chaosEngine)
 	limits.RegisterRoutes(controlHandler, governor)
+	runs := loadrun.NewRecorder(governor, chaosEngine, nil)
+	loadrun.RegisterRoutes(controlHandler, runs)
 	ses.RegisterRoutes(controlHandler, defaults.ses)
 	scheduler.RegisterRoutes(controlHandler, defaults.scheduler)
 	bedrock.RegisterRoutes(controlHandler, defaults.services.Bedrock)
@@ -164,6 +167,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Gate:       controlService.Gate(),
 		Faults:     chaosEngine,
 		Limits:     governor,
+		Observer:   runObserver{runs},
 		ColdStart:  lambdaRuntime.CleanupFunction,
 	})
 

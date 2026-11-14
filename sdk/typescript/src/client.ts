@@ -16,6 +16,9 @@ import type {
   DnsResolution,
   LimitsProfile,
   LimitsStatus,
+  LoadRunInfo,
+  LoadRunInput,
+  LoadRunSummary,
   ResetResult,
   SchedulerAdvance,
   SchedulerClock,
@@ -119,6 +122,44 @@ export class Limits {
   /** Turns limits off and returns the final status. */
   clear(): Promise<LimitsStatus> {
     return this.t.request("DELETE", "/limits");
+  }
+}
+
+/** Load runs: count every AWS request per second and per operation while a load test runs. */
+export class Runs {
+  constructor(private readonly t: Transport) {}
+
+  /** Starts recording. Throws RunInProgress if a run is already recording. */
+  start(input: LoadRunInput = {}): Promise<LoadRunSummary> {
+    return this.t.request("POST", "/runs", input);
+  }
+
+  /** A run's summary and timeline: "current" (default), "latest" or an ID. */
+  status(id = "current"): Promise<LoadRunSummary> {
+    return this.t.request("GET", `/runs/${encodeURIComponent(id)}`);
+  }
+
+  /** Stops a run, undoing its limits and chaos, and returns the final summary. */
+  stop(id = "current"): Promise<LoadRunSummary> {
+    return this.t.request("POST", `/runs/${encodeURIComponent(id)}/stop`);
+  }
+
+  /** Recent runs, newest first. */
+  async list(): Promise<LoadRunInfo[]> {
+    const out = await this.t.request<{ runs: LoadRunInfo[] }>("GET", "/runs");
+    return out.runs;
+  }
+
+  /** Records a run around fn, stopping it even if fn throws. */
+  async during<T>(input: LoadRunInput, fn: () => Promise<T>): Promise<{ result: T; summary: LoadRunSummary }> {
+    const run = await this.start(input);
+    try {
+      const result = await fn();
+      return { result, summary: await this.stop(run.id) };
+    } catch (err) {
+      await this.stop(run.id);
+      throw err;
+    }
   }
 }
 
@@ -279,6 +320,7 @@ export class StratusClient {
   readonly snapshots: Snapshots;
   readonly chaos: Chaos;
   readonly limits: Limits;
+  readonly runs: Runs;
   readonly ses: Ses;
   readonly scheduler: Scheduler;
   readonly bedrock: Bedrock;
@@ -298,6 +340,7 @@ export class StratusClient {
     this.snapshots = new Snapshots(this.t);
     this.chaos = new Chaos(this.t);
     this.limits = new Limits(this.t);
+    this.runs = new Runs(this.t);
     this.ses = new Ses(this.t);
     this.scheduler = new Scheduler(this.t);
     this.bedrock = new Bedrock(this.t);

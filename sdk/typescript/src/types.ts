@@ -443,3 +443,58 @@ export interface DnsResolution {
   /** False for NXDOMAIN or when the name has no records of that type. */
   found: boolean;
 }
+
+/** A load run to start: limits and chaos are applied for the run and undone when it stops. */
+export interface LoadRunInput {
+  name?: string;
+  limits?: LimitsProfile;
+  chaos?: ChaosExperiment;
+}
+
+/** Requests by outcome, with latency in milliseconds. */
+export interface LoadCounts {
+  requests: number;
+  ok: number;
+  throttled: number;
+  /** Failed because a chaos rule made them fail. */
+  faults: number;
+  /** Failed for any other reason: look at these first. */
+  errors: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  max_ms: number;
+}
+
+export interface LoadSecond extends LoadCounts {
+  /** Seconds since the run started. */
+  t: number;
+}
+
+export interface LoadOperation extends LoadCounts {
+  service: string;
+  operation: string;
+}
+
+export interface LoadRunSummary {
+  id: string;
+  name?: string;
+  status: "running" | "finished";
+  started_at: string;
+  ended_at?: string;
+  duration_seconds: number;
+  totals: LoadCounts & { per_second: number; throttle_rate: number; error_rate: number };
+  timeline: LoadSecond[];
+  operations: LoadOperation[];
+  limits?: LimitsStatus;
+  chaos?: ChaosReport;
+}
+
+export interface LoadRunInfo {
+  id: string;
+  name?: string;
+  status: "running" | "finished";
+  started_at: string;
+  ended_at?: string;
+  requests: number;
+}
