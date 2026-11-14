@@ -158,6 +158,25 @@ func (c *Client) ClearLimits(ctx context.Context) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodDelete, "/limits", nil)
 }
 
+// SetSigV4 sets signature verification: strict, audit or off.
+func (c *Client) SetSigV4(ctx context.Context, mode string) (json.RawMessage, error) {
+	body, err := json.Marshal(map[string]string{"mode": mode})
+	if err != nil {
+		return nil, err
+	}
+	return c.Do(ctx, http.MethodPut, "/sigv4", body)
+}
+
+// SigV4Status reports the signature mode, counters and recent failures.
+func (c *Client) SigV4Status(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/sigv4", nil)
+}
+
+// ClearSigV4 turns signature verification off and returns the final status.
+func (c *Client) ClearSigV4(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodDelete, "/sigv4", nil)
+}
+
 // StartRun starts recording a load run. spec may set name, limits and
 // chaos.
 func (c *Client) StartRun(ctx context.Context, spec json.RawMessage) (json.RawMessage, error) {

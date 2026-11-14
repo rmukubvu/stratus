@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/stratus/internal/authn"
 	"github.com/stratus/internal/authz"
 	"github.com/stratus/internal/backing"
 	"github.com/stratus/internal/chaos"
@@ -73,6 +74,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}
 
 	iamMode, err := authz.ParseMode(os.Getenv("STRATUS_IAM"))
+	if err != nil {
+		return nil, err
+	}
+	sigv4Settings, err := sigv4SettingsFrom(cfg, os.Getenv)
 	if err != nil {
 		return nil, err
 	}
@@ -138,11 +143,19 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Snapshots: snapshotRepo,
 	})
 
+	authenticator := authn.New(sigv4Settings.mode, authn.Directory{
+		Sessions:   stsService,
+		Keys:       iamKeys,
+		Static:     sigv4Settings.static,
+		RootSecret: sigv4Settings.rootSecret,
+	}, logger, nil)
+
 	// The control API's service views (SES inbox, scheduler clock, MSK
 	// brokers, DNS) serve the default account and region.
 	controlHandler := control.NewHandler(controlService)
 	chaos.RegisterRoutes(controlHandler, chaosEngine)
 	limits.RegisterRoutes(controlHandler, governor)
+	authn.RegisterRoutes(controlHandler, authenticator)
 	runs := loadrun.NewRecorder(governor, chaosEngine, nil)
 	loadrun.RegisterRoutes(controlHandler, runs)
 	ses.RegisterRoutes(controlHandler, defaults.ses)
@@ -152,23 +165,24 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	route53.RegisterRoutes(controlHandler, defaults.route53)
 	diagnose.RegisterRoutes(controlHandler, diagnose.NewService(
 		failuresFrom(operatorStore),
-		attributionsFrom(chaosEngine, governor),
+		attributionsFrom(chaosEngine, governor, authenticator),
 		nil,
 	))
 
 	handler := httpapi.NewServer(httpapi.Options{
-		Logger:     logger,
-		Services:   defaults.services,
-		Stacks:     stacks,
-		Accounts:   httpapi.AccountResolvers{stsService, iamKeys},
-		Authorizer: authz.New(iamMode, authz.Callers{Sessions: stsService, Keys: iamKeys}, stacks, stacks, logger),
-		Operator:   operatorService,
-		Control:    controlHandler,
-		Gate:       controlService.Gate(),
-		Faults:     chaosEngine,
-		Limits:     governor,
-		Observer:   runObserver{runs},
-		ColdStart:  lambdaRuntime.CleanupFunction,
+		Logger:        logger,
+		Services:      defaults.services,
+		Stacks:        stacks,
+		Accounts:      httpapi.AccountResolvers{stsService, iamKeys, sigv4Settings.static},
+		Authenticator: authenticator,
+		Authorizer:    authz.New(iamMode, authz.Callers{Sessions: stsService, Keys: iamKeys}, stacks, stacks, logger),
+		Operator:      operatorService,
+		Control:       controlHandler,
+		Gate:          controlService.Gate(),
+		Faults:        chaosEngine,
+		Limits:        governor,
+		Observer:      runObserver{runs},
+		ColdStart:     lambdaRuntime.CleanupFunction,
 	})
 
 	server := &http.Server{
@@ -312,11 +326,14 @@ func failuresFrom(store *operator.Store) diagnose.FailureSource {
 
 // attributionsFrom adapts chaos hits and limit breaches to the diagnosis
 // port, so a failure Stratus caused on purpose is explained as such.
-func attributionsFrom(engine *chaos.Engine, governor *limits.Governor) diagnose.InjectionSource {
+func attributionsFrom(engine *chaos.Engine, governor *limits.Governor, authenticator *authn.Authenticator) diagnose.InjectionSource {
 	return func() map[string]diagnose.Injection {
 		hits := engine.Hits()
 		breaches := governor.Breaches()
 		out := make(map[string]diagnose.Injection, len(hits)+len(breaches))
+		for id, rec := range authenticator.Refusals() {
+			out[id] = diagnose.Injection{RuleID: rec.Kind, Action: rec.Code, Source: diagnose.SourceSignature, Detail: rec.Reason}
+		}
 		for _, b := range breaches {
 			if b.RequestID != "" {
 				out[b.RequestID] = diagnose.Injection{RuleID: b.RuleID, Action: string(b.Kind), Source: diagnose.SourceLimit}
@@ -363,4 +380,29 @@ func newGovernor(cfg config.Config, logger *slog.Logger) (*limits.Governor, erro
 	}
 	logger.Info("limits profile applied", "profile", status.Profile, "scale", status.Scale, "rules", len(status.Rules))
 	return governor, nil
+}
+
+// sigv4Settings is how strict signature mode starts.
+type sigv4Settings struct {
+	mode       authn.Mode
+	static     authn.StaticCredentials
+	rootSecret string
+}
+
+// sigv4SettingsFrom reads --sigv4 (or STRATUS_SIGV4),
+// STRATUS_SIGV4_CREDENTIALS and STRATUS_SIGV4_ROOT_SECRET.
+func sigv4SettingsFrom(cfg config.Config, getenv func(string) string) (sigv4Settings, error) {
+	raw := cfg.SigV4
+	if raw == "" {
+		raw = getenv("STRATUS_SIGV4")
+	}
+	mode, err := authn.ParseMode(raw)
+	if err != nil {
+		return sigv4Settings{}, err
+	}
+	static, err := authn.ParseStaticCredentials(getenv("STRATUS_SIGV4_CREDENTIALS"))
+	if err != nil {
+		return sigv4Settings{}, err
+	}
+	return sigv4Settings{mode: mode, static: static, rootSecret: getenv("STRATUS_SIGV4_ROOT_SECRET")}, nil
 }

@@ -47,6 +47,7 @@ Logs go to stderr; stdout carries only protocol messages.
 | `stratus_snapshot_save` / `_restore` / `_list` / `_delete` | Save and roll back state |
 | `stratus_chaos_start` / `_status` / `_stop` | Seeded fault injection (see [chaos.md](chaos.md)) |
 | `stratus_limits_set` / `_status` / `_clear` | Enforce AWS quotas so the app meets throttling under load (see [limits.md](limits.md)) |
+| `stratus_sigv4_set` / `_status` | Verify request signatures as AWS does and show the canonical request Stratus expected for each failure (see [sigv4.md](sigv4.md)) |
 | `stratus_ses_inbox` | Emails the application sent through SES, with filters (see [ses.md](ses.md)) |
 | `stratus_scheduler_advance` / `_run` | Fast-forward the EventBridge Scheduler clock, or fire one schedule now (see [scheduler.md](scheduler.md)) |
 | `stratus_bedrock_fixture_add` | Make Bedrock answer matching model calls with a fixed reply (see [bedrock.md](bedrock.md)) |

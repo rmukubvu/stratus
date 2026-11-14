@@ -53,6 +53,7 @@ func StartInProcess(ctx context.Context, cfg ServerConfig) (Server, error) {
 		LogFormat: "auto",
 		Seed:      cfg.Seed,
 		Limits:    cfg.Limits,
+		SigV4:     cfg.SigV4,
 	}
 	if appCfg.LogLevel == "" {
 		appCfg.LogLevel = "warn"

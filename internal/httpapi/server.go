@@ -107,6 +107,9 @@ type Options struct {
 	Stacks StackResolver
 	// Accounts maps an access key to its account. Optional.
 	Accounts AccountResolver
+	// Authenticator, when set, verifies each AWS API request's signature,
+	// after faults and before limits and authorization.
+	Authenticator Authenticator
 	// Authorizer, when set, decides whether the caller may make each AWS
 	// API request, after faults and before dispatch.
 	Authorizer Authorizer
@@ -129,18 +132,19 @@ type Options struct {
 }
 
 type Server struct {
-	logger     *slog.Logger
-	services   *Services
-	stacks     StackResolver
-	accounts   AccountResolver
-	operator   *operator.Service
-	control    http.Handler
-	gate       *control.Gate
-	faults     FaultDecider
-	limits     LimitGate
-	observer   RequestObserver
-	coldStart  func(ctx context.Context, functionName string) error
-	authorizer Authorizer
+	logger        *slog.Logger
+	services      *Services
+	stacks        StackResolver
+	accounts      AccountResolver
+	operator      *operator.Service
+	control       http.Handler
+	gate          *control.Gate
+	faults        FaultDecider
+	limits        LimitGate
+	observer      RequestObserver
+	coldStart     func(ctx context.Context, functionName string) error
+	authenticator Authenticator
+	authorizer    Authorizer
 }
 
 func NewServer(opts Options) *Server {
@@ -151,18 +155,19 @@ func NewServer(opts Options) *Server {
 
 	services := opts.Services
 	return &Server{
-		logger:     logger,
-		services:   &services,
-		stacks:     opts.Stacks,
-		accounts:   opts.Accounts,
-		authorizer: opts.Authorizer,
-		operator:   opts.Operator,
-		control:    opts.Control,
-		gate:       opts.Gate,
-		faults:     opts.Faults,
-		limits:     opts.Limits,
-		observer:   opts.Observer,
-		coldStart:  opts.ColdStart,
+		logger:        logger,
+		services:      &services,
+		stacks:        opts.Stacks,
+		accounts:      opts.Accounts,
+		authenticator: opts.Authenticator,
+		authorizer:    opts.Authorizer,
+		operator:      opts.Operator,
+		control:       opts.Control,
+		gate:          opts.Gate,
+		faults:        opts.Faults,
+		limits:        opts.Limits,
+		observer:      opts.Observer,
+		coldStart:     opts.ColdStart,
 	}
 }
 
@@ -234,6 +239,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			s.recordDropped(start, r, metadata, tr)
 			// Abort without a response: the client sees a reset connection.
 			panic(http.ErrAbortHandler)
+		}
+	}
+	if err == nil && outcome == faultProceed && s.authenticator != nil {
+		err = s.authenticator.Authenticate(r, metadata)
+		if r.Body != nil {
+			// Authentication may have swapped in a spooled copy of the body.
+			defer r.Body.Close()
 		}
 	}
 	if err == nil && outcome == faultProceed {

@@ -32,6 +32,9 @@ type ControlClient interface {
 	SetLimits(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
 	LimitsStatus(ctx context.Context) (json.RawMessage, error)
 	ClearLimits(ctx context.Context) (json.RawMessage, error)
+	SetSigV4(ctx context.Context, mode string) (json.RawMessage, error)
+	SigV4Status(ctx context.Context) (json.RawMessage, error)
+	ClearSigV4(ctx context.Context) (json.RawMessage, error)
 	StartRun(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
 	GetRun(ctx context.Context, id string) (json.RawMessage, error)
 	StopRun(ctx context.Context, id string) (json.RawMessage, error)
@@ -107,6 +110,11 @@ func RunControl(ctx context.Context, mode Mode, args []string, newClient ClientF
 		}
 	case ModeLimits:
 		out, err = runLimits(ctx, c, rest, stderr)
+		if errors.Is(err, errUsage) {
+			return 2
+		}
+	case ModeSigV4:
+		out, err = runSigV4(ctx, c, rest, stderr)
 		if errors.Is(err, errUsage) {
 			return 2
 		}
@@ -261,6 +269,41 @@ func runLimits(ctx context.Context, c ControlClient, args []string, stderr io.Wr
 		return c.ClearLimits(ctx)
 	default:
 		fmt.Fprintf(stderr, "stratus limits: unknown command %q\n%s", verb, limitsUsage)
+		return nil, errUsage
+	}
+}
+
+const sigv4Usage = `usage:
+  stratus sigv4 set <strict | audit | off>   verify AWS request signatures (strict refuses bad ones, audit only records them)
+  stratus sigv4 status                       show counters and recent failures with the canonical request Stratus expected
+  stratus sigv4 clear                        turn verification off and print the final status
+`
+
+func runSigV4(ctx context.Context, c ControlClient, args []string, stderr io.Writer) (json.RawMessage, error) {
+	if len(args) == 0 {
+		fmt.Fprint(stderr, sigv4Usage)
+		return nil, errUsage
+	}
+	switch verb, rest := args[0], args[1:]; verb {
+	case "set":
+		if len(rest) != 1 {
+			fmt.Fprint(stderr, sigv4Usage)
+			return nil, errUsage
+		}
+		switch rest[0] {
+		case "strict", "audit", "off":
+			return c.SetSigV4(ctx, rest[0])
+		}
+		fmt.Fprintf(stderr, "stratus sigv4: mode must be strict, audit or off, got %q\n%s", rest[0], sigv4Usage)
+		return nil, errUsage
+	case "strict", "audit":
+		return c.SetSigV4(ctx, verb)
+	case "status":
+		return c.SigV4Status(ctx)
+	case "clear", "off":
+		return c.ClearSigV4(ctx)
+	default:
+		fmt.Fprintf(stderr, "stratus sigv4: unknown command %q\n%s", verb, sigv4Usage)
 		return nil, errUsage
 	}
 }

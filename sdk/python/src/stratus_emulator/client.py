@@ -29,6 +29,8 @@ from .types import (
     LoadRunInput,
     LoadRunSummary,
     ResetResult,
+    SignatureMode,
+    SignatureStatus,
     SchedulerAdvance,
     SchedulerClock,
     SchedulerInvocation,
@@ -99,6 +101,25 @@ class Limits:
     def clear(self) -> LimitsStatus:
         """Turn limits off and return the final status."""
         return cast(LimitsStatus, self._t.request("DELETE", "/limits"))
+
+
+class Signatures:
+    """Strict signature mode: verify every AWS request's SigV4 signature as AWS does."""
+
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def set(self, mode: SignatureMode = "strict") -> SignatureStatus:
+        """Set the mode (default strict) and start fresh counters."""
+        return cast(SignatureStatus, self._t.request("PUT", "/sigv4", {"mode": mode}))
+
+    def status(self) -> SignatureStatus:
+        """The mode, counters and recent failures with the canonical request Stratus expected."""
+        return cast(SignatureStatus, self._t.request("GET", "/sigv4"))
+
+    def clear(self) -> SignatureStatus:
+        """Turn verification off and return the final status."""
+        return cast(SignatureStatus, self._t.request("DELETE", "/sigv4"))
 
 
 class LoadRecording:
@@ -357,6 +378,7 @@ class StratusClient:
         self.snapshots = Snapshots(self._t)
         self.chaos = Chaos(self._t)
         self.limits = Limits(self._t)
+        self.signatures = Signatures(self._t)
         self.runs = Runs(self._t)
         self.ses = Ses(self._t)
         self.scheduler = Scheduler(self._t)

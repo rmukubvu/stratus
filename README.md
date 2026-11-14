@@ -47,6 +47,12 @@ IAM users, access keys, managed policies and STS `AssumeRole` work the
 way they do in AWS; see [docs/iam.md](docs/iam.md). Set `STRATUS_IAM=enforce` to have
 requests refused when their caller's policies do not allow them.
 
+Set `STRATUS_SIGV4=strict` to have Stratus verify every request's SigV4
+signature (headers, presigned URLs, S3 payload hashes and chunked uploads,
+expiry and clock skew) and refuse bad ones with AWS's own error codes, so
+signing bugs fail locally instead of in production; see
+[docs/sigv4.md](docs/sigv4.md).
+
 ## What Works Today
 
 `stratus` currently includes first-class support for 34 service families:
@@ -195,7 +201,7 @@ Current boundary:
 1. Front door
    - `net/http` listener
    - AWS request classification
-   - permissive SigV4 parsing
+   - SigV4 parsing, with optional strict verification (`STRATUS_SIGV4`)
    - shared error and response normalization
 2. Service layer
    - one package per AWS service

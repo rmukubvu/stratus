@@ -32,6 +32,9 @@ const (
 	CategoryLimit Category = "limit_exceeded"
 	// CategoryThrottling failures were rate limited.
 	CategoryThrottling Category = "throttling"
+	// CategorySignature failures were refused by strict signature mode: the
+	// request was not signed the way AWS requires.
+	CategorySignature Category = "signature"
 	// CategoryAuth failures were rejected for identity or permission reasons.
 	CategoryAuth Category = "auth"
 	// CategoryConnection failures never got a response.
@@ -116,8 +119,8 @@ func explain(f failure) Explanation {
 			true}
 	case containsAny(code, "NotAuthorized", "AccessDenied", "Unauthorized", "InvalidClientTokenId", "UnrecognizedClient", "SignatureDoesNotMatch", "ExpiredToken"):
 		return Explanation{CategoryAuth,
-			"the request was rejected for identity or permission reasons; Stratus accepts any AWS credentials, so a signature or token error usually means the request went to real AWS or another endpoint",
-			"check that AWS_ENDPOINT_URL points at Stratus; for Cognito, check the user's credentials and state",
+			"the request was rejected for identity or permission reasons; unless strict signature mode is on (STRATUS_SIGV4=strict), Stratus accepts any signature, so a signature or token error usually means the request went to real AWS or another endpoint",
+			"check that AWS_ENDPOINT_URL points at Stratus; with STRATUS_IAM=enforce, check the caller's policies; for Cognito, check the user's credentials and state",
 			true}
 	case f.status >= 500:
 		return Explanation{CategoryEmulator,
@@ -230,4 +233,40 @@ func explainInjected(ruleID, action string) Explanation {
 		NextStep:    next + "; replay with the same seed to reproduce",
 		YourBug:     false,
 	}
+}
+
+// explainSignature explains a request strict signature mode refused. The
+// signing bug is in the caller (its SDK setup, a custom signer, a proxy
+// that rewrites requests), and AWS would refuse the same request.
+func explainSignature(kind, detail string) Explanation {
+	cause, next := "the request's SigV4 signature did not verify", "compare your signer's canonical request with the one in `stratus sigv4 status`"
+	switch kind {
+	case "signature_mismatch":
+		cause = "the signature does not match the request: something was signed differently from what was sent (a header, query parameter, path encoding or body changed after signing, the wrong region or service in the credential scope, or the wrong secret key)"
+		next = "run `stratus sigv4 status` and diff its canonical_request against what your signer built; the first differing line is the bug"
+	case "unknown_access_key":
+		cause = "the access key is not one Stratus knows, so AWS would not know it either"
+		next = "sign with an IAM user key, STS credentials, a root key (\"test\" or a twelve-digit account ID, secret \"test\"), or list the key in STRATUS_SIGV4_CREDENTIALS"
+	case "invalid_token", "expired_token":
+		cause = "the session token is missing, wrong, unexpected or expired"
+		next = "send X-Amz-Security-Token with STS credentials (and only with them), and refresh credentials before they expire"
+	case "request_time_skewed":
+		cause = "the request was signed more than 15 minutes away from the server clock: a stale cached signature, a retried request that was not re-signed, or a wrong clock"
+		next = "sign each request (and each retry) just before sending it"
+	case "presign_expired":
+		cause = "the presigned URL was used after X-Amz-Expires ran out"
+		next = "presign closer to use or with a longer expiry (at most 604800 seconds)"
+	case "missing_authentication":
+		cause = "the request was not signed at all"
+		next = "make sure the client has credentials configured and is not sending anonymous requests"
+	case "unsigned_headers", "missing_content_hash", "invalid_content_hash", "content_hash_mismatch", "malformed_chunk":
+		cause = "the S3 request breaks S3's signing rules for headers or payload"
+	case "incomplete_signature", "unsupported_algorithm":
+		cause = "the Authorization header or presigned query is malformed or uses an unsupported algorithm"
+		next = "sign with AWS4-HMAC-SHA256 and include Credential, SignedHeaders and Signature"
+	}
+	if detail != "" && kind != "signature_mismatch" {
+		cause += ": " + detail
+	}
+	return Explanation{Category: CategorySignature, LikelyCause: cause, NextStep: next, YourBug: true}
 }

@@ -25,6 +25,8 @@ type ControlAPI interface {
 	SetLimits(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
 	LimitsStatus(ctx context.Context) (json.RawMessage, error)
 	ClearLimits(ctx context.Context) (json.RawMessage, error)
+	SetSigV4(ctx context.Context, mode string) (json.RawMessage, error)
+	SigV4Status(ctx context.Context) (json.RawMessage, error)
 	StartRun(ctx context.Context, spec json.RawMessage) (json.RawMessage, error)
 	GetRun(ctx context.Context, id string) (json.RawMessage, error)
 	StopRun(ctx context.Context, id string) (json.RawMessage, error)
@@ -323,6 +325,38 @@ func Tools(api ControlAPI) []Tool {
 			InputSchema: schema(map[string]any{}),
 			Handler: func(ctx context.Context, _ json.RawMessage) (any, error) {
 				return api.ClearLimits(ctx)
+			},
+		},
+		{
+			Name: "stratus_sigv4_set",
+			Description: "Turn on strict signature mode so Stratus verifies every AWS request's SigV4 signature (Authorization header or presigned URL, S3 payload hashes and aws-chunked uploads, expiry, 15-minute clock skew, session tokens) the way AWS does. " +
+				"strict refuses bad requests with AWS's own codes (SignatureDoesNotMatch, InvalidSignatureException, IncompleteSignature, InvalidClientTokenId, InvalidAccessKeyId, RequestExpired, RequestTimeTooSkewed); audit lets them through but records them; off accepts anything (the default). " +
+				"Known credentials: IAM user keys, STS session credentials, the root keys \"test\" or a twelve-digit account ID with secret \"test\", and keys in STRATUS_SIGV4_CREDENTIALS. Use it to catch request-signing bugs before real AWS does.",
+			InputSchema: schema(map[string]any{
+				"mode": map[string]any{"type": "string", "enum": []string{"strict", "audit", "off"}, "description": "Default strict."},
+			}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var in struct {
+					Mode string `json:"mode"`
+				}
+				if len(raw) > 0 {
+					if err := json.Unmarshal(raw, &in); err != nil {
+						return nil, err
+					}
+				}
+				if in.Mode == "" {
+					in.Mode = "strict"
+				}
+				return api.SetSigV4(ctx, in.Mode)
+			},
+		},
+		{
+			Name: "stratus_sigv4_status",
+			Description: "Report signature verification: mode, verified/failed/skipped counts, failures by AWS error code, and the latest failures with the canonical request and string to sign Stratus expected. " +
+				"Diff canonical_request against what the client's signer built; the first differing line is the signing bug.",
+			InputSchema: schema(map[string]any{}),
+			Handler: func(ctx context.Context, _ json.RawMessage) (any, error) {
+				return api.SigV4Status(ctx)
 			},
 		},
 		{

@@ -239,8 +239,43 @@ export interface LimitsStatus {
   recent_breaches: LimitBreach[];
 }
 
+/** How Stratus treats request signatures: off accepts anything, audit records failures, strict refuses them. */
+export type SignatureMode = "off" | "audit" | "strict";
+
+/** A request whose SigV4 signature did not verify. */
+export interface SignatureFailure {
+  time: string;
+  request_id: string;
+  service: string;
+  operation?: string;
+  method: string;
+  path: string;
+  access_key_id?: string;
+  presigned?: boolean;
+  /** Why, e.g. signature_mismatch, unknown_access_key, presign_expired. */
+  kind: string;
+  /** The AWS error code the request got (or would have got in audit mode). */
+  code: string;
+  reason: string;
+  /** False in audit mode: the request went through. */
+  refused: boolean;
+  /** What Stratus expected the client to sign; diff it against the client's own. */
+  canonical_request?: string;
+  string_to_sign?: string;
+}
+
+export interface SignatureStatus {
+  mode: SignatureMode;
+  verified: number;
+  failed: number;
+  skipped: number;
+  failures_by_code: Record<string, number>;
+  recent_failures: SignatureFailure[];
+}
+
 export type FailureCategory =
   | "injected_fault"
+  | "signature"
   | "limit_exceeded"
   | "unsupported_operation"
   | "missing_resource"

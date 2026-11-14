@@ -58,3 +58,11 @@ func ResolveScope(r *http.Request, sig *awscompat.SigV4Identity, accounts Accoun
 type Authorizer interface {
 	Authorize(r *http.Request, metadata RequestMetadata) error
 }
+
+// Authenticator verifies that a request was signed by credentials Stratus
+// knows. It returns an *apierror.Error, such as SignatureDoesNotMatch, to
+// refuse. It may replace r.Body with a replay of the bytes it read; the
+// server closes the replacement when the request is done.
+type Authenticator interface {
+	Authenticate(r *http.Request, metadata RequestMetadata) error
+}

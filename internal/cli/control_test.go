@@ -64,6 +64,15 @@ func (f *fakeControl) LimitsStatus(context.Context) (json.RawMessage, error) {
 func (f *fakeControl) ClearLimits(context.Context) (json.RawMessage, error) {
 	return f.record("limits-clear")
 }
+func (f *fakeControl) SetSigV4(_ context.Context, mode string) (json.RawMessage, error) {
+	return f.record("sigv4-set " + mode)
+}
+func (f *fakeControl) SigV4Status(context.Context) (json.RawMessage, error) {
+	return f.record("sigv4-status")
+}
+func (f *fakeControl) ClearSigV4(context.Context) (json.RawMessage, error) {
+	return f.record("sigv4-clear")
+}
 func (f *fakeControl) Diagnose(_ context.Context, q url.Values) (json.RawMessage, error) {
 	return f.record("diagnose " + q.Encode())
 }
@@ -219,6 +228,10 @@ func TestLimitsCommands(t *testing.T) {
 		{[]string{"limits", "set", profile}, `limits-set {"scale":0.1}`},
 		{[]string{"limits", "status"}, "limits-status"},
 		{[]string{"limits", "clear"}, "limits-clear"},
+		{[]string{"sigv4", "set", "strict"}, "sigv4-set strict"},
+		{[]string{"sigv4", "audit"}, "sigv4-set audit"},
+		{[]string{"sigv4", "status"}, "sigv4-status"},
+		{[]string{"sigv4", "clear"}, "sigv4-clear"},
 	}
 	for _, tc := range cases {
 		fake := &fakeControl{}
@@ -227,7 +240,7 @@ func TestLimitsCommands(t *testing.T) {
 			t.Errorf("%v: code=%d calls=%v stderr=%s", tc.args, code, fake.calls, stderr)
 		}
 	}
-	for _, args := range [][]string{{"limits"}, {"limits", "set"}, {"limits", "explode"}} {
+	for _, args := range [][]string{{"limits"}, {"limits", "set"}, {"limits", "explode"}, {"sigv4"}, {"sigv4", "set", "loose"}, {"sigv4", "explode"}} {
 		if code, _, _ := run(t, &fakeControl{}, args...); code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
 		}

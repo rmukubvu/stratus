@@ -25,6 +25,9 @@ type Config struct {
 	// (aws-default, strict) or the path of a JSON profile. Empty falls
 	// back to STRATUS_LIMITS; both empty leaves limits off.
 	Limits string
+	// SigV4 sets signature verification at startup: off, audit or strict.
+	// Empty falls back to STRATUS_SIGV4; both empty leaves it off.
+	SigV4 string
 	// LambdaContainers caps the warm containers one Lambda function may
 	// have; zero falls back to STRATUS_LAMBDA_CONTAINERS, then 4.
 	LambdaContainers int
@@ -38,6 +41,7 @@ func RegisterFlags(fs *flag.FlagSet) *Config {
 	fs.StringVar(&cfg.LogFormat, "log-format", defaultLogFormat, "Log format: auto, json, pretty")
 	fs.StringVar(&cfg.Seed, "seed", "", "Snapshot directory to initialise an empty data dir from")
 	fs.StringVar(&cfg.Limits, "limits", "", "Limits profile to apply at startup: aws-default, strict or a JSON file (default $STRATUS_LIMITS)")
+	fs.StringVar(&cfg.SigV4, "sigv4", "", "Verify AWS request signatures: off, audit or strict (default $STRATUS_SIGV4)")
 	fs.IntVar(&cfg.LambdaContainers, "lambda-containers", 0, "Most warm containers one Lambda function may run at once (default $STRATUS_LAMBDA_CONTAINERS, or 4)")
 	return cfg
 }

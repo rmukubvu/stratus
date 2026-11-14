@@ -25,6 +25,8 @@ type Failure struct {
 type Injection struct {
 	RuleID string
 	Action string
+	// Detail is extra context, such as why a signature did not verify.
+	Detail string
 	// Source is SourceChaos (the zero value) or SourceLimit.
 	Source Source
 }
@@ -38,6 +40,10 @@ const (
 	// SourceLimit is a throttle from the active limits profile: what AWS
 	// would do at this load, not a fault.
 	SourceLimit Source = "limit"
+	// SourceSignature is a request strict signature mode refused: RuleID
+	// is the failure kind, Action the AWS error code. Unlike the other
+	// sources it points at a real bug in the caller's signing.
+	SourceSignature Source = "signature"
 )
 
 // Group is a set of failures with the same service, operation and code.
@@ -114,6 +120,8 @@ func Diagnose(failures []Failure, injected map[string]Injection, opts Options) R
 			switch {
 			case wasInjected && inj.Source == SourceLimit:
 				exp = explainLimit(inj.RuleID, inj.Action)
+			case wasInjected && inj.Source == SourceSignature:
+				exp = explainSignature(inj.RuleID, inj.Detail)
 			case wasInjected:
 				exp = explainInjected(inj.RuleID, inj.Action)
 			default:
@@ -185,7 +193,7 @@ func (g *Group) add(f Failure) {
 
 var categoryOrder = []Category{
 	CategoryEmulator, CategoryUnsupported, CategoryMissingResource, CategoryConflict,
-	CategoryInvalidRequest, CategoryAuth, CategoryLimit, CategoryThrottling, CategoryConnection,
+	CategoryInvalidRequest, CategorySignature, CategoryAuth, CategoryLimit, CategoryThrottling, CategoryConnection,
 	CategoryClient, CategoryInjected,
 }
 
@@ -195,6 +203,7 @@ var categoryLabel = map[Category]string{
 	CategoryMissingResource: "missing resource",
 	CategoryConflict:        "conflict",
 	CategoryInvalidRequest:  "invalid request",
+	CategorySignature:       "bad request signature",
 	CategoryAuth:            "auth failure",
 	CategoryLimit:           "over a limits-profile quota",
 	CategoryThrottling:      "throttled",

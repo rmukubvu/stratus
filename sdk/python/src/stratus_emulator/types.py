@@ -10,8 +10,11 @@ ChaosAction = Literal[
 ]
 #: "api" (default) for AWS API calls, "event" for internal deliveries, "all" for both.
 ChaosScope = Literal["api", "event", "all"]
+#: How Stratus treats request signatures: off accepts anything, audit records failures, strict refuses them.
+SignatureMode = Literal["off", "audit", "strict"]
 FailureCategory = Literal[
     "injected_fault",
+    "signature",
     "limit_exceeded",
     "unsupported_operation",
     "missing_resource",
@@ -235,6 +238,37 @@ class LimitsStatus(_LimitsStatusBase, total=False):
     dynamodb: DynamoDBCapacity
     capacity: List[TableCapacityStatus]
     emulator: Dict[str, Any]
+
+
+class _SignatureFailureBase(TypedDict):
+    time: str
+    request_id: str
+    service: str
+    method: str
+    path: str
+    kind: str
+    code: str
+    reason: str
+    refused: bool
+
+
+class SignatureFailure(_SignatureFailureBase, total=False):
+    """A request whose SigV4 signature did not verify, with what Stratus expected it to sign."""
+
+    operation: str
+    access_key_id: str
+    presigned: bool
+    canonical_request: str
+    string_to_sign: str
+
+
+class SignatureStatus(TypedDict):
+    mode: SignatureMode
+    verified: int
+    failed: int
+    skipped: int
+    failures_by_code: Dict[str, int]
+    recent_failures: List[SignatureFailure]
 
 
 class DiagnosisGroup(TypedDict, total=False):

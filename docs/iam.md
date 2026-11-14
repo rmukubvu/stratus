@@ -53,6 +53,10 @@ check them:
 | `audit` | Requests policies would refuse are logged (`iam refused request`) and let through. Use it to find missing permissions without breaking a run. |
 | `enforce` | Requests policies do not allow fail with `AccessDenied` (`AccessDeniedException` for JSON APIs), as in AWS. |
 
+IAM enforcement trusts the access key in the request. To also check that
+the request was signed with that key's secret, set `STRATUS_SIGV4=strict`
+([sigv4.md](sigv4.md)).
+
 What is checked:
 
 - **Who.** IAM users (`AKIA…` keys) and assumed roles (`ASIA…` keys) are

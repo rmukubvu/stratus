@@ -42,6 +42,10 @@ func (f *fakeAPI) LimitsStatus(context.Context) (json.RawMessage, error) {
 	return f.rec("limits-status")
 }
 func (f *fakeAPI) ClearLimits(context.Context) (json.RawMessage, error) { return f.rec("limits-clear") }
+func (f *fakeAPI) SetSigV4(_ context.Context, mode string) (json.RawMessage, error) {
+	return f.rec("sigv4-set " + mode)
+}
+func (f *fakeAPI) SigV4Status(context.Context) (json.RawMessage, error) { return f.rec("sigv4-status") }
 func (f *fakeAPI) StartRun(_ context.Context, spec json.RawMessage) (json.RawMessage, error) {
 	return f.rec("run-start " + string(spec))
 }
@@ -109,6 +113,9 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_limits_set", `{"profile":"strict","scale":0.5}`, `limits-set {"profile":"strict","scale":0.5}`},
 		{"stratus_limits_status", `{}`, "limits-status"},
 		{"stratus_limits_clear", `{}`, "limits-clear"},
+		{"stratus_sigv4_set", `{"mode":"audit"}`, "sigv4-set audit"},
+		{"stratus_sigv4_set", `{}`, "sigv4-set strict"},
+		{"stratus_sigv4_status", `{}`, "sigv4-status"},
 		{"stratus_load_start", `{"name":"smoke","limits":{"profile":"strict"}}`, `run-start {"name":"smoke","limits":{"profile":"strict"}}`},
 		{"stratus_load_status", `{}`, "run-get current"},
 		{"stratus_load_status", `{"id":"latest"}`, "run-get latest"},

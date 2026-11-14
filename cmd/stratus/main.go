@@ -152,6 +152,8 @@ Control a running Stratus (for CI and agents; output is JSON):
   stratus limits set <profile|file|->   Enforce AWS quotas (aws-default, strict or JSON)
   stratus limits status                 Show per-rule counts and recent throttles
   stratus limits clear                  Turn limits off
+  stratus sigv4 set <strict|audit|off>  Verify AWS request signatures as AWS does
+  stratus sigv4 status                  Show failures with the canonical request expected
   stratus load run [flags] -- <cmd>     Record a load run around a command, e.g. k6 run load.js
   stratus load start|status|stop|list   Drive load runs yourself (flags: --name, --limits, --chaos)
   stratus load report [run-id]          Findings (hot partitions, missing retries or queues) as Markdown
@@ -165,6 +167,7 @@ Common flags:
   --log-format <format>         auto, json, pretty
   --seed <dir>                  Initialise an empty data dir from a snapshot dir
   --limits <profile|file>       Enforce AWS quotas from the start (env STRATUS_LIMITS)
+  --sigv4 <off|audit|strict>    Verify request signatures from the start (env STRATUS_SIGV4)
   --lambda-containers <n>       Warm containers per Lambda function (default 4, env STRATUS_LAMBDA_CONTAINERS)
 
 Dev-only flags:
@@ -174,7 +177,7 @@ Key endpoints:
   /_stratus/                    Built-in operator portal
   /_stratus/health              Health check
   /_stratus/operator/bootstrap  Service inventory and quick-start data
-  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, chaos, limits, runs, diagnostics
+  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, chaos, limits, sigv4, runs, diagnostics
 `)
 }
 
