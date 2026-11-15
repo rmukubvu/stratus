@@ -54,8 +54,10 @@ type DynamoDBSpec struct {
 	OnDemandReadUnits  float64 `json:"on_demand_read_units,omitempty"`
 	OnDemandWriteUnits float64 `json:"on_demand_write_units,omitempty"`
 	// BurstSeconds is how many seconds of unused provisioned capacity a
-	// table banks for bursts: 300 in AWS. Set 1 to see throttles at once.
-	BurstSeconds float64 `json:"burst_seconds,omitempty"`
+	// table banks for bursts: 300 in AWS when nil. 0 banks nothing beyond
+	// the current second, so throttles show at once. It is a pointer so an
+	// explicit 0 is not mistaken for "use the default".
+	BurstSeconds *float64 `json:"burst_seconds,omitempty"`
 	// Tables sets the partition count of named tables.
 	Tables map[string]TableSpec `json:"tables,omitempty"`
 }
@@ -71,7 +73,7 @@ func (d DynamoDBSpec) normalise() (DynamoDBSpec, error) {
 	for name, v := range map[string]float64{
 		"partition_read_units": d.PartitionReadUnits, "partition_write_units": d.PartitionWriteUnits,
 		"on_demand_read_units": d.OnDemandReadUnits, "on_demand_write_units": d.OnDemandWriteUnits,
-		"burst_seconds": d.BurstSeconds,
+		"burst_seconds": d.burstSeconds(),
 	} {
 		if v < 0 {
 			return DynamoDBSpec{}, invalid("InvalidLimitsProfile", "dynamodb.%s must not be negative", name)
@@ -89,8 +91,17 @@ func (d DynamoDBSpec) normalise() (DynamoDBSpec, error) {
 	d.PartitionWriteUnits = orDefault(d.PartitionWriteUnits, defaultPartitionWriteUnits)
 	d.OnDemandReadUnits = orDefault(d.OnDemandReadUnits, defaultOnDemandReadUnits)
 	d.OnDemandWriteUnits = orDefault(d.OnDemandWriteUnits, defaultOnDemandWriteUnits)
-	d.BurstSeconds = orDefault(d.BurstSeconds, defaultBurstSeconds)
+	burst := d.burstSeconds()
+	d.BurstSeconds = &burst
 	return d, nil
+}
+
+// burstSeconds is BurstSeconds with its default applied.
+func (d DynamoDBSpec) burstSeconds() float64 {
+	if d.BurstSeconds == nil {
+		return defaultBurstSeconds
+	}
+	return *d.BurstSeconds
 }
 
 func orDefault(v, def float64) float64 {
@@ -153,9 +164,9 @@ func (c tableCapacity) tableRate() (rate, capacity float64) {
 	case c.req.OnDemand:
 		rate = c.spec.OnDemandReadUnits * c.scale
 	case c.req.Write:
-		rate, capacity = c.req.WriteCapacity, c.req.WriteCapacity*c.spec.BurstSeconds
+		rate, capacity = c.req.WriteCapacity, c.req.WriteCapacity*c.spec.burstSeconds()
 	default:
-		rate, capacity = c.req.ReadCapacity, c.req.ReadCapacity*c.spec.BurstSeconds
+		rate, capacity = c.req.ReadCapacity, c.req.ReadCapacity*c.spec.burstSeconds()
 	}
 	return rate, math.Max(1, math.Max(capacity, rate))
 }

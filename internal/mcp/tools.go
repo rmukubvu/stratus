@@ -111,7 +111,8 @@ func Tools(api ControlAPI) []Tool {
 						// DiscoverInstances) on the Stratus host.
 						"AWS_DISABLE_HOST_PREFIX_INJECTION": "true",
 					},
-					"note": "Stratus accepts any credentials. Lambda functions reach Stratus at http://host.docker.internal:<port>.",
+					"note": "Stratus accepts any credentials and signature by default; stratus_sigv4_set strict verifies signatures as AWS does. " +
+						"Lambda functions get AWS_ENDPOINT_URL pointing back at Stratus automatically, and what they print lands in CloudWatch Logs under /aws/lambda/<function>.",
 				}, nil
 			},
 		},
@@ -287,10 +288,38 @@ func Tools(api ControlAPI) []Tool {
 			Description: "Enforce AWS service quotas so the app meets throttling under load, with the same errors AWS returns (SlowDown for S3, ThrottlingException, TooManyRequestsException). " +
 				"profile is the base: aws-default (documented default quotas: S3 per prefix, SSM Get*, KMS crypto, Secrets Manager reads), strict (the same at 1%, to expose missing retries with little load) or none. " +
 				"scale multiplies every rate, so a laptop-sized load reaches the same limits a production load would. " +
-				"rates adds rules or replaces base rules by id; disabled turns a base rule off. Replaces any active profile; throttled requests carry X-Stratus-Limit and show as limit_exceeded in stratus_diagnose.",
+				"rates adds rules or replaces base rules by id; disabled turns a base rule off. " +
+				"dynamodb tunes table capacity (a provisioned table gets its ProvisionedThroughput and banks burst_seconds of unused capacity, 300 by default; burst_seconds 0 throttles it as soon as it exceeds its rate) and lambda tunes account concurrency; " +
+				"aws-default and strict enforce both, none only when the section is given. " +
+				"Replaces any active profile; throttled requests carry X-Stratus-Limit and show as limit_exceeded in stratus_diagnose.",
 			InputSchema: schema(map[string]any{
 				"profile": map[string]any{"type": "string", "enum": []string{"aws-default", "strict", "none"}},
 				"scale":   map[string]any{"type": "number", "exclusiveMinimum": 0, "description": "Multiplies every rate; 0.01 makes 5,500/s into 55/s."},
+				"dynamodb": map[string]any{
+					"type":        "object",
+					"description": "DynamoDB table capacity model.",
+					"properties": map[string]any{
+						"disabled":              map[string]any{"type": "boolean", "description": "Turn capacity off while the other limits apply."},
+						"burst_seconds":         map[string]any{"type": "number", "minimum": 0, "description": "Seconds of unused provisioned capacity a table banks; default 300 as in AWS, 0 banks none."},
+						"partition_read_units":  map[string]any{"type": "number", "minimum": 0, "description": "Read units one partition serves per second before scaling; default 3000."},
+						"partition_write_units": map[string]any{"type": "number", "minimum": 0, "description": "Write units one partition serves per second before scaling; default 1000."},
+						"on_demand_read_units":  map[string]any{"type": "number", "minimum": 0, "description": "An on-demand table's maximum reads per second before scaling; default 40000."},
+						"on_demand_write_units": map[string]any{"type": "number", "minimum": 0, "description": "An on-demand table's maximum writes per second before scaling; default 40000."},
+						"tables": map[string]any{
+							"type":                 "object",
+							"description":          "Partition count by table name, e.g. {\"orders\": {\"partitions\": 8}}.",
+							"additionalProperties": map[string]any{"type": "object", "properties": map[string]any{"partitions": map[string]any{"type": "integer", "minimum": 1}}},
+						},
+					},
+				},
+				"lambda": map[string]any{
+					"type":        "object",
+					"description": "Lambda concurrency model.",
+					"properties": map[string]any{
+						"disabled":            map[string]any{"type": "boolean", "description": "Turn concurrency limits off while the other limits apply."},
+						"account_concurrency": map[string]any{"type": "number", "minimum": 0, "description": "Concurrent executions per account and region before scaling; default 1000."},
+					},
+				},
 				"rates": map[string]any{
 					"type": "array",
 					"items": map[string]any{

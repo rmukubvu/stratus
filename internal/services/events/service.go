@@ -1032,8 +1032,12 @@ func (s *Service) sendToTarget(ctx context.Context, target targetRecord, payload
 		if s.lambda == nil {
 			return nil
 		}
-		_, err := s.lambda.InvokeByName(ctx, lambdaNameFromARN(target.Arn), payload)
-		return err
+		name := lambdaNameFromARN(target.Arn)
+		result, err := s.lambda.InvokeByName(ctx, name, payload)
+		if err != nil {
+			return err
+		}
+		return result.Failure(name)
 	case strings.Contains(target.Arn, ":sqs:"):
 		if s.sqs == nil {
 			return nil

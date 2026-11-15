@@ -151,7 +151,7 @@ the profile:
 | `disabled` | Turns capacity off while the other limits apply. |
 | `partition_read_units`, `partition_write_units` | What one partition serves per second, before scaling. Default 3,000 and 1,000. |
 | `on_demand_read_units`, `on_demand_write_units` | An on-demand table's maximum per second, before scaling. Default 40,000 each. |
-| `burst_seconds` | Seconds of unused provisioned capacity a table banks. Default 300; use 1 to see throttles at once. |
+| `burst_seconds` | Seconds of unused provisioned capacity a table banks. Default 300; 0 banks none, so a table throttles as soon as it goes over its rate. |
 | `tables` | Fixes the partition count of named tables. |
 
 The `none` base enforces capacity only when the profile has a `dynamodb`

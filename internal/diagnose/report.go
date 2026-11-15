@@ -7,17 +7,25 @@ import (
 	"time"
 )
 
-// Failure is one failed request, as recorded by the server.
+// Failure is one failed request, as recorded by the server, or one failed
+// event delivery.
 type Failure struct {
-	Time      time.Time
+	Time time.Time
+	// RequestID is the API request ID, or the delivery's event ID.
 	RequestID string
+	// Service and Operation are the API called, or for a delivery the
+	// receiving service and the operation it performs (lambda Invoke).
 	Service   string
 	Operation string
 	Method    string
-	Path      string
-	Status    int
-	Code      string
-	Message   string
+	// Path is the request path, or the delivery's target ARN.
+	Path    string
+	Status  int
+	Code    string
+	Message string
+	// Delivery is set when the failure is an event delivery, not an API
+	// request.
+	Delivery *Delivery
 }
 
 // Injection says what Stratus did on purpose to fail a request: a chaos
@@ -48,16 +56,20 @@ const (
 
 // Group is a set of failures with the same service, operation and code.
 type Group struct {
-	Service    string    `json:"service"`
-	Operation  string    `json:"operation,omitempty"`
-	Code       string    `json:"code"`
-	Status     int       `json:"status"`
-	Count      int       `json:"count"`
-	FirstSeen  time.Time `json:"first_seen"`
-	LastSeen   time.Time `json:"last_seen"`
-	Message    string    `json:"message"`
-	RequestIDs []string  `json:"example_request_ids"`
-	Paths      []string  `json:"example_paths"`
+	Service   string `json:"service"`
+	Operation string `json:"operation,omitempty"`
+	// EventSource is set for failed event deliveries: the service that made
+	// them, such as "sqs" for an event source mapping. The group's paths are
+	// then the targets.
+	EventSource string    `json:"event_source,omitempty"`
+	Code        string    `json:"code"`
+	Status      int       `json:"status"`
+	Count       int       `json:"count"`
+	FirstSeen   time.Time `json:"first_seen"`
+	LastSeen    time.Time `json:"last_seen"`
+	Message     string    `json:"message"`
+	RequestIDs  []string  `json:"example_request_ids"`
+	Paths       []string  `json:"example_paths"`
 	Explanation
 }
 
@@ -88,7 +100,7 @@ type Options struct {
 }
 
 type groupKey struct {
-	service, operation, code, ruleID string
+	service, operation, code, ruleID, eventSource string
 }
 
 // Diagnose groups failures and explains each group. injected maps request
@@ -111,6 +123,9 @@ func Diagnose(failures []Failure, injected map[string]Injection, opts Options) R
 		}
 
 		key := groupKey{service: f.Service, operation: f.Operation, code: f.Code}
+		if f.Delivery != nil {
+			key.eventSource = f.Delivery.Source
+		}
 		if wasInjected {
 			key.ruleID = inj.RuleID
 		}
@@ -124,12 +139,15 @@ func Diagnose(failures []Failure, injected map[string]Injection, opts Options) R
 				exp = explainSignature(inj.RuleID, inj.Detail)
 			case wasInjected:
 				exp = explainInjected(inj.RuleID, inj.Action)
+			case f.Delivery != nil:
+				exp = explainDelivery(f)
 			default:
 				exp = explain(failure{service: f.Service, operation: f.Operation, code: f.Code, message: f.Message, status: f.Status})
 			}
 			g = &Group{
 				Service: f.Service, Operation: f.Operation, Code: f.Code, Status: f.Status,
 				FirstSeen: f.Time, LastSeen: f.Time, Message: f.Message, Explanation: exp,
+				EventSource: key.eventSource,
 			}
 			groups[key] = g
 		}
@@ -192,12 +210,14 @@ func (g *Group) add(f Failure) {
 }
 
 var categoryOrder = []Category{
-	CategoryEmulator, CategoryUnsupported, CategoryMissingResource, CategoryConflict,
+	CategoryFunctionError, CategoryEnvironment, CategoryEmulator, CategoryUnsupported, CategoryMissingResource, CategoryConflict,
 	CategoryInvalidRequest, CategorySignature, CategoryAuth, CategoryLimit, CategoryThrottling, CategoryConnection,
 	CategoryClient, CategoryInjected,
 }
 
 var categoryLabel = map[Category]string{
+	CategoryFunctionError:   "function error",
+	CategoryEnvironment:     "environment problem",
 	CategoryEmulator:        "emulator error",
 	CategoryUnsupported:     "unsupported operation",
 	CategoryMissingResource: "missing resource",

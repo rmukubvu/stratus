@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 
@@ -100,16 +101,18 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	iamKeys := iam.NewKeyDirectory(metaStore)
 	stsService := sts.NewService(metaStore, iamKeys)
 	lambdaRuntime.SetCredentialIssuer(stsService)
+	lambdaRuntime.SetEndpoint(containerEndpoint(daemon.CallbackHost(), cfg.Port))
 	if n := lambdaContainers(cfg); n > 0 {
 		lambdaRuntime.SetMaxContainers(n)
 	}
 	governor.SetEmulatorStats(func() any { return map[string]any{"lambda": lambdaRuntime.PoolStats()} })
+	deliveries := diagnose.NewDeliveryLog(0)
 	stacks := newStacks(platform{
 		meta:    metaStore,
 		blobs:   blobStore,
 		invoker: lambdaRuntime,
 		engines: engines,
-		faults:  chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger),
+		faults:  newRecordingGate(chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger), deliveries),
 		chaos:   chaosEngine,
 		bedrock: bedrock.NewService(bedrock.Options{
 			Metadata:   metaStore,
@@ -170,7 +173,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	kafka.RegisterRoutes(controlHandler, defaults.kafka)
 	route53.RegisterRoutes(controlHandler, defaults.route53)
 	diagnose.RegisterRoutes(controlHandler, diagnose.NewService(
-		failuresFrom(operatorStore),
+		failuresFrom(operatorStore, deliveries, chaosEngine),
 		attributionsFrom(chaosEngine, governor, authenticator),
 		nil,
 	))
@@ -232,7 +235,11 @@ func NewLogger(level, format string) *slog.Logger {
 // ContainerEndpoint is Stratus's base URL as the containers it starts see
 // it, for Lambda functions that call back into Stratus.
 func (a *App) ContainerEndpoint() string {
-	return fmt.Sprintf("http://%s:%d", a.daemon.CallbackHost(), a.cfg.Port)
+	return containerEndpoint(a.daemon.CallbackHost(), a.cfg.Port)
+}
+
+func containerEndpoint(host string, port int) string {
+	return fmt.Sprintf("http://%s:%d", host, port)
 }
 
 // Run listens on the configured address and serves until ctx is cancelled.
@@ -322,8 +329,10 @@ func startEngines(backends []control.Backend, dataDir string, seeded bool, logge
 	}
 }
 
-// failuresFrom adapts the operator's request log to the diagnosis port.
-func failuresFrom(store *operator.Store) diagnose.FailureSource {
+// failuresFrom adapts the operator's request log, the failed event
+// deliveries and the deliveries chaos failed to the diagnosis port, newest
+// first.
+func failuresFrom(store *operator.Store, deliveries *diagnose.DeliveryLog, engine *chaos.Engine) diagnose.FailureSource {
 	return func() []diagnose.Failure {
 		records := store.Errors(200)
 		out := make([]diagnose.Failure, 0, len(records))
@@ -333,6 +342,9 @@ func failuresFrom(store *operator.Store) diagnose.FailureSource {
 				Method: r.Method, Path: r.Path, Status: r.Status, Code: r.ErrorCode, Message: r.ErrorMessage,
 			})
 		}
+		out = append(out, deliveries.Failures()...)
+		out = append(out, injectedDeliveryFailures(engine.Hits())...)
+		sort.SliceStable(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
 		return out
 	}
 }
@@ -353,10 +365,10 @@ func attributionsFrom(engine *chaos.Engine, governor *limits.Governor, authentic
 			}
 		}
 		for _, h := range hits {
-			// Latency and cold starts don't fail a request by themselves, so
-			// a failure after one of them is not attributed to chaos. Event
-			// deliveries have no API request to attribute a failure to.
-			if h.Scope != chaos.ScopeAPI || h.Action == chaos.ActionLatency || h.Action == chaos.ActionColdStart {
+			// Latency, cold starts and duplicates don't fail a request or
+			// delivery by themselves, so a failure after one of them is not
+			// attributed to chaos. A delivery's hit carries its delivery ID.
+			if !failsDelivery(h.Action) || h.RequestID == "" {
 				continue
 			}
 			out[h.RequestID] = diagnose.Injection{RuleID: h.RuleID, Action: string(h.Action)}

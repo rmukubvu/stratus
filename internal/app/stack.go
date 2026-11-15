@@ -60,7 +60,7 @@ type platform struct {
 	blobs   *fsblob.Store
 	invoker lambdasvc.Invoker
 	engines backing.Runner
-	faults  *chaos.Injector
+	faults  chaos.Gate
 	chaos   *chaos.Engine
 	bedrock *bedrock.Service
 	sts     *sts.Service
@@ -283,6 +283,7 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 	monitoringService.SetSNS(snsService)
 	lambdaService.SetQueuePublisher(sqsService)
 	lambdaService.SetTopicPublisher(snsService)
+	lambdaService.SetLogSink(logsService)
 	streamsService.SetLambda(lambdaService)
 	dynamoDBService.SetStreams(streamsService)
 	dynamoDBService.SetCapacity(p.capacity)

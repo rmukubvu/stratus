@@ -75,6 +75,46 @@ func TestPlanSetsLambdaEnvironmentAndFunctionVariablesWin(t *testing.T) {
 	}
 }
 
+func TestPlanPointsTheFunctionsSDKAtStratus(t *testing.T) {
+	in := zipInput("python3.12", FamilyManaged)
+	in.Endpoint = "http://host.docker.internal:4566"
+	plan, err := planLaunch(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"AWS_ENDPOINT_URL", "STRATUS_ENDPOINT"} {
+		if got, _ := envValue(plan.Env, key); got != in.Endpoint {
+			t.Errorf("%s = %q, want %q", key, got, in.Endpoint)
+		}
+	}
+	if hosts := runtimeExtraHosts(plan.Env); len(hosts) != 1 {
+		t.Errorf("host.docker.internal is not mapped for the injected endpoint: %v", hosts)
+	}
+}
+
+func TestPlanKeepsTheFunctionsOwnEndpoint(t *testing.T) {
+	in := zipInput("python3.12", FamilyManaged)
+	in.Endpoint = "http://host.docker.internal:4566"
+	in.Spec.Environment["AWS_ENDPOINT_URL"] = "http://mock:9000"
+	plan, err := planLaunch(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := envValue(plan.Env, "AWS_ENDPOINT_URL"); got != "http://mock:9000" {
+		t.Fatalf("AWS_ENDPOINT_URL = %q, want the function's own value", got)
+	}
+}
+
+func TestPlanWithoutEndpointLeavesTheSDKDefault(t *testing.T) {
+	plan, err := planLaunch(zipInput("python3.12", FamilyManaged))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := envValue(plan.Env, "AWS_ENDPOINT_URL"); ok {
+		t.Fatalf("AWS_ENDPOINT_URL = %q, want unset", got)
+	}
+}
+
 func TestPlanCustomRuntimeRunsBootstrapUnderEmulator(t *testing.T) {
 	in := zipInput("provided.al2023", FamilyCustom)
 	in.Spec.Handler = "bootstrap"

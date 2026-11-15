@@ -43,7 +43,18 @@ const (
 	CategoryEmulator Category = "emulator_error"
 	// CategoryClient covers other 4xx responses.
 	CategoryClient Category = "client_error"
+	// CategoryEnvironment failures come from the machine Stratus runs on,
+	// such as Docker not running or a Lambda runtime image not pulled.
+	CategoryEnvironment Category = "environment"
+	// CategoryFunctionError failures are Lambda functions that threw (or
+	// reported failed batch items) while handling an event Stratus
+	// delivered, such as an SQS message from an event source mapping.
+	CategoryFunctionError Category = "function_error"
 )
+
+// FunctionErrorCode is the Code of a delivery failure where the target
+// function ran and failed, as opposed to Stratus failing to run it.
+const FunctionErrorCode = "FunctionError"
 
 // Explanation is the advice attached to a group of failures.
 type Explanation struct {
@@ -122,6 +133,11 @@ func explain(f failure) Explanation {
 			"the request was rejected for identity or permission reasons; unless strict signature mode is on (STRATUS_SIGV4=strict), Stratus accepts any signature, so a signature or token error usually means the request went to real AWS or another endpoint",
 			"check that AWS_ENDPOINT_URL points at Stratus; with STRATUS_IAM=enforce, check the caller's policies; for Cognito, check the user's credentials and state",
 			true}
+	case f.status >= 500 && isEnvironmentProblem(f.message):
+		return Explanation{CategoryEnvironment,
+			fmt.Sprintf("%s could not run on this machine: %s", op, f.message),
+			"fix the environment as the message says (start Docker, or pull the image it names), then retry; this is not a bug in your code",
+			false}
 	case f.status >= 500:
 		return Explanation{CategoryEmulator,
 			fmt.Sprintf("Stratus failed while handling %s: %s", op, f.message),
@@ -133,6 +149,14 @@ func explain(f failure) Explanation {
 			"read the error message and check the request",
 			true}
 	}
+}
+
+// isEnvironmentProblem matches server errors caused by the host rather
+// than by Stratus or the caller: the Lambda runtime needs Docker and its
+// runtime images.
+func isEnvironmentProblem(message string) bool {
+	lower := strings.ToLower(message)
+	return containsAny(lower, "docker", "image is not available", "lambda runtime is not configured")
 }
 
 // isMissingObjectLock matches the errors S3 returns when a request needs a
@@ -178,6 +202,34 @@ var listCommands = map[string]string{
 }
 
 func listHint(service string) string { return listCommands[service] }
+
+// explainDelivery explains an event delivery that failed for real (not by
+// chaos). Nobody sees these fail: the producer's API call succeeded, and
+// the event never had an effect.
+func explainDelivery(f Failure) Explanation {
+	route := fmt.Sprintf("an event from %s to %s %s", f.Delivery.Source, f.Service, f.Operation)
+	if f.Code == FunctionErrorCode {
+		function := lastSegment(f.Delivery.TargetARN)
+		return Explanation{
+			Category:    CategoryFunctionError,
+			LikelyCause: fmt.Sprintf("function %s failed while handling %s: %s", function, route, f.Message),
+			NextStep: fmt.Sprintf("read what the function printed with `aws logs filter-log-events --log-group-name /aws/lambda/%s` (or invoke it with the same event and --log-type Tail), fix the handler, and resend the event; "+
+				"the producer's call succeeded, so nothing upstream reports this failure", function),
+			YourBug: true,
+		}
+	}
+	exp := explain(failure{service: f.Service, operation: f.Operation, code: f.Code, message: f.Message, status: f.Status})
+	exp.LikelyCause = fmt.Sprintf("Stratus could not deliver %s: %s", route, exp.LikelyCause)
+	exp.NextStep += "; the producer's call succeeded, so nothing upstream reports this failure"
+	return exp
+}
+
+func lastSegment(arn string) string {
+	if i := strings.LastIndex(arn, ":"); i >= 0 {
+		return arn[i+1:]
+	}
+	return arn
+}
 
 // explainInjected describes a failure that a chaos rule caused.
 // explainLimit explains a throttle from the limits profile.

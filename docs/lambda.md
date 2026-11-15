@@ -99,7 +99,11 @@ image's own settings.
 - **Timeouts** are enforced by the emulator from the function's `Timeout`. The
   container is replaced afterwards, as Lambda replaces the environment.
 - **Logs.** `--log-type Tail` returns the invocation's output between the
-  emulator's `START` and `REPORT` lines.
+  emulator's `START` and `REPORT` lines. Every invocation's output, however
+  it was triggered (an event source mapping, an async invoke, an SNS or
+  EventBridge target), also goes to CloudWatch Logs under
+  `/aws/lambda/<function>`, one stream per day:
+  `aws logs filter-log-events --log-group-name /aws/lambda/<function>`.
 - **Architectures.** Containers run on the host's architecture. An `arm64`
   function on an x86 host needs Docker's emulation (binfmt/QEMU).
 
@@ -107,5 +111,8 @@ image's own settings.
 
 Each container starts with session credentials for the function's execution
 role, so an AWS SDK in the function signs requests as the role, in the
-function's account. Point the SDK at Stratus with an environment variable
-such as `AWS_ENDPOINT_URL`. See [iam.md](iam.md).
+function's account. Each container also gets `AWS_ENDPOINT_URL` and
+`STRATUS_ENDPOINT` set to Stratus as containers reach it (for example
+`http://host.docker.internal:4566`), so the function's SDK calls Stratus
+without any configuration. A function that sets either variable itself keeps
+its own value. See [iam.md](iam.md).

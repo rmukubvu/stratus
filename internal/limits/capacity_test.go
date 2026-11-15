@@ -49,7 +49,7 @@ func TestCapacityIsOffWithoutADynamoDBModel(t *testing.T) {
 func TestProvisionedTableThrottlesPastItsCapacityAndBurst(t *testing.T) {
 	clock := newFakeClock()
 	g := NewGovernor(nil, clock)
-	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: 2}))
+	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: seconds(2)}))
 
 	// 5 WCU with 2 seconds of burst: 10 one-unit writes, then throttled.
 	req := provisioned(dynamoWrite("orders", "a", 1), 5, 5)
@@ -68,7 +68,7 @@ func TestProvisionedTableThrottlesPastItsCapacityAndBurst(t *testing.T) {
 
 func TestProvisionedCapacityIsNotScaled(t *testing.T) {
 	g := NewGovernor(nil, newFakeClock())
-	_, _ = g.Apply(Spec{Profile: BaseNone, Scale: 0.01, DynamoDB: &DynamoDBSpec{BurstSeconds: 1}})
+	_, _ = g.Apply(Spec{Profile: BaseNone, Scale: 0.01, DynamoDB: &DynamoDBSpec{BurstSeconds: seconds(1)}})
 	// Partitions are scaled to 10 WCU, so 50 provisioned WCU is spread
 	// over five partitions and the table, not a partition, is the cap.
 	admitted := 0
@@ -122,7 +122,7 @@ func TestOnDemandTableMaxThrottles(t *testing.T) {
 
 func TestReadsAndWritesHaveSeparateCapacity(t *testing.T) {
 	g := NewGovernor(nil, newFakeClock())
-	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: 1}))
+	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: seconds(1)}))
 	write := provisioned(dynamoWrite("orders", "a", 1), 1, 1)
 	read := write
 	read.Write = false
@@ -138,7 +138,7 @@ func TestReadsAndWritesHaveSeparateCapacity(t *testing.T) {
 func TestUpdatedCapacityAppliesAtOnce(t *testing.T) {
 	clock := newFakeClock()
 	g := NewGovernor(nil, clock)
-	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: 1}))
+	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: seconds(1)}))
 	if admitted, _ := consumeN(g, provisioned(dynamoWrite("orders", "a", 1), 1, 1), 3); admitted != 1 {
 		t.Fatalf("1 WCU admitted %d", admitted)
 	}
@@ -151,7 +151,7 @@ func TestUpdatedCapacityAppliesAtOnce(t *testing.T) {
 func TestBigItemIsSlowedNotRefusedForever(t *testing.T) {
 	clock := newFakeClock()
 	g := NewGovernor(nil, clock)
-	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: 1}))
+	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: seconds(1)}))
 	big := provisioned(dynamoWrite("orders", "a", 400), 1, 5)
 	if g.ConsumeCapacity([]CapacityRequest{big}) != nil {
 		t.Fatal("a 400 WCU write on a full 5 WCU table should be admitted into debt")
@@ -164,7 +164,7 @@ func TestBigItemIsSlowedNotRefusedForever(t *testing.T) {
 
 func TestConsumeCapacityIsAllOrNothing(t *testing.T) {
 	g := NewGovernor(nil, newFakeClock())
-	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: 1}))
+	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: seconds(1)}))
 	a := provisioned(dynamoWrite("orders", "a", 1), 1, 2)
 	busy := provisioned(dynamoWrite("audit", "x", 1), 1, 1)
 	if g.ConsumeCapacity([]CapacityRequest{busy}) != nil {
@@ -187,7 +187,7 @@ func TestConsumeCapacityIsAllOrNothing(t *testing.T) {
 
 func TestCapacityStatusCountsUnitsAndThrottles(t *testing.T) {
 	g := NewGovernor(nil, newFakeClock())
-	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: 1, Tables: map[string]TableSpec{"orders": {Partitions: 7}}}))
+	_, _ = g.Apply(dynamoOnly(DynamoDBSpec{BurstSeconds: seconds(1), Tables: map[string]TableSpec{"orders": {Partitions: 7}}}))
 	consumeN(g, provisioned(dynamoWrite("orders", "a", 2), 1, 4), 3)
 	status, _ := g.Status()
 	if len(status.Capacity) != 1 {
@@ -204,7 +204,7 @@ func TestCapacityStatusCountsUnitsAndThrottles(t *testing.T) {
 
 func TestResolveDynamoDB(t *testing.T) {
 	def, _ := Resolve(Spec{}, known)
-	if def.DynamoDB == nil || def.DynamoDB.BurstSeconds != defaultBurstSeconds {
+	if def.DynamoDB == nil || def.DynamoDB.burstSeconds() != defaultBurstSeconds {
 		t.Fatalf("aws-default should enforce capacity: %+v", def.DynamoDB)
 	}
 	onlyDynamo, err := Resolve(dynamoOnly(DynamoDBSpec{}), known)
@@ -215,12 +215,28 @@ func TestResolveDynamoDB(t *testing.T) {
 		"negative units":   {PartitionReadUnits: -1},
 		"too many parts":   {Tables: map[string]TableSpec{"t": {Partitions: maxPartitions + 1}}},
 		"negative parts":   {Tables: map[string]TableSpec{"t": {Partitions: -1}}},
-		"negative burst":   {BurstSeconds: -1},
+		"negative burst":   {BurstSeconds: seconds(-1)},
 		"negative demand":  {OnDemandWriteUnits: -5},
 		"negative reading": {OnDemandReadUnits: -5},
 	} {
 		if _, err := Resolve(dynamoOnly(spec), known); controlCode(t, err) != "InvalidLimitsProfile" {
 			t.Errorf("%s: want InvalidLimitsProfile, got %v", name, err)
 		}
+	}
+}
+
+func seconds(v float64) *float64 { return &v }
+
+func TestZeroBurstSecondsBanksNothing(t *testing.T) {
+	zero, err := Resolve(dynamoOnly(DynamoDBSpec{BurstSeconds: seconds(0)}), known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := zero.DynamoDB.burstSeconds(); got != 0 {
+		t.Fatalf("explicit burst_seconds 0 resolved to %v, want 0 (not the 300s default)", got)
+	}
+	_, capacity := tableCapacity{spec: *zero.DynamoDB, req: CapacityRequest{Write: true, WriteCapacity: 5}}.tableRate()
+	if capacity != 5 {
+		t.Fatalf("a 5 WCU table with no burst should hold one second of capacity, got %v", capacity)
 	}
 }

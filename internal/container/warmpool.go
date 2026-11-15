@@ -26,6 +26,9 @@ type WarmContainer struct {
 	busy bool
 	// invokeMu serialises invocations: the emulator runs one at a time.
 	invokeMu sync.Mutex
+	// reports counts the invocations whose output has been read, guarded
+	// by invokeMu.
+	reports int
 }
 
 // WarmPool keeps up to max warm containers per function. An invocation

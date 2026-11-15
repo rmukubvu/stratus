@@ -52,6 +52,7 @@ type Service struct {
 	topicPublisher TopicPublisher
 	faults         chaos.Gate
 	concurrency    ConcurrencyGate
+	logs           LogSink
 	now            func() time.Time
 }
 
@@ -1682,8 +1683,11 @@ func (s *Service) dispatchEventSource(ctx context.Context, eventSourceArn string
 					return err
 				}
 				// A poller backs off and retries while the function is throttled.
-				_, err = s.executeWithRetry(ctx, record, body, s.maxEventAge(record))
-				return err
+				result, err := s.executeWithRetry(ctx, record, body, s.maxEventAge(record))
+				if err != nil {
+					return err
+				}
+				return result.Failure(mapping.FunctionName)
 			})
 		}(mapping, append([]byte(nil), body...))
 	}
