@@ -88,11 +88,21 @@ group says:
 
 - `category`: `missing_resource`, `conflict`, `invalid_request`, `throttling`,
   `auth`, `connection`, `unsupported_operation`, `emulator_error`,
+  `environment` (Docker not running, a runtime image not pulled),
+  `function_error` (a Lambda function threw while handling an event),
   `injected_fault` or `client_error`.
 - `likely_cause` and `next_step`: one sentence each, written for an agent.
 - `your_bug`: `false` when the failure is not the caller's fault (a chaos
   fault, an operation Stratus does not implement, or an emulator error).
 - `examples`: up to three request IDs and resources to look at.
+
+Event deliveries are diagnosed too. An SQS message handed to a Lambda event
+source mapping, an SNS notification, an EventBridge or Scheduler target and a
+Lambda destination have no client waiting on them, so when one fails nothing
+upstream reports it. Diagnosis lists those failures with `event_source` set
+(for example `sqs`) and the target as the example path: a function that threw
+is a `function_error` whose `next_step` points at its CloudWatch Logs group,
+and a delivery chaos failed is an `injected_fault` like any other.
 
 Failures caused by an active or just-stopped chaos experiment are attributed
 to the rule that injected them, so an agent does not "fix" code that was

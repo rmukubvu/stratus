@@ -55,6 +55,7 @@ type Manager struct {
 	rieHost string
 
 	credentials RoleCredentialIssuer
+	endpoint    string
 }
 
 // RoleCredentialIssuer issues a function's execution role credentials.
@@ -66,6 +67,13 @@ type RoleCredentialIssuer interface {
 // role's session credentials, as in Lambda.
 func (m *Manager) SetCredentialIssuer(issuer RoleCredentialIssuer) {
 	m.credentials = issuer
+}
+
+// SetEndpoint gives every new container Stratus's URL as containers see
+// it, in AWS_ENDPOINT_URL and STRATUS_ENDPOINT, unless the function sets
+// those variables itself.
+func (m *Manager) SetEndpoint(endpoint string) {
+	m.endpoint = endpoint
 }
 
 // NewManager runs functions on daemon for dataDir's Stratus instance.
@@ -250,7 +258,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 	hostCfg := &container.HostConfig{
 		Mounts:       mounts,
 		PortBindings: m.reach.PortBindings(nat.Port(rieListenPort), ""),
-		ExtraHosts:   runtimeExtraHosts(spec),
+		ExtraHosts:   runtimeExtraHosts(plan.Env),
 	}
 	if spec.MemorySize > 0 {
 		hostCfg.Memory = int64(spec.MemorySize) * 1024 * 1024
@@ -297,7 +305,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 
 // launchInput gathers what planLaunch needs from the host and the image.
 func (m *Manager) launchInput(ctx context.Context, spec lambdasvc.FunctionSpec, rt Runtime, imageName string) (launchInput, error) {
-	in := launchInput{Spec: spec, Runtime: rt, Image: imageName}
+	in := launchInput{Spec: spec, Runtime: rt, Image: imageName, Endpoint: m.endpoint}
 
 	if spec.PackageType == lambdasvc.PackageTypeImage {
 		inspect, err := m.client.ImageInspect(ctx, imageName)
@@ -430,7 +438,6 @@ func (m *Manager) invokeRIE(ctx context.Context, warm *WarmContainer, spec lambd
 	defer cancel()
 
 	requestID := uuid.NewString()
-	started := time.Now()
 	req, err := http.NewRequestWithContext(invokeCtx, http.MethodPost,
 		fmt.Sprintf("http://%s%s", warm.Address, rieInvokePath), bytes.NewReader(invokePayload(payload)))
 	if err != nil {
@@ -453,23 +460,23 @@ func (m *Manager) invokeRIE(ctx context.Context, warm *WarmContainer, spec lambd
 	}
 
 	result, err := rieOutcome{Status: resp.StatusCode, Body: body}.toInvokeResult(spec.Timeout)
-	if err != nil {
-		return result, err
-	}
-	result.Logs = m.invocationLogs(warm.ID, requestID, started)
-	return result, nil
+	// Read the output even when the invocation failed: it ran, and the next
+	// invocation's output must not be mistaken for it.
+	result.Logs = m.invocationLogs(warm)
+	return result, err
 }
 
-// invocationLogs returns the container output between the emulator's START
-// and REPORT lines for requestID, which is what Lambda's Tail log holds.
-func (m *Manager) invocationLogs(containerID, requestID string, since time.Time) string {
-	// Docker Desktop's VM clock can lag the host's slightly.
-	since = since.Add(-2 * time.Second)
+// invocationLogs returns the invocation's output from its START to its
+// REPORT line, which is what Lambda's Tail log holds. Callers hold
+// warm.invokeMu, so the container runs nothing else meanwhile.
+func (m *Manager) invocationLogs(warm *WarmContainer) string {
 	deadline := time.Now().Add(logSettleTimeout)
 	for {
-		out := m.containerOutput(containerID, since)
-		logs, complete := sliceInvocation(out, requestID)
+		logs, complete := sliceInvocation(m.containerOutput(warm.ID, time.Time{}), warm.reports)
 		if complete || time.Now().After(deadline) {
+			// Count the invocation even when its REPORT is late, so the
+			// next one does not take this one's lines.
+			warm.reports++
 			return logs
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -507,24 +514,35 @@ func (m *Manager) tailLogs(containerID string) string {
 	return out
 }
 
-// sliceInvocation cuts one invocation's lines out of container output. It
-// reports complete once the REPORT line for requestID has been seen.
-func sliceInvocation(output, requestID string) (string, bool) {
+// sliceInvocation cuts one invocation's lines out of a container's output:
+// everything after the first `done` REPORT lines, up to and including the
+// next one. It reports complete once that REPORT line has been seen.
+//
+// Invocations are told apart by counting REPORT lines rather than by
+// request ID, because emulators disagree on which ID they print: newer ones
+// print the caller's on START but their own on END and REPORT, and order
+// START and their "(rapid)" diagnostics differently. A warm container runs
+// one invocation at a time, so the next REPORT always closes the current
+// one. The emulator's "(rapid)" diagnostics are left out, as in Lambda.
+func sliceInvocation(output string, done int) (string, bool) {
 	var b strings.Builder
-	inside := false
+	reports := 0
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !inside {
-			if strings.HasPrefix(line, "START RequestId: "+requestID) {
-				inside = true
-				b.WriteString(line + "\n")
+		isReport := strings.HasPrefix(line, "REPORT RequestId: ")
+		if reports < done {
+			if isReport {
+				reports++
 			}
 			continue
 		}
+		if strings.Contains(line, "] (rapid) ") {
+			continue
+		}
 		b.WriteString(line + "\n")
-		if strings.HasPrefix(line, "REPORT RequestId: "+requestID) {
+		if isReport {
 			return b.String(), true
 		}
 	}
@@ -631,9 +649,11 @@ func intPtr(v int) *int {
 	return &v
 }
 
-func runtimeExtraHosts(spec lambdasvc.FunctionSpec) []string {
-	for _, value := range spec.Environment {
-		if strings.Contains(value, "host.docker.internal") {
+// runtimeExtraHosts maps host.docker.internal to the daemon host when the
+// container's environment refers to it (Linux has no such name by default).
+func runtimeExtraHosts(env []string) []string {
+	for _, kv := range env {
+		if _, value, _ := strings.Cut(kv, "="); strings.Contains(value, hostDockerInternal) {
 			return []string{"host.docker.internal:host-gateway"}
 		}
 	}

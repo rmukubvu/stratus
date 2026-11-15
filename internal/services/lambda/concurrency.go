@@ -61,7 +61,7 @@ func (s *Service) execute(ctx context.Context, record functionRecord, payload []
 		return InvokeResult{}, err
 	}
 	defer release()
-	return s.invoker.Invoke(ctx, s.specFromRecord(record), payload)
+	return s.invoke(ctx, record, payload)
 }
 
 func (s *Service) acquire(ctx context.Context, function string) (func(), error) {
@@ -99,7 +99,7 @@ func (s *Service) executeWithRetry(ctx context.Context, record functionRecord, p
 		release, err := s.acquire(ctx, record.FunctionName)
 		if err == nil {
 			callCtx, cancel := context.WithTimeout(ctx, time.Duration(record.Timeout+5)*time.Second)
-			result, err := s.invoker.Invoke(callCtx, s.specFromRecord(record), payload)
+			result, err := s.invoke(callCtx, record, payload)
 			cancel()
 			release()
 			return result, err

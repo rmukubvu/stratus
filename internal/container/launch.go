@@ -37,6 +37,10 @@ type launchInput struct {
 	Runtime  Runtime // zero for container-image functions
 	Image    string
 	Defaults imageDefaults
+	// Endpoint is Stratus's URL as the container sees it, given to the
+	// function so its AWS SDK calls Stratus instead of real AWS. Empty
+	// leaves the SDK's own default.
+	Endpoint string
 
 	CodeDir          string // host directory holding the extracted zip
 	CodeHasBootstrap bool   // CodeDir contains a bootstrap executable
@@ -57,7 +61,7 @@ type launchPlan struct {
 // planLaunch decides how to start a function so that the Runtime Interface
 // Emulator listens on rieListenPort and runs the function's runtime.
 func planLaunch(in launchInput) (launchPlan, error) {
-	plan := launchPlan{Image: in.Image, Env: lambdaEnv(in.Spec)}
+	plan := launchPlan{Image: in.Image, Env: lambdaEnv(in.Spec, in.Endpoint)}
 	if in.Spec.PackageType == lambdasvc.PackageTypeImage {
 		return planImage(plan, in), nil
 	}
@@ -149,8 +153,10 @@ func bundlesRIE(entrypoint []string) bool {
 }
 
 // lambdaEnv is the environment Lambda gives every function, then the
-// function's own variables, which win.
-func lambdaEnv(spec lambdasvc.FunctionSpec) []string {
+// function's own variables, which win. endpoint, when set, points the
+// function's AWS SDK back at Stratus, so code written for Lambda runs
+// unchanged instead of calling real AWS.
+func lambdaEnv(spec lambdasvc.FunctionSpec, endpoint string) []string {
 	timeout := spec.Timeout
 	if timeout <= 0 {
 		timeout = defaultTimeoutS
@@ -167,6 +173,10 @@ func lambdaEnv(spec lambdasvc.FunctionSpec) []string {
 		"AWS_LAMBDA_LOG_GROUP_NAME":       "/aws/lambda/" + spec.FunctionName,
 		"AWS_LAMBDA_LOG_STREAM_NAME":      "stratus",
 		"LAMBDA_TASK_ROOT":                taskRoot,
+	}
+	if endpoint != "" {
+		vars["AWS_ENDPOINT_URL"] = endpoint
+		vars["STRATUS_ENDPOINT"] = endpoint
 	}
 	if spec.Region != "" {
 		vars["AWS_REGION"] = spec.Region

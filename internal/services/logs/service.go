@@ -7,9 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/stratus/internal/apierror"
 	"github.com/stratus/internal/scope"
@@ -26,6 +25,8 @@ type Service struct {
 	scope    scope.Scope
 	metadata store.Store
 	now      func() time.Time
+	// mu serialises writes to a stream's events and counters.
+	mu sync.Mutex
 }
 
 type logGroupRecord struct {
@@ -80,6 +81,10 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.listTagsForResource(w, r)
 	case "DescribeLogStreams":
 		return s.describeLogStreams(w, r)
+	case "GetLogEvents":
+		return s.getLogEvents(w, r)
+	case "FilterLogEvents":
+		return s.filterLogEvents(w, r)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
@@ -99,12 +104,8 @@ func (s *Service) createLogGroup(w http.ResponseWriter, r *http.Request) error {
 	if input.LogGroupName == "" {
 		return badRequest("InvalidParameterException", "logGroupName is required")
 	}
-	raw, err := json.Marshal(logGroupRecord{Name: input.LogGroupName, CreatedAt: s.now().UTC()})
-	if err != nil {
-		return internal(err)
-	}
-	if err := s.metadata.Put(logGroupsBucket, input.LogGroupName, raw); err != nil {
-		return internal(err)
+	if err := s.putGroup(input.LogGroupName); err != nil {
+		return err
 	}
 	writeJSON(w, http.StatusOK, map[string]any{})
 	return nil
@@ -150,29 +151,18 @@ func (s *Service) putLogEvents(w http.ResponseWriter, r *http.Request) error {
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		return badRequest("InvalidParameterException", "request body is not valid JSON")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	record, err := s.loadStream(input.LogGroupName, input.LogStreamName)
 	if err != nil {
 		return err
 	}
-	for _, event := range input.LogEvents {
-		payload, err := json.Marshal(event)
-		if err != nil {
-			return internal(err)
-		}
-		if err := s.metadata.Put(logEventsBucket, streamKey(input.LogGroupName, input.LogStreamName)+"|"+strconv.FormatInt(event.Timestamp, 10)+"|"+uuid.NewString(), payload); err != nil {
-			return internal(err)
-		}
-		record.StoredBytes += int64(len(event.Message))
-		record.LastEventTime = event.Timestamp
-		record.LastIngestionTime = s.now().UTC().UnixMilli()
-		record.SequenceToken++
+	events := make([]storedEvent, len(input.LogEvents))
+	for i, event := range input.LogEvents {
+		events[i] = storedEvent{Message: event.Message, Timestamp: event.Timestamp}
 	}
-	raw, err := json.Marshal(record)
-	if err != nil {
-		return internal(err)
-	}
-	if err := s.metadata.Put(logStreamsBucket, streamKey(input.LogGroupName, input.LogStreamName), raw); err != nil {
-		return internal(err)
+	if err := s.appendEvents(&record, events); err != nil {
+		return err
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"nextSequenceToken": strconv.FormatInt(record.SequenceToken, 10),

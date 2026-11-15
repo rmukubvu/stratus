@@ -650,14 +650,12 @@ func (s *Service) send(ctx context.Context, target Target, input string) error {
 		if s.lambda == nil {
 			return fmt.Errorf("lambda is not available to the scheduler")
 		}
-		result, err := s.lambda.InvokeByName(ctx, lambdaNameFromARN(target.Arn), []byte(input))
+		name := lambdaNameFromARN(target.Arn)
+		result, err := s.lambda.InvokeByName(ctx, name, []byte(input))
 		if err != nil {
 			return err
 		}
-		if result.FunctionError != "" {
-			return fmt.Errorf("function returned %s: %s", result.FunctionError, strings.TrimSpace(string(result.Payload)))
-		}
-		return nil
+		return result.Failure(name)
 	case "sqs":
 		if s.sqs == nil {
 			return fmt.Errorf("sqs is not available to the scheduler")

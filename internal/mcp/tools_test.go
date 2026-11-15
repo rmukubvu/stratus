@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/stratus/internal/chaos"
+	"github.com/stratus/internal/limits"
 )
 
 type fakeAPI struct{ calls []string }
@@ -193,5 +197,63 @@ func TestLoadReportDropsTheTimeline(t *testing.T) {
 	}
 	if _, err := loadReport(json.RawMessage(`[1]`)); err == nil {
 		t.Fatal("decoded a non-object")
+	}
+}
+
+// jsonFields lists the JSON names of a struct's exported fields.
+func jsonFields(v any) []string {
+	var out []string
+	typ := reflect.TypeOf(v)
+	for i := 0; i < typ.NumField(); i++ {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		if name != "" && name != "-" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func toolSchema(t *testing.T, name string) map[string]any {
+	t.Helper()
+	for _, tool := range Tools(&fakeAPI{}) {
+		if tool.Name == name {
+			return tool.InputSchema
+		}
+	}
+	t.Fatalf("no tool %s", name)
+	return nil
+}
+
+// The schemas are what an agent reads to learn a spec's shape, and they
+// set additionalProperties false, so a field missing here is a field the
+// agent cannot use. These tests fail when a control spec grows a field the
+// tool does not describe.
+func TestSchemasDescribeEveryControlSpecField(t *testing.T) {
+	cases := []struct {
+		tool string
+		spec any
+	}{
+		{"stratus_limits_set", limits.Spec{}},
+		{"stratus_chaos_start", chaos.Spec{}},
+	}
+	for _, tc := range cases {
+		props := toolSchema(t, tc.tool)["properties"].(map[string]any)
+		for _, field := range jsonFields(tc.spec) {
+			if _, ok := props[field]; !ok {
+				t.Errorf("%s: schema does not describe %q", tc.tool, field)
+			}
+		}
+	}
+}
+
+func TestLimitsSchemaDescribesDynamoDBAndLambdaFields(t *testing.T) {
+	props := toolSchema(t, "stratus_limits_set")["properties"].(map[string]any)
+	for section, spec := range map[string]any{"dynamodb": limits.DynamoDBSpec{}, "lambda": limits.LambdaSpec{}} {
+		sub := props[section].(map[string]any)["properties"].(map[string]any)
+		for _, field := range jsonFields(spec) {
+			if _, ok := sub[field]; !ok {
+				t.Errorf("%s: schema does not describe %q", section, field)
+			}
+		}
 	}
 }

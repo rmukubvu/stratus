@@ -160,11 +160,7 @@ func (c *Client) ClearLimits(ctx context.Context) (json.RawMessage, error) {
 
 // SetSigV4 sets signature verification: strict, audit or off.
 func (c *Client) SetSigV4(ctx context.Context, mode string) (json.RawMessage, error) {
-	body, err := json.Marshal(map[string]string{"mode": mode})
-	if err != nil {
-		return nil, err
-	}
-	return c.Do(ctx, http.MethodPut, "/sigv4", body)
+	return c.Do(ctx, http.MethodPut, "/sigv4", map[string]string{"mode": mode})
 }
 
 // SigV4Status reports the signature mode, counters and recent failures.

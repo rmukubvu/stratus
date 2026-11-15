@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -58,8 +59,14 @@ func TestDoWrapsUnstructuredErrors(t *testing.T) {
 func TestRequestsHitExpectedRoutes(t *testing.T) {
 	var got []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		raw, _ := io.ReadAll(r.Body)
+		if len(raw) > 0 {
+			// Every control endpoint that takes a body takes a JSON object.
+			var body map[string]any
+			if err := json.Unmarshal(raw, &body); err != nil {
+				t.Errorf("%s %s: body is not a JSON object: %s", r.Method, r.URL.Path, raw)
+			}
+		}
 		got = append(got, r.Method+" "+r.URL.Path)
 		_, _ = w.Write([]byte(`{}`))
 	}))
@@ -75,6 +82,14 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 	_, _ = c.StartChaos(ctx, json.RawMessage(`{"rules":[]}`))
 	_, _ = c.ChaosReport(ctx)
 	_, _ = c.StopChaos(ctx)
+	_, _ = c.SetLimits(ctx, json.RawMessage(`{"profile":"strict"}`))
+	_, _ = c.LimitsStatus(ctx)
+	_, _ = c.ClearLimits(ctx)
+	_, _ = c.SetSigV4(ctx, "strict")
+	_, _ = c.SigV4Status(ctx)
+	_, _ = c.StartRun(ctx, json.RawMessage(`{"name":"k6"}`))
+	_, _ = c.GetRun(ctx, "current")
+	_, _ = c.StopRun(ctx, "current")
 	_, _ = c.Diagnose(ctx, url.Values{"since": {"5m"}})
 	_, _ = c.SESMessages(ctx, url.Values{"to": {"a@b.example"}})
 	_, _ = c.SchedulerAdvance(ctx, "1h", "")
@@ -93,6 +108,14 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 		"PUT /_stratus/control/v1/chaos",
 		"GET /_stratus/control/v1/chaos",
 		"DELETE /_stratus/control/v1/chaos",
+		"PUT /_stratus/control/v1/limits",
+		"GET /_stratus/control/v1/limits",
+		"DELETE /_stratus/control/v1/limits",
+		"PUT /_stratus/control/v1/sigv4",
+		"GET /_stratus/control/v1/sigv4",
+		"POST /_stratus/control/v1/runs",
+		"GET /_stratus/control/v1/runs/current",
+		"POST /_stratus/control/v1/runs/current/stop",
 		"GET /_stratus/control/v1/diagnostics",
 		"GET /_stratus/control/v1/ses/messages",
 		"POST /_stratus/control/v1/scheduler/advance",
