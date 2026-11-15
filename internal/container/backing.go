@@ -14,7 +14,6 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/network"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
@@ -33,31 +32,37 @@ type Backing struct {
 	logger *slog.Logger
 	client *dockerclient.Client
 	owner  Owner
+	reach  Reach
 
 	mu    sync.Mutex
 	kinds map[string]struct{}
 }
 
-// NewBacking connects to Docker for engine containers owned by dataDir's
-// Stratus instance. Docker may be unreachable; calls then fail with
-// backing.ErrUnavailable until it comes back.
-func NewBacking(dataDir string, logger *slog.Logger) (*Backing, error) {
+// NewBacking runs engine containers on daemon. Docker may be unreachable;
+// calls then fail with backing.ErrUnavailable until it comes back.
+func NewBacking(daemon *Daemon, logger *slog.Logger) *Backing {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	client, err := newDockerClient()
-	if err != nil {
-		return nil, err
-	}
 	return &Backing{
 		logger: logger,
-		client: client,
-		owner:  NewOwner(dataDir),
+		client: daemon.client,
+		owner:  daemon.owner,
+		reach:  daemon.Reach(),
 		kinds:  make(map[string]struct{}),
-	}, nil
+	}
 }
 
-var _ backing.Runner = (*Backing)(nil)
+var (
+	_ backing.Runner     = (*Backing)(nil)
+	_ backing.Advertiser = (*Backing)(nil)
+)
+
+// Advertise is the endpoint an engine will be reached on once started, for
+// engines that must announce their own address, such as a Kafka broker.
+func (b *Backing) Advertise(kind, name string, port, hostPort int) backing.Endpoint {
+	return b.reach.Endpoint(b.owner.ContainerNameFor(kind, name), port, hostPort)
+}
 
 // Start runs the engine and waits until its probe passes. A stale container
 // with the same kind and name is replaced first.
@@ -83,6 +88,7 @@ func (b *Backing) Start(ctx context.Context, spec backing.Spec) (backing.Endpoin
 	labels := b.owner.Labels()
 	labels[LabelKind] = spec.Kind
 	labels[LabelResource] = spec.Name
+	labels[portLabel] = portLabelValue(spec.Port)
 	cfg := &container.Config{
 		Image:        spec.Image,
 		Env:          spec.Env,
@@ -90,14 +96,10 @@ func (b *Backing) Start(ctx context.Context, spec backing.Spec) (backing.Endpoin
 		ExposedPorts: nat.PortSet{containerPort: struct{}{}},
 		Labels:       labels,
 	}
-	hostCfg := &container.HostConfig{
-		PortBindings: nat.PortMap{
-			containerPort: []nat.PortBinding{{HostIP: loopback, HostPort: hostPort}},
-		},
-	}
+	hostCfg := &container.HostConfig{PortBindings: b.reach.PortBindings(containerPort, hostPort)}
 
 	name := b.owner.ContainerNameFor(spec.Kind, spec.Name)
-	resp, err := b.client.ContainerCreate(ctx, cfg, hostCfg, &network.NetworkingConfig{}, &ocispec.Platform{}, name)
+	resp, err := b.client.ContainerCreate(ctx, cfg, hostCfg, b.reach.NetworkingConfig(), &ocispec.Platform{}, name)
 	if err != nil {
 		return backing.Endpoint{}, dockerError("create container", err)
 	}
@@ -111,24 +113,35 @@ func (b *Backing) Start(ctx context.Context, spec backing.Spec) (backing.Endpoin
 		b.remove(resp.ID)
 		return backing.Endpoint{}, dockerError("start container", err)
 	}
-	inspect, err := b.client.ContainerInspect(ctx, resp.ID)
-	if err != nil {
-		b.remove(resp.ID)
-		return backing.Endpoint{}, dockerError("inspect container", err)
-	}
-	port, err := publishedPort(inspect.NetworkSettings.Ports[containerPort])
+	endpoint, err := b.startedEndpoint(ctx, resp.ID, name, spec.Port, containerPort)
 	if err != nil {
 		b.remove(resp.ID)
 		return backing.Endpoint{}, err
 	}
-
-	endpoint := backing.Endpoint{Address: loopback, Port: port}
 	if err := b.waitReady(ctx, resp.ID, spec, endpoint); err != nil {
 		b.remove(resp.ID)
 		return backing.Endpoint{}, err
 	}
 	b.logger.Info("engine started", "kind", spec.Kind, "name", spec.Name, "image", spec.Image, "endpoint", endpoint.String())
 	return endpoint, nil
+}
+
+// startedEndpoint is where a started engine is reached under the reach
+// policy: its published port, or its name on the shared network. The name
+// stays the same across restarts, so recorded endpoints remain valid.
+func (b *Backing) startedEndpoint(ctx context.Context, id, name string, port int, containerPort nat.Port) (backing.Endpoint, error) {
+	if !b.reach.Publishes() {
+		return b.reach.Endpoint(name, port, 0), nil
+	}
+	inspect, err := b.client.ContainerInspect(ctx, id)
+	if err != nil {
+		return backing.Endpoint{}, dockerError("inspect container", err)
+	}
+	hostPort, err := publishedPort(inspect.NetworkSettings.Ports[containerPort])
+	if err != nil {
+		return backing.Endpoint{}, err
+	}
+	return b.reach.Endpoint(name, port, hostPort), nil
 }
 
 // seed loads a snapshot's data into a created container before it starts, so
@@ -162,7 +175,7 @@ func (b *Backing) Export(ctx context.Context, kind, name string, data backing.Da
 		return err
 	}
 	if data.Flush != nil {
-		endpoint, err := endpointOf(running)
+		endpoint, err := endpointOf(running, b.reach)
 		if err != nil {
 			return err
 		}
@@ -215,11 +228,18 @@ func (b *Backing) runningContainer(ctx context.Context, kind, name string) (cont
 	return container.Summary{}, fmt.Errorf("%w: %s/%s", backing.ErrNotRunning, kind, name)
 }
 
-// endpointOf finds the loopback port an engine container publishes.
-func endpointOf(c container.Summary) (backing.Endpoint, error) {
+// endpointOf finds where a listed engine container is reached under reach.
+func endpointOf(c container.Summary, reach Reach) (backing.Endpoint, error) {
+	if !reach.Publishes() {
+		port, err := strconv.Atoi(c.Labels[portLabel])
+		if err != nil || len(c.Names) == 0 {
+			return backing.Endpoint{}, errors.New("backing: container does not record its engine port")
+		}
+		return reach.Endpoint(strings.TrimPrefix(c.Names[0], "/"), port, 0), nil
+	}
 	for _, p := range c.Ports {
 		if p.PublicPort > 0 {
-			return backing.Endpoint{Address: loopback, Port: int(p.PublicPort)}, nil
+			return reach.Endpoint("", int(p.PrivatePort), int(p.PublicPort)), nil
 		}
 	}
 	return backing.Endpoint{}, errors.New("backing: container does not publish a port")

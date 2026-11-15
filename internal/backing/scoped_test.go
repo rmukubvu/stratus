@@ -53,3 +53,26 @@ func TestScopedRunnerWithoutTagIsInner(t *testing.T) {
 		t.Fatal("an empty tag should return the inner runner")
 	}
 }
+
+// advertisingRecorder reaches engines by container name, like a runner on a
+// shared Docker network.
+type advertisingRecorder struct{ kindRecorder }
+
+func (a *advertisingRecorder) Advertise(kind, name string, port, _ int) Endpoint {
+	return Endpoint{Address: kind + "-" + name, Port: port}
+}
+
+func TestAdvertisedEndpointDefaultsToLoopback(t *testing.T) {
+	got := AdvertisedEndpoint(&kindRecorder{}, "kafka", "orders", 9092, 41001)
+	if got != (Endpoint{Address: "127.0.0.1", Port: 41001}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestAdvertisedEndpointAsksTheRunnerThroughScopes(t *testing.T) {
+	r := Scoped(&advertisingRecorder{}, "111122223333.eu-west-1")
+	got := AdvertisedEndpoint(r, "kafka", "orders", 9092, 41001)
+	if got != (Endpoint{Address: "kafka.111122223333.eu-west-1-orders", Port: 9092}) {
+		t.Fatalf("got %v", got)
+	}
+}

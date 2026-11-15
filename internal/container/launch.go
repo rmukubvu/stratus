@@ -13,13 +13,14 @@ import (
 
 // Paths inside a Lambda container.
 const (
-	taskRoot        = "/var/task"
-	layerRoot       = "/opt"
-	baseEntrypoint  = "/lambda-entrypoint.sh"
-	imageRIEPath    = "/usr/local/bin/aws-lambda-rie"
-	mountedRIEPath  = "/usr/local/stratus/aws-lambda-rie"
-	rieListenPort   = "8080/tcp"
-	defaultTimeoutS = 3
+	taskRoot         = "/var/task"
+	layerRoot        = "/opt"
+	baseEntrypoint   = "/lambda-entrypoint.sh"
+	imageRIEPath     = "/usr/local/bin/aws-lambda-rie"
+	mountedRIEPath   = "/usr/local/stratus/aws-lambda-rie"
+	rieListenPort    = "8080/tcp"
+	rieContainerPort = 8080
+	defaultTimeoutS  = 3
 )
 
 // imageDefaults is what the image itself configures, read from docker inspect.

@@ -15,13 +15,16 @@ import (
 )
 
 type inProcessServer struct {
-	port   int
-	cancel context.CancelFunc
-	done   chan error
+	port              int
+	containerEndpoint string
+	cancel            context.CancelFunc
+	done              chan error
 }
 
 func (s *inProcessServer) Endpoint() string { return fmt.Sprintf("http://127.0.0.1:%d", s.port) }
 func (s *inProcessServer) Port() int        { return s.port }
+
+func (s *inProcessServer) ContainerEndpoint() string { return s.containerEndpoint }
 
 func (s *inProcessServer) Stop() error {
 	s.cancel()
@@ -38,7 +41,7 @@ func (s *inProcessServer) Stop() error {
 
 // StartInProcess starts Stratus inside the current process on a free port.
 // It listens on all interfaces so Lambda containers can reach it through
-// host.docker.internal.
+// host.docker.internal or the network they share with it.
 func StartInProcess(ctx context.Context, cfg ServerConfig) (Server, error) {
 	ln, err := net.Listen("tcp", ":0")
 	if err != nil {
@@ -71,7 +74,7 @@ func StartInProcess(ctx context.Context, cfg ServerConfig) (Server, error) {
 	serveCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() { done <- application.Serve(serveCtx, ln) }()
-	return &inProcessServer{port: port, cancel: cancel, done: done}, nil
+	return &inProcessServer{port: port, containerEndpoint: application.ContainerEndpoint(), cancel: cancel, done: done}, nil
 }
 
 // WaitReady polls the control API until Stratus reports ready.

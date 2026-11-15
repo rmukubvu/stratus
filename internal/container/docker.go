@@ -11,13 +11,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/mount"
 	dockerclient "github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/docker/go-connections/nat"
@@ -49,6 +48,8 @@ type Manager struct {
 	pool       *WarmPool
 	httpClient *http.Client
 	owner      Owner
+	reach      Reach
+	files      FileDelivery
 
 	rieMu   sync.Mutex
 	rieHost string
@@ -67,14 +68,10 @@ func (m *Manager) SetCredentialIssuer(issuer RoleCredentialIssuer) {
 	m.credentials = issuer
 }
 
-func NewManager(dataDir, blobRoot string, logger *slog.Logger) (*Manager, error) {
+// NewManager runs functions on daemon for dataDir's Stratus instance.
+func NewManager(daemon *Daemon, dataDir, blobRoot string, logger *slog.Logger) (*Manager, error) {
 	if logger == nil {
 		logger = slog.Default()
-	}
-
-	client, err := newDockerClient()
-	if err != nil {
-		return nil, err
 	}
 
 	runtimeDir := filepath.Join(dataDir, "runtime")
@@ -84,14 +81,16 @@ func NewManager(dataDir, blobRoot string, logger *slog.Logger) (*Manager, error)
 
 	m := &Manager{
 		logger:     logger,
-		client:     client,
+		client:     daemon.client,
 		blobRoot:   blobRoot,
 		runtimeDir: runtimeDir,
 		catalog:    NewRuntimeCatalog(os.LookupEnv),
 		pool:       NewWarmPool(5 * time.Minute),
 		// Invocations set their own deadline from the function timeout.
 		httpClient: &http.Client{},
-		owner:      NewOwner(dataDir),
+		owner:      daemon.owner,
+		reach:      daemon.Reach(),
+		files:      daemon.Files(),
 	}
 	m.reapOrphans()
 	return m, nil
@@ -231,6 +230,10 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 	if err != nil {
 		return nil, err
 	}
+	mounts, copies := plan.Mounts, []mount.Mount(nil)
+	if m.files == DeliverCopy {
+		mounts, copies = splitBinds(plan.Mounts)
+	}
 
 	labels := m.owner.Labels()
 	labels[LabelKind] = "lambda"
@@ -245,27 +248,30 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		Labels:       labels,
 	}
 	hostCfg := &container.HostConfig{
-		Mounts: plan.Mounts,
-		PortBindings: nat.PortMap{
-			nat.Port(rieListenPort): []nat.PortBinding{{HostIP: "127.0.0.1"}},
-		},
-		ExtraHosts: runtimeExtraHosts(spec),
+		Mounts:       mounts,
+		PortBindings: m.reach.PortBindings(nat.Port(rieListenPort), ""),
+		ExtraHosts:   runtimeExtraHosts(spec),
 	}
 	if spec.MemorySize > 0 {
 		hostCfg.Memory = int64(spec.MemorySize) * 1024 * 1024
 	}
 
-	resp, err := m.client.ContainerCreate(ctx, cfg, hostCfg, &network.NetworkingConfig{}, &ocispec.Platform{}, containerName)
+	resp, err := m.client.ContainerCreate(ctx, cfg, hostCfg, m.reach.NetworkingConfig(), &ocispec.Platform{}, containerName)
 	if err != nil {
 		return nil, serviceError(http.StatusServiceUnavailable, "docker container create failed: "+err.Error())
 	}
 	discard := func() { _ = m.removeContainer(context.Background(), &WarmContainer{ID: resp.ID, Name: containerName}) }
 
+	if err := m.copyIn(ctx, resp.ID, copies); err != nil {
+		discard()
+		return nil, err
+	}
+
 	if err := m.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		discard()
 		return nil, serviceError(http.StatusServiceUnavailable, "docker container start failed: "+err.Error())
 	}
-	hostPort, err := m.publishedPort(ctx, resp.ID)
+	address, err := m.emulatorAddress(ctx, resp.ID, containerName)
 	if err != nil {
 		discard()
 		return nil, err
@@ -276,7 +282,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		Name:      containerName,
 		Function:  runtimeKey(spec),
 		Slot:      slot,
-		HostPort:  hostPort,
+		Address:   address,
 		LastUsed:  time.Now(),
 		CreatedAt: time.Now(),
 	}
@@ -285,7 +291,7 @@ func (m *Manager) startContainer(ctx context.Context, spec lambdasvc.FunctionSpe
 		return nil, err
 	}
 
-	m.logger.Info("lambda runtime started", "function", spec.FunctionName, "image", plan.Image, "container_id", resp.ID, "host_port", hostPort)
+	m.logger.Info("lambda runtime started", "function", spec.FunctionName, "image", plan.Image, "container_id", resp.ID, "address", address)
 	return warm, nil
 }
 
@@ -328,20 +334,42 @@ func (m *Manager) launchInput(ctx context.Context, spec lambdasvc.FunctionSpec, 
 	return in, nil
 }
 
-func (m *Manager) publishedPort(ctx context.Context, id string) (int, error) {
+// emulatorAddress is where the started container's emulator answers under
+// the reach policy.
+// On a shared network the container's own address is used rather than its
+// name, so a replaced container is never reached through a stale DNS answer.
+func (m *Manager) emulatorAddress(ctx context.Context, id, name string) (string, error) {
 	inspect, err := m.client.ContainerInspect(ctx, id)
 	if err != nil {
-		return 0, serviceError(http.StatusServiceUnavailable, "docker container inspect failed: "+err.Error())
+		return "", serviceError(http.StatusServiceUnavailable, "docker container inspect failed: "+err.Error())
 	}
-	bindings := inspect.NetworkSettings.Ports[nat.Port(rieListenPort)]
-	if len(bindings) == 0 {
-		return 0, serviceError(http.StatusServiceUnavailable, "docker container did not expose a host port")
+	if !m.reach.Publishes() {
+		if ip := networkIP(inspect, m.reach.Network); ip != "" {
+			name = ip
+		}
+		return m.reach.Endpoint(name, rieContainerPort, 0).String(), nil
 	}
-	port, err := strconv.Atoi(bindings[0].HostPort)
+	port, err := publishedPort(inspect.NetworkSettings.Ports[nat.Port(rieListenPort)])
 	if err != nil {
-		return 0, serviceError(http.StatusServiceUnavailable, "invalid runtime host port: "+err.Error())
+		return "", serviceError(http.StatusServiceUnavailable, err.Error())
 	}
-	return port, nil
+	return m.reach.Endpoint(name, rieContainerPort, port).String(), nil
+}
+
+// copyIn delivers bind sources into a created container, for daemons that
+// cannot see Stratus's filesystem.
+func (m *Manager) copyIn(ctx context.Context, id string, copies []mount.Mount) error {
+	if len(copies) == 0 {
+		return nil
+	}
+	pr, pw := io.Pipe()
+	go func() { pw.CloseWithError(archiveMounts(pw, copies)) }()
+	err := m.client.CopyToContainer(ctx, id, "/", pr, container.CopyToContainerOptions{})
+	pr.CloseWithError(err)
+	if err != nil {
+		return serviceError(http.StatusServiceUnavailable, "copy function files into container: "+err.Error())
+	}
+	return nil
 }
 
 // waitReady waits for the emulator to answer HTTP. A TCP connect is not
@@ -365,7 +393,7 @@ func (m *Manager) waitReady(ctx context.Context, warm *WarmContainer) error {
 func (m *Manager) emulatorAnswers(ctx context.Context, warm *WarmContainer) bool {
 	probeCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(probeCtx, http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/", warm.HostPort), nil)
+	req, _ := http.NewRequestWithContext(probeCtx, http.MethodGet, fmt.Sprintf("http://%s/", warm.Address), nil)
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return false
@@ -404,7 +432,7 @@ func (m *Manager) invokeRIE(ctx context.Context, warm *WarmContainer, spec lambd
 	requestID := uuid.NewString()
 	started := time.Now()
 	req, err := http.NewRequestWithContext(invokeCtx, http.MethodPost,
-		fmt.Sprintf("http://127.0.0.1:%d%s", warm.HostPort, rieInvokePath), bytes.NewReader(invokePayload(payload)))
+		fmt.Sprintf("http://%s%s", warm.Address, rieInvokePath), bytes.NewReader(invokePayload(payload)))
 	if err != nil {
 		return lambdasvc.InvokeResult{}, err
 	}

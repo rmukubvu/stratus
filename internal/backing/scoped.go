@@ -39,3 +39,9 @@ func (s scopedRunner) StopAll(ctx context.Context, kind string) error {
 func (s scopedRunner) Export(ctx context.Context, kind, name string, data Data, dst string) error {
 	return s.inner.Export(ctx, s.kind(kind), name, data, dst)
 }
+
+// Advertise keeps the inner runner's addressing for the scoped kind, so a
+// scoped broker announces the name its container really has.
+func (s scopedRunner) Advertise(kind, name string, port, hostPort int) Endpoint {
+	return AdvertisedEndpoint(s.inner, s.kind(kind), name, port, hostPort)
+}

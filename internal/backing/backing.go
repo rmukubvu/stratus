@@ -88,6 +88,22 @@ type Runner interface {
 	Export(ctx context.Context, kind, name string, data Data, dst string) error
 }
 
+// Advertiser is implemented by runners whose engines are not always reached
+// on loopback. An engine that announces its own address to clients, such as
+// a Kafka broker, asks it where it will be reached before it starts.
+type Advertiser interface {
+	Advertise(kind, name string, port, hostPort int) Endpoint
+}
+
+// AdvertisedEndpoint is where an engine about to start on hostPort will be
+// reached: what runner says, or loopback for runners that do not say.
+func AdvertisedEndpoint(runner Runner, kind, name string, port, hostPort int) Endpoint {
+	if a, ok := runner.(Advertiser); ok {
+		return a.Advertise(kind, name, port, hostPort)
+	}
+	return Endpoint{Address: "127.0.0.1", Port: hostPort}
+}
+
 // ReconcileOptions say how a backend brings engines back for resources that
 // exist in state but have none running.
 type ReconcileOptions struct {

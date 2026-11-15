@@ -40,6 +40,7 @@ type App struct {
 	logger  *slog.Logger
 	server  *http.Server
 	closers []io.Closer
+	daemon  *container.Daemon
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -64,14 +65,19 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	lambdaRuntime, err := container.NewManager(cfg.DataDir, blobRoot, logger)
+	reachSettings, err := container.ParseReachSettings(os.Getenv)
 	if err != nil {
 		return nil, err
 	}
-	engines, err := container.NewBacking(cfg.DataDir, logger)
+	daemon, err := container.Connect(cfg.DataDir, reachSettings, logger)
 	if err != nil {
 		return nil, err
 	}
+	lambdaRuntime, err := container.NewManager(daemon, cfg.DataDir, blobRoot, logger)
+	if err != nil {
+		return nil, err
+	}
+	engines := container.NewBacking(daemon, logger)
 
 	iamMode, err := authz.ParseMode(os.Getenv("STRATUS_IAM"))
 	if err != nil {
@@ -196,7 +202,8 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		cfg:     cfg,
 		logger:  logger,
 		server:  server,
-		closers: []io.Closer{stacks, metaStore, lambdaRuntime, engines},
+		closers: []io.Closer{stacks, metaStore, lambdaRuntime, engines, daemon},
+		daemon:  daemon,
 	}, nil
 }
 
@@ -220,6 +227,12 @@ func NewLogger(level, format string) *slog.Logger {
 	default:
 		return slog.New(slog.NewJSONHandler(os.Stderr, opts))
 	}
+}
+
+// ContainerEndpoint is Stratus's base URL as the containers it starts see
+// it, for Lambda functions that call back into Stratus.
+func (a *App) ContainerEndpoint() string {
+	return fmt.Sprintf("http://%s:%d", a.daemon.CallbackHost(), a.cfg.Port)
 }
 
 // Run listens on the configured address and serves until ctx is cancelled.

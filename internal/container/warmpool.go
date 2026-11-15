@@ -12,10 +12,11 @@ import (
 const DefaultMaxContainers = 4
 
 type WarmContainer struct {
-	ID        string
-	Name      string
-	Function  string
-	HostPort  int
+	ID       string
+	Name     string
+	Function string
+	// Address is host:port where the container's emulator answers.
+	Address   string
 	LastUsed  time.Time
 	CreatedAt time.Time
 	// Slot numbers the function's containers from 0, so each gets a

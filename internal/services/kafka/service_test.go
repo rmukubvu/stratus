@@ -347,6 +347,24 @@ func TestReconcileRestartsBrokersOnRecordedPortFromCapturedData(t *testing.T) {
 	}
 }
 
+// advertisingRunner reaches brokers by name on a shared Docker network.
+type advertisingRunner struct{ *fakeRunner }
+
+func (a advertisingRunner) Advertise(kind, name string, port, _ int) backing.Endpoint {
+	return backing.Endpoint{Address: "stratus-" + kind + "-" + name, Port: port}
+}
+
+func TestBrokerAdvertisesWhereTheRunnerReachesIt(t *testing.T) {
+	runner := advertisingRunner{newFakeRunner()}
+	svc := newTestService(t, runner)
+	mustDo(t, svc, http.MethodPost, "/v1/clusters", provisionedBody)
+
+	cmd := strings.Join(runner.started[0].Cmd, " ")
+	if !strings.Contains(cmd, "--advertise-kafka-addr PLAINTEXT://stratus-kafka-orders:9092") {
+		t.Fatalf("broker must advertise the runner's endpoint: %v", cmd)
+	}
+}
+
 func TestReconcileWithFreshEndpointsReadvertisesANewPort(t *testing.T) {
 	runner := newFakeRunner()
 	svc := newTestService(t, runner)

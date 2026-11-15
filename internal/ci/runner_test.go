@@ -15,7 +15,10 @@ type fakeServer struct {
 
 func (f *fakeServer) Endpoint() string { return "http://127.0.0.1:4999" }
 func (f *fakeServer) Port() int        { return 4999 }
-func (f *fakeServer) Stop() error      { f.stopped = true; return f.stopErr }
+func (f *fakeServer) ContainerEndpoint() string {
+	return "http://host.docker.internal:4999"
+}
+func (f *fakeServer) Stop() error { f.stopped = true; return f.stopErr }
 
 type recorder struct {
 	events  []string
@@ -140,13 +143,13 @@ func TestCommandEnvForcesEndpointsAndOnlyDefaultsCredentials(t *testing.T) {
 		"AWS_ENDPOINT_URL=https://real.aws",
 		"AWS_REGION=eu-west-1",
 		"AWS_ACCESS_KEY_ID=mine",
-	}, "http://127.0.0.1:5000", 5000)
+	}, "http://127.0.0.1:5000", "http://172.18.0.2:5000", 5000)
 
 	for _, want := range []string{
 		"PATH=/bin",
 		"AWS_ENDPOINT_URL=http://127.0.0.1:5000",
 		"STRATUS_ENDPOINT=http://127.0.0.1:5000",
-		"STRATUS_DOCKER_ENDPOINT=http://host.docker.internal:5000",
+		"STRATUS_DOCKER_ENDPOINT=http://172.18.0.2:5000",
 		"STRATUS_PORT=5000",
 		"AWS_DISABLE_HOST_PREFIX_INJECTION=true",
 		"AWS_REGION=eu-west-1",
