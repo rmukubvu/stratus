@@ -26,7 +26,7 @@ always on; they are not quotas you can raise.
 | Entries per batch | 1 to 10 | `AWS.SimpleQueueService.EmptyBatchRequest`, `AWS.SimpleQueueService.TooManyEntriesInBatchRequest` |
 | Batch entry `Id` | 1 to 80 letters, digits, `-` or `_`; unique within the batch | `AWS.SimpleQueueService.InvalidBatchEntryId`, `AWS.SimpleQueueService.BatchEntryIdsNotDistinct` |
 | Total body size of a `SendMessageBatch` | 1 MiB | `AWS.SimpleQueueService.BatchRequestTooLong` |
-| Message body | the queue's `MaximumMessageSize` (default 262,144 bytes) | `InvalidParameterValue`, for the request or for the batch entry |
+| Message body | the queue's `MaximumMessageSize` (default 1,048,576 bytes, as in AWS since August 2025) | `InvalidParameterValue`, for the request or for the batch entry |
 | `MaximumMessageSize` | 1,024 to 1,048,576 bytes | `InvalidAttributeValue` |
 | `DelaySeconds` (queue or message) | 0 to 900 | `InvalidAttributeValue` / `InvalidParameterValue` |
 | `VisibilityTimeout` (queue or change) | 0 to 43,200 | `InvalidAttributeValue` / `InvalidParameterValue` |

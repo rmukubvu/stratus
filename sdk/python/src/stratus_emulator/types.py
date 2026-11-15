@@ -152,6 +152,7 @@ class RateRule(TypedDict, total=False):
     service: str
     operations: List[str]
     per_second: float
+    region_per_second: Dict[str, float]
     burst_seconds: float
     per: Literal["account", "resource", "prefix"]
     disabled: bool

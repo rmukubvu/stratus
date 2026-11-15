@@ -307,3 +307,15 @@ func TestCreateQueueRejectsOutOfRangeAttributes(t *testing.T) {
 		t.Fatalf("code = %q", got)
 	}
 }
+
+func TestDefaultQueueTakesMessagesUpTo1MiB(t *testing.T) {
+	h := newHarness(t)
+	// Over the old 256 KiB default, under AWS's current 1 MiB default.
+	if _, err := h.query("SendMessage", url.Values{"MessageBody": {strings.Repeat("x", 300*1024)}}); err != nil {
+		t.Fatalf("300 KiB body: %v", err)
+	}
+	_, err := h.query("SendMessage", url.Values{"MessageBody": {strings.Repeat("x", 1<<20+1)}})
+	if got := errorCode(t, err); got != "InvalidParameterValue" {
+		t.Fatalf("body over 1 MiB: code = %q", got)
+	}
+}
