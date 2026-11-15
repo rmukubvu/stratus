@@ -151,6 +151,47 @@ jobs:
           curl -fsS -X PUT http://127.0.0.1:4566/image-check -o /dev/null
           curl -fsS http://127.0.0.1:4566/_stratus/health
 
+      # A runner container that shares the host's docker.sock: Stratus must
+      # find its own container, put engines and Lambdas on its network and
+      # reach them there, with nothing published on the host.
+      - name: Run Lambda and RDS through the host's Docker socket
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_REGION: us-east-1
+          AWS_ENDPOINT_URL: http://127.0.0.1:4567
+        run: |
+          docker pull -q postgres:16-alpine
+          docker pull -q public.ecr.aws/lambda/python:3.11
+          docker network create ci-shared
+          docker run -d --name stratus-shared --network ci-shared -p 4567:4566 \
+            -v /var/run/docker.sock:/var/run/docker.sock stratus:ci \
+            serve --port 4566 --data-dir /var/lib/stratus --log-level info
+          for _ in $(seq 1 30); do curl -fsS http://127.0.0.1:4567/_stratus/health >/dev/null && break; sleep 1; done
+          docker logs stratus-shared 2>&1 | grep -q '"reach":"network:ci-shared"' || { docker logs stratus-shared; exit 1; }
+
+          printf 'def handler(event, context):\n    return {"ok": True}\n' > app.py && zip -q fn.zip app.py
+          aws lambda create-function --function-name shared --runtime python3.11 \
+            --role arn:aws:iam::000000000000:role/x --handler app.handler --zip-file fileb://fn.zip >/dev/null
+          aws lambda invoke --function-name shared out.json >/dev/null
+          grep -q '"ok": true' out.json || { cat out.json; docker logs stratus-shared; exit 1; }
+
+          aws rds create-db-instance --db-instance-identifier orders --engine postgres \
+            --db-instance-class db.t3.micro --master-username app --master-user-password secret123 \
+            --allocated-storage 20 >/dev/null
+          address="$(aws rds describe-db-instances --db-instance-identifier orders \
+            --query 'DBInstances[0].Endpoint.Address' --output text)"
+          docker run --rm --network ci-shared -e PGPASSWORD=secret123 postgres:16-alpine \
+            psql -h "$address" -U app -d postgres -tc "select 1" | grep -q 1
+
+          if docker ps --format '{{.Names}} {{.Ports}}' | grep -v '^stratus-shared ' | grep '^stratus-.*->'; then
+            echo "engine or Lambda ports were published on the host"; exit 1
+          fi
+          docker stop -t 30 stratus-shared
+          if docker ps -aq --filter label=io.stratus.managed=true | grep -q .; then
+            echo "containers left behind"; exit 1
+          fi
+
   sdk:
     strategy:
       fail-fast: false

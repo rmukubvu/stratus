@@ -48,9 +48,16 @@ the image to `docker pull`. Pre-pull the engines you use in CI:
 
 Every engine is published on a free loopback port, so parallel Stratus
 instances (for example several `stratus ci` jobs) never collide. Read the
-port from the API; the `Port` parameter on create is accepted but not
-honoured. The address is `127.0.0.1`. Code running inside a Lambda container
-reaches the same engine at `host.docker.internal:<port>`.
+address and port from the API; the `Port` parameter on create is accepted
+but not honoured. The address is `127.0.0.1`. Code running inside a Lambda
+container reaches the same engine at `host.docker.internal:<port>`.
+
+When Stratus runs in a container that shares the host's Docker socket, the
+address is instead the engine container's name on a network Stratus shares
+with it (for example `stratus-1a2b3c4d5e-rds-orders`) and the port is the
+engine's own (5432, 6379, 9092). Lambda functions on that network use the
+same endpoint. See
+[Runners in containers](ci.md#runners-in-containers-and-kubernetes).
 
 `MasterUsername` and `MasterUserPassword` are required and become the
 engine's credentials. `DBName` is created on first start; PostgreSQL defaults

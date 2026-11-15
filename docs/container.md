@@ -46,11 +46,26 @@ S3 clients inside the compose network should use path-style addressing
 (`http://stratus:4566/<bucket>/<key>`), since `<bucket>.stratus` does not
 resolve.
 
-## Limits
+## Lambda, RDS, ElastiCache and MSK
 
 Services that run in memory (S3, KMS, SQS, SNS, DynamoDB, SES, Secrets
-Manager, IAM and the rest) work fully in the container. Services that start
-their own containers (Lambda, RDS, ElastiCache, MSK) do not yet: even with
-`/var/run/docker.sock` mounted, Stratus reaches those containers on
-`127.0.0.1:<published port>`, which inside its own container is not the
-host. Run the native binary (or `stratus ci`) when you need them.
+Manager, IAM and the rest) need nothing else. Services that start their own
+containers (Lambda, RDS, ElastiCache, MSK) need the host's Docker socket:
+
+```yaml
+services:
+  stratus:
+    image: ghcr.io/rmukubvu/stratus:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+```
+
+Stratus notices it is running in a container that the daemon knows, and
+starts its containers on a Docker network it shares with them, so it reaches
+them by name instead of through published ports. Under Compose that is the
+project's network, so other services can use the endpoints the API returns
+(`stratus-<instance>-rds-orders:5432`) directly. Lambda code and layers are
+copied into each function container, because the daemon cannot see paths
+inside Stratus's container. See
+[Runners in containers](ci.md#runners-in-containers-and-kubernetes) for the
+details and the settings that override detection.

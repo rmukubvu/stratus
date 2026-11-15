@@ -269,7 +269,8 @@ func (s *Service) startBroker(ctx context.Context, c *cluster, hostPort int, see
 		}
 		hostPort = port
 	}
-	endpoint, err := s.engines.Start(ctx, s.engine.Spec(c.Name, hostPort, seed))
+	advertised := backing.AdvertisedEndpoint(s.engines, kind, c.Name, brokerPort, hostPort)
+	endpoint, err := s.engines.Start(ctx, s.engine.Spec(c.Name, hostPort, advertised, seed))
 	if err != nil {
 		return err
 	}

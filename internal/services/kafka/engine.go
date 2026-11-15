@@ -45,16 +45,18 @@ func DefaultEngine(getenv func(string) string) Engine {
 }
 
 // Spec builds the broker's container spec for a cluster. Kafka clients
-// connect to whatever address the broker advertises, so the host port must be
-// known before the broker starts: hostPort cannot be zero. A non-empty seed is
-// an archive of the cluster's data to start from.
-func (e Engine) Spec(cluster string, hostPort int, seed string) backing.Spec {
+// connect to whatever address the broker advertises, so where clients will
+// reach it must be known before the broker starts: hostPort cannot be zero,
+// and advertised is the endpoint the runner will reach it on (see
+// backing.AdvertisedEndpoint). A non-empty seed is an archive of the
+// cluster's data to start from.
+func (e Engine) Spec(cluster string, hostPort int, advertised backing.Endpoint, seed string) backing.Spec {
 	data := e.Data()
 	return backing.Spec{
 		Kind:         kind,
 		Name:         cluster,
 		Image:        e.Image,
-		Cmd:          brokerCommand(hostPort),
+		Cmd:          brokerCommand(advertised),
 		Port:         brokerPort,
 		HostPort:     hostPort,
 		Probe:        backing.KafkaController,
@@ -71,8 +73,8 @@ func (e Engine) Data() backing.Data {
 }
 
 // brokerCommand starts a single-node Redpanda sized for a test machine and
-// advertising the loopback endpoint clients reach it on.
-func brokerCommand(hostPort int) []string {
+// advertising the endpoint clients reach it on.
+func brokerCommand(advertised backing.Endpoint) []string {
 	return []string{
 		"redpanda", "start",
 		"--mode", "dev-container",
@@ -80,8 +82,6 @@ func brokerCommand(hostPort int) []string {
 		"--memory", "1G",
 		"--default-log-level", "warn",
 		"--kafka-addr", fmt.Sprintf("PLAINTEXT://0.0.0.0:%d", brokerPort),
-		"--advertise-kafka-addr", fmt.Sprintf("PLAINTEXT://%s:%d", loopback, hostPort),
+		"--advertise-kafka-addr", "PLAINTEXT://" + advertised.String(),
 	}
 }
-
-const loopback = "127.0.0.1"

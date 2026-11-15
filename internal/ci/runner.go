@@ -57,6 +57,8 @@ type Server interface {
 	Endpoint() string
 	// Port the server listens on.
 	Port() int
+	// ContainerEndpoint is the base URL as containers Stratus starts see it.
+	ContainerEndpoint() string
 	// Stop shuts the server down and releases its resources.
 	Stop() error
 }
@@ -123,7 +125,7 @@ func (r Runner) Run(ctx context.Context, opts Options) (code int, err error) {
 	if base == nil {
 		base = os.Environ()
 	}
-	exitCode, err := r.Execute(ctx, opts.Command, CommandEnv(base, server.Endpoint(), server.Port()))
+	exitCode, err := r.Execute(ctx, opts.Command, CommandEnv(base, server.Endpoint(), server.ContainerEndpoint(), server.Port()))
 	if err != nil {
 		return ExitRunnerFailed, fmt.Errorf("run %s: %w", opts.Command[0], err)
 	}
@@ -141,11 +143,11 @@ func (o Options) readyTimeout() time.Duration {
 // variables always point at the private instance. Credentials and region
 // get harmless defaults only when the caller has not set them, so real
 // settings are never overridden.
-func CommandEnv(base []string, endpoint string, port int) []string {
+func CommandEnv(base []string, endpoint, containerEndpoint string, port int) []string {
 	forced := map[string]string{
 		"AWS_ENDPOINT_URL":        endpoint,
 		"STRATUS_ENDPOINT":        endpoint,
-		"STRATUS_DOCKER_ENDPOINT": fmt.Sprintf("http://host.docker.internal:%d", port),
+		"STRATUS_DOCKER_ENDPOINT": containerEndpoint,
 		"STRATUS_PORT":            fmt.Sprintf("%d", port),
 		// Some operations (Cloud Map's DiscoverInstances) prefix the host,
 		// which turns 127.0.0.1 into an unresolvable name.

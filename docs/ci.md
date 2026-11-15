@@ -16,7 +16,9 @@ stratus ci -- go test ./...
 4. runs your command with these variables set:
    - `AWS_ENDPOINT_URL` and `STRATUS_ENDPOINT`: the private instance
    - `STRATUS_DOCKER_ENDPOINT`: the same instance as seen from Lambda
-     containers (`http://host.docker.internal:<port>`)
+     containers (`http://host.docker.internal:<port>` on a VM or bare metal,
+     Stratus's own address when it runs in a container; see
+     [Runners in containers](#runners-in-containers-and-kubernetes))
    - `STRATUS_PORT`
    - `AWS_DISABLE_HOST_PREFIX_INJECTION=true`, so operations that prefix the
      host (Cloud Map's `DiscoverInstances` calls `data-<host>`) still reach
@@ -128,11 +130,11 @@ The runner needs:
 - Linux or macOS (x64 or arm64), or Windows with Docker Desktop using Linux
   containers, and a runner version that supports `node24` actions.
 - `bash` and `curl` on the `PATH` (Git Bash on Windows).
-- For Lambda, RDS, ElastiCache and MSK: a Docker daemon in the same network
-  namespace as the runner, because Stratus reaches its containers on
-  `127.0.0.1`. A runner on a VM or bare metal with local Docker works, as does
-  an actions-runner-controller pod with a Docker-in-Docker sidecar. A runner
-  container that mounts the host's `docker.sock` does not.
+- For Lambda, RDS, ElastiCache and MSK: a Docker daemon Stratus can reach.
+  A VM or bare-metal runner with local Docker, a microVM runner, a
+  Docker-in-Docker sidecar and a runner container that mounts the host's
+  `docker.sock` all work; see
+  [Runners in containers and Kubernetes](#runners-in-containers-and-kubernetes).
 - Permission to use Docker (the `docker` group, or `DOCKER_HOST` for rootless
   Docker).
 
@@ -150,3 +152,95 @@ jobs:
           seed: ./fixtures/snapshots/seeded   # optional
           run: go test ./...
 ```
+
+## Runners in containers and Kubernetes
+
+Stratus starts Lambda, RDS, ElastiCache and MSK as Docker containers, and
+has to reach them and hand them their files. How it does that depends on
+where it runs relative to the Docker daemon. It works this out at startup
+and logs the result (`container reach` at `info` level) when it differs from
+the plain VM setup.
+
+| Where Stratus runs | What Stratus does | Settings |
+| --- | --- | --- |
+| VM, bare metal, Docker Desktop, microVM | Publishes ports on `127.0.0.1`, bind-mounts Lambda code | none |
+| Pod with a Docker-in-Docker sidecar (ARC `dind` mode) | Same loopback ports (the pod shares them), copies Lambda code in | none |
+| Container with the host's `docker.sock` mounted: GitHub `container:` jobs, Compose, a runner container | Joins a Docker network with its containers and reaches them by name; copies Lambda code in | none |
+| Kubernetes pod with the node's `docker.sock` mounted | Publishes ports on the node and reaches them at the node's address; copies Lambda code in | `STRATUS_DOCKER_HOST_ADDRESS` |
+
+### Containers that share the host's Docker socket
+
+When Stratus runs in a container that the daemon knows, it finds that
+container and puts everything it starts on a user-defined network with it:
+
+- the network the container is already on, if it is on one (GitHub's
+  `container:` jobs and Compose projects always are), or
+- a network named `stratus-<instance>` that Stratus creates, joins, and
+  removes again when it stops.
+
+Nothing is published on the host, so parallel jobs on one daemon never
+compete for ports. Endpoints returned by the API are container names on that
+network, such as `stratus-1a2b3c4d5e-rds-orders:5432`, and they resolve for
+your tests in the job container and for Lambda functions alike.
+`STRATUS_DOCKER_ENDPOINT` is Stratus's own address on the network.
+
+```yaml
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    container: node:22          # GitHub mounts docker.sock into job containers
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rmukubvu/stratus@main
+        with:
+          run: npm test
+```
+
+The job image needs `bash` and `curl` for the action. Pre-pull engine and
+Lambda images on the host as usual; they are shared with the host daemon.
+
+### Kubernetes runners on the node's Docker socket
+
+A runner pod that mounts the node's `/var/run/docker.sock` is not a
+container the daemon knows, so Stratus cannot join a network with its
+containers. Give it the node's address instead. Stratus then publishes ports
+on all of the node's interfaces and reaches containers at that address, and
+containers call Stratus back on the pod's address:
+
+```yaml
+env:
+  - name: STRATUS_DOCKER_HOST_ADDRESS
+    valueFrom:
+      fieldRef:
+        fieldPath: status.hostIP
+```
+
+Pod-to-node traffic on published ports must be allowed by your network
+policy. Prefer the Docker-in-Docker sidecar where you can: it isolates each
+job and needs no settings.
+
+### Lambda code without a shared filesystem
+
+Outside a container Stratus bind-mounts each function's code and layers. In
+a container, the daemon would look for those paths on its own host, so
+Stratus copies them into each function container before it starts instead.
+It takes a few milliseconds for a typical function, once per warm container.
+
+### Overriding detection
+
+| Variable | Values | Meaning |
+| --- | --- | --- |
+| `STRATUS_DOCKER_REACH` | `auto` (default), `loopback`, `network`, `host` | How to reach containers |
+| `STRATUS_DOCKER_NETWORK` | network name | Join this network (implies `network`). It must be user-defined so names resolve |
+| `STRATUS_DOCKER_HOST_ADDRESS` | address | The daemon host's address as Stratus sees it (implies `host`) |
+| `STRATUS_DOCKER_FILES` | `auto` (default), `bind`, `copy` | How Lambda code reaches the container |
+
+A Stratus container running with `--network host` keeps the loopback
+behaviour, because it shares the host's network.
+
+Orphan cleanup also works in containers, with one limit: Stratus recognises
+leftovers by host and process, and every container has its own host name, so
+the containers of a runner container that was killed outright are removed
+only by the next Stratus that uses the same data directory. Ephemeral
+runners with their own daemon (Docker-in-Docker, microVMs) don't have this
+problem, because the daemon goes away with the job.
