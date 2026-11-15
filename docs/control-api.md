@@ -111,6 +111,16 @@ DELETE /_stratus/control/v1/limits    turn limits off and return the final statu
 `GET` and `DELETE` answer `NoLimitsProfile` (404) when limits are off. See
 [limits.md](limits.md).
 
+## Signature verification
+
+```
+PUT    /_stratus/control/v1/sigv4   {"mode":"strict"|"audit"|"off"}; an empty body means strict
+GET    /_stratus/control/v1/sigv4   mode, counters and recent failures with the canonical request expected
+DELETE /_stratus/control/v1/sigv4   turn verification off and return the final status
+```
+
+See [sigv4.md](sigv4.md).
+
 ## Load runs
 
 ```

@@ -23,6 +23,7 @@ services:
       - "4566:4566"
     environment:
       STRATUS_IAM: "off"        # or audit / enforce
+      STRATUS_SIGV4: "off"      # or audit / strict
     volumes:
       - stratus-data:/var/lib/stratus   # drop this for a fresh state each run
 

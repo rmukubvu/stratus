@@ -35,6 +35,7 @@ func RunCI(ctx context.Context, args []string, runner CIRunner, stderr io.Writer
 	}
 	seed := fs.String("seed", "", "Snapshot directory to start from, e.g. ./data/snapshots/seeded")
 	limitsProfile := fs.String("limits", "", "Limits profile to apply: aws-default, strict or a JSON file")
+	sigv4Mode := fs.String("sigv4", "", "Verify AWS request signatures: off, audit or strict")
 	keep := fs.Bool("keep-data", false, "Keep the data directory after the run for debugging")
 	logLevel := fs.String("log-level", "warn", "Stratus log level: debug, info, warn, error")
 	timeout := fs.Duration("ready-timeout", 60*time.Second, "How long to wait for Stratus to become ready")
@@ -50,6 +51,7 @@ func RunCI(ctx context.Context, args []string, runner CIRunner, stderr io.Writer
 		Command:      fs.Args(),
 		Seed:         *seed,
 		Limits:       *limitsProfile,
+		SigV4:        *sigv4Mode,
 		KeepData:     *keep,
 		LogLevel:     *logLevel,
 		ReadyTimeout: *timeout,

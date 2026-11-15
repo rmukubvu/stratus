@@ -161,6 +161,21 @@ describe("StratusClient", () => {
     assert.deepEqual(f.calls[0]?.body, { profile: "strict" });
   });
 
+  test("signatures set, status and clear call the sigv4 endpoint", async () => {
+    const status = { mode: "strict", verified: 0, failed: 0, skipped: 0, failures_by_code: {}, recent_failures: [] };
+    const f = fakeFetch({ body: status }, { body: status }, { body: { ...status, mode: "off" } });
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch: f.fetch });
+    assert.equal((await c.signatures.set()).mode, "strict");
+    await c.signatures.status();
+    assert.equal((await c.signatures.clear()).mode, "off");
+    assert.deepEqual(
+      f.calls.map((x) => x.method),
+      ["PUT", "GET", "DELETE"],
+    );
+    assert.ok(f.calls.every((x) => x.url.endsWith("/_stratus/control/v1/sigv4")));
+    assert.deepEqual(f.calls[0]?.body, { mode: "strict" });
+  });
+
   test("runs start, status, stop and list call the runs endpoints", async () => {
     const summary = { id: "run-1", status: "running", started_at: "t", duration_seconds: 0, totals: {}, timeline: [], operations: [] };
     const f = fakeFetch({ status: 201, body: summary }, { body: summary }, { body: { ...summary, status: "finished" } }, { body: { runs: [] } });

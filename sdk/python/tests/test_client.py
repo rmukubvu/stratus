@@ -93,6 +93,14 @@ class ClientTest(unittest.TestCase):
         c.limits.clear()
         self.assertEqual(t.calls, [("PUT", "/limits", {"profile": "strict"}), ("GET", "/limits", None), ("DELETE", "/limits", None)])
 
+    def test_signatures_set_status_and_clear(self) -> None:
+        status = {"mode": "strict", "verified": 0, "failed": 0, "skipped": 0, "failures_by_code": {}, "recent_failures": []}
+        c, t = client(status, status, dict(status, mode="off"))
+        self.assertEqual(c.signatures.set()["mode"], "strict")
+        c.signatures.status()
+        self.assertEqual(c.signatures.clear()["mode"], "off")
+        self.assertEqual(t.calls, [("PUT", "/sigv4", {"mode": "strict"}), ("GET", "/sigv4", None), ("DELETE", "/sigv4", None)])
+
     def test_runs_map_to_control_api(self) -> None:
         summary = {"id": "run-1", "status": "running"}
         c, t = client(summary, summary, {"id": "run-1", "status": "finished"}, {"runs": [summary]})

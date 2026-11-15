@@ -21,6 +21,8 @@ import type {
   LoadRunInput,
   LoadRunSummary,
   ResetResult,
+  SignatureMode,
+  SignatureStatus,
   SchedulerAdvance,
   SchedulerClock,
   SchedulerInvocation,
@@ -123,6 +125,29 @@ export class Limits {
   /** Turns limits off and returns the final status. */
   clear(): Promise<LimitsStatus> {
     return this.t.request("DELETE", "/limits");
+  }
+}
+
+/**
+ * Strict signature mode: verify every AWS request's SigV4 signature as AWS
+ * does, so signing bugs fail locally instead of in production.
+ */
+export class Signatures {
+  constructor(private readonly t: Transport) {}
+
+  /** Sets the mode (default strict) and starts fresh counters. */
+  set(mode: SignatureMode = "strict"): Promise<SignatureStatus> {
+    return this.t.request("PUT", "/sigv4", { mode });
+  }
+
+  /** The mode, counters and recent failures with the canonical request Stratus expected. */
+  status(): Promise<SignatureStatus> {
+    return this.t.request("GET", "/sigv4");
+  }
+
+  /** Turns verification off and returns the final status. */
+  clear(): Promise<SignatureStatus> {
+    return this.t.request("DELETE", "/sigv4");
   }
 }
 
@@ -326,6 +351,7 @@ export class StratusClient {
   readonly snapshots: Snapshots;
   readonly chaos: Chaos;
   readonly limits: Limits;
+  readonly signatures: Signatures;
   readonly runs: Runs;
   readonly ses: Ses;
   readonly scheduler: Scheduler;
@@ -346,6 +372,7 @@ export class StratusClient {
     this.snapshots = new Snapshots(this.t);
     this.chaos = new Chaos(this.t);
     this.limits = new Limits(this.t);
+    this.signatures = new Signatures(this.t);
     this.runs = new Runs(this.t);
     this.ses = new Ses(this.t);
     this.scheduler = new Scheduler(this.t);
