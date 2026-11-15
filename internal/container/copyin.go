@@ -8,10 +8,21 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/docker/docker/api/types/mount"
 )
+
+// fileMode is the mode a copied file gets in the container. Windows has no
+// executable bit to read, so every file is made executable there, as Docker
+// Desktop's bind mounts also present them, and a bootstrap still runs.
+func fileMode(mode int64) int64 {
+	if runtime.GOOS == "windows" {
+		return 0o755
+	}
+	return mode
+}
 
 // splitBinds separates the bind mounts a launch plan asks for, which must be
 // copied in when the daemon cannot see Stratus's filesystem, from the mounts
@@ -126,6 +137,7 @@ func archiveFile(tw *tar.Writer, src, name string, info fs.FileInfo) error {
 		return err
 	}
 	hdr.Name = name
+	hdr.Mode = fileMode(hdr.Mode)
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err
 	}

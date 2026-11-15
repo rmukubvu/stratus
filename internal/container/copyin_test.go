@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/docker/docker/api/types/mount"
@@ -79,7 +80,14 @@ func TestArchiveMountsPlacesSourcesAtTheirTargets(t *testing.T) {
 		"usr/local/stratus/aws-lambda-rie": {typ: tar.TypeReg, mode: 0o755, body: "ELF"},
 	}
 	for name, w := range want {
-		if g, ok := got[name]; !ok || g != w {
+		if runtime.GOOS == "windows" && w.typ == tar.TypeReg {
+			w.mode = 0o755 // no executable bit to read on Windows
+		}
+		g, ok := got[name]
+		if runtime.GOOS == "windows" && w.typ == tar.TypeSymlink {
+			g.mode = w.mode // symlink modes are not meaningful on Windows
+		}
+		if !ok || g != w {
 			t.Errorf("%s: got %+v (present %v), want %+v", name, g, ok, w)
 		}
 	}

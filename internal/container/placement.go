@@ -284,9 +284,11 @@ func (r resolver) findSelf(ctx context.Context) (container.InspectResponse, erro
 }
 
 // sharesHostNetwork reports a --network host container, which reaches
-// published loopback ports like any host process.
+// published loopback ports like any host process. The mode is compared
+// directly: NetworkMode.IsHost follows the client's OS, but the containers
+// are Linux whatever Stratus runs on.
 func sharesHostNetwork(self container.InspectResponse) bool {
-	return self.HostConfig != nil && self.HostConfig.NetworkMode.IsHost()
+	return self.HostConfig != nil && self.HostConfig.NetworkMode == "host"
 }
 
 // userNetwork is the first user-defined network a container is on, by name,
