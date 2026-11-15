@@ -153,6 +153,42 @@ jobs:
           run: go test ./...
 ```
 
+## MicroVM runners
+
+Firecracker-based runner fleets (Actuated, or your own on Firecracker or
+Cloud Hypervisor) give each job a fresh microVM with its own kernel, its own
+Docker daemon and a clean disk, destroyed when the job ends. To Stratus that
+is the same as a VM runner with local Docker:
+
+- the action and `stratus ci` need no settings; Stratus publishes engine and
+  Lambda ports on the VM's own `127.0.0.1` and bind-mounts Lambda code from
+  the VM's disk;
+- parallel jobs never meet, because each has its own VM and daemon;
+- cleanup is covered twice: Stratus removes its containers when it stops,
+  and the VM, daemon and disk are discarded anyway.
+
+What to plan for:
+
+- **The Docker daemon must be running** before Stratus needs it. Lambda, RDS,
+  ElastiCache and MSK report the daemon as unavailable until it answers;
+  everything else works without it.
+- **Images.** A fresh VM has an empty image store, so every job would pull
+  `public.ecr.aws/lambda/...`, `postgres`, `valkey` or `redpanda` again. Bake
+  them into the VM's root filesystem image, or point Docker at a pull-through
+  registry mirror. Stratus never pulls images itself, so it fails fast with
+  the `docker pull` command to run rather than stalling the job.
+- **Boot time.** Stratus serves a restored snapshot about 30 ms after it
+  starts, and in under a second when the snapshot holds a PostgreSQL instance
+  (see the [cold boot benchmark](benchmark.md#cold-boot-benchmark)). The rest
+  of a job's start-up is the VM and the Docker daemon.
+- **Memory.** Size the VM for the engines your suite uses: Redpanda asks for
+  1 GiB, PostgreSQL and MySQL a few hundred MB each.
+
+We have not run Stratus on a Firecracker runner ourselves yet, because our
+test machines have no KVM. The points above follow from the setup being a
+Linux VM with local Docker, which is the configuration CI tests on every
+push. If you run Stratus on a microVM fleet, we'd like to hear how it goes.
+
 ## Runners in containers and Kubernetes
 
 Stratus starts Lambda, RDS, ElastiCache and MSK as Docker containers, and
