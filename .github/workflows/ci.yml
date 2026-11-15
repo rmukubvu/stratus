@@ -154,7 +154,7 @@ jobs:
       # A runner container that shares the host's docker.sock: Stratus must
       # find its own container, put engines and Lambdas on its network and
       # reach them there, with nothing published on the host.
-      - name: Run Lambda and RDS through the host's Docker socket
+      - name: Run Lambda, RDS and MSK through the host's Docker socket
         env:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
@@ -163,6 +163,7 @@ jobs:
         run: |
           docker pull -q postgres:16-alpine
           docker pull -q public.ecr.aws/lambda/python:3.11
+          docker pull -q redpandadata/redpanda:v24.2.7
           docker network create ci-shared
           docker run -d --name stratus-shared --network ci-shared -p 4567:4566 \
             -v /var/run/docker.sock:/var/run/docker.sock stratus:ci \
@@ -184,6 +185,17 @@ jobs:
           docker run --rm --network ci-shared -e PGPASSWORD=secret123 postgres:16-alpine \
             psql -h "$address" -U app -d postgres -tc "select 1" | grep -q 1
 
+          # The broker must advertise the name it has on the shared network,
+          # or clients that follow its metadata cannot produce or consume.
+          arn="$(aws kafka create-cluster-v2 --cluster-name events --provisioned \
+            '{"BrokerNodeGroupInfo":{"InstanceType":"kafka.m5.large","ClientSubnets":["subnet-1","subnet-2"]},"KafkaVersion":"3.6.0","NumberOfBrokerNodes":2}' \
+            --query ClusterArn --output text)"
+          brokers="$(aws kafka get-bootstrap-brokers --cluster-arn "$arn" --query BootstrapBrokerString --output text)"
+          rpk() { docker run --rm -i --network ci-shared --entrypoint rpk redpandadata/redpanda:v24.2.7 "$@" -X brokers="$brokers"; }
+          rpk topic create orders
+          echo '{"order":1}' | rpk topic produce orders
+          rpk topic consume orders -n 1 | grep -q '"order\\":1' || { docker logs stratus-shared; exit 1; }
+
           if docker ps --format '{{.Names}} {{.Ports}}' | grep -v '^stratus-shared ' | grep '^stratus-.*->'; then
             echo "engine or Lambda ports were published on the host"; exit 1
           fi
@@ -191,6 +203,46 @@ jobs:
           if docker ps -aq --filter label=io.stratus.managed=true | grep -q .; then
             echo "containers left behind"; exit 1
           fi
+
+  # Stratus in a Kubernetes runner pod that mounts the node's docker.sock,
+  # with STRATUS_DOCKER_HOST_ADDRESS from the downward API. minikube's node
+  # runs Docker, as such nodes do.
+  kubernetes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build the image
+        run: |
+          ctx="$RUNNER_TEMP/image"
+          mkdir -p "$ctx/linux/amd64"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$ctx/linux/amd64/stratus" ./cmd/stratus
+          docker buildx build --platform linux/amd64 --load -t stratus:ci -f build/container/Dockerfile "$ctx"
+
+      - name: Start minikube with Docker on the node
+        run: |
+          if ! command -v minikube >/dev/null; then
+            curl -fsSLo minikube https://github.com/kubernetes/minikube/releases/download/v1.36.0/minikube-linux-amd64
+            sudo install minikube /usr/local/bin/minikube
+          fi
+          minikube start --driver=docker --container-runtime=docker --memory=6g --cpus=2 --wait=all
+          kubectl get nodes -o wide
+
+      - name: Put images in the node's Docker
+        run: |
+          minikube image load stratus:ci
+          for image in postgres:16-alpine redpandadata/redpanda:v24.2.7 public.ecr.aws/lambda/python:3.11; do
+            minikube ssh -- docker pull -q "$image"
+          done
+
+      - name: Run Lambda, RDS and MSK from a runner pod
+        run: test/kubernetes/run.sh
 
   sdk:
     strategy:
