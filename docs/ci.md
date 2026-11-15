@@ -252,7 +252,10 @@ env:
 ```
 
 Pod-to-node traffic on published ports must be allowed by your network
-policy. Prefer the Docker-in-Docker sidecar where you can: it isolates each
+policy. CI runs exactly this setup on every push, on a minikube node running
+Docker: [test/kubernetes](../test/kubernetes) has the pod manifest and the
+checks (Lambda calling Stratus back, RDS and MSK from the pod, snapshot
+restore, and no containers left after the pod is deleted). Prefer the Docker-in-Docker sidecar where you can: it isolates each
 job and needs no settings.
 
 ### Lambda code without a shared filesystem

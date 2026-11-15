@@ -1,0 +1,50 @@
+# A CI runner pod that uses the node's Docker daemon, the way many
+# self-hosted Kubernetes runner fleets are set up. Stratus runs in one
+# container; the others stand in for a test suite in the same pod, which
+# reaches the engines Stratus starts.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: stratus-runner
+  labels:
+    app: stratus-runner
+spec:
+  terminationGracePeriodSeconds: 60
+  containers:
+    - name: stratus
+      image: stratus:ci
+      imagePullPolicy: Never
+      args: ["serve", "--port", "4566", "--data-dir", "/var/lib/stratus", "--log-level", "info"]
+      env:
+        # The node's address: where its Docker daemon publishes ports.
+        - name: STRATUS_DOCKER_HOST_ADDRESS
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+      ports:
+        - containerPort: 4566
+      readinessProbe:
+        httpGet:
+          path: /_stratus/health
+          port: 4566
+        periodSeconds: 1
+      volumeMounts:
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+        - name: data
+          mountPath: /var/lib/stratus
+    - name: psql
+      image: postgres:16-alpine
+      imagePullPolicy: Never
+      command: ["sleep", "infinity"]
+    - name: rpk
+      image: redpandadata/redpanda:v24.2.7
+      imagePullPolicy: Never
+      command: ["sleep", "infinity"]
+  volumes:
+    - name: docker-sock
+      hostPath:
+        path: /var/run/docker.sock
+        type: Socket
+    - name: data
+      emptyDir: {}
