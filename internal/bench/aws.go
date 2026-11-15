@@ -9,7 +9,10 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -221,4 +224,52 @@ func (a AWS) CountBuckets(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("list buckets: %w", err)
 	}
 	return len(out.Buckets), nil
+}
+
+// RDS
+
+func (a AWS) query(ctx context.Context, params url.Values) ([]byte, error) {
+	params.Set("Version", "2014-10-31")
+	h := http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}
+	return a.do(ctx, http.MethodPost, "/", h, []byte(params.Encode()))
+}
+
+// CreateDBInstance creates an RDS instance and returns once it is available,
+// which on Stratus is when its engine accepts connections.
+func (a AWS) CreateDBInstance(ctx context.Context, id, engine, user, password string) error {
+	_, err := a.query(ctx, url.Values{
+		"Action":               {"CreateDBInstance"},
+		"DBInstanceIdentifier": {id},
+		"Engine":               {engine},
+		"DBInstanceClass":      {"db.t3.micro"},
+		"MasterUsername":       {user},
+		"MasterUserPassword":   {password},
+		"AllocatedStorage":     {"20"},
+	})
+	return err
+}
+
+// DBInstanceEndpoint returns host:port of an instance's engine.
+func (a AWS) DBInstanceEndpoint(ctx context.Context, id string) (string, error) {
+	raw, err := a.query(ctx, url.Values{"Action": {"DescribeDBInstances"}, "DBInstanceIdentifier": {id}})
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		Instances []struct {
+			Status   string `xml:"DBInstanceStatus"`
+			Endpoint struct {
+				Address string `xml:"Address"`
+				Port    int    `xml:"Port"`
+			} `xml:"Endpoint"`
+		} `xml:"DescribeDBInstancesResult>DBInstances>DBInstance"`
+	}
+	if err := xml.Unmarshal(raw, &out); err != nil {
+		return "", err
+	}
+	if len(out.Instances) != 1 || out.Instances[0].Endpoint.Port == 0 {
+		return "", fmt.Errorf("db instance %s has no endpoint", id)
+	}
+	ep := out.Instances[0].Endpoint
+	return net.JoinHostPort(ep.Address, strconv.Itoa(ep.Port)), nil
 }

@@ -273,6 +273,14 @@ jobs:
           echo "## Test isolation benchmark" >> "$GITHUB_STEP_SUMMARY"
           go run ./cmd/stratus-bench -tests 10 -json bench.json | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Boot benchmark
+        env:
+          STRATUS_BIN: ${{ runner.temp }}/stratus
+        run: |
+          docker pull -q postgres:16-alpine
+          echo "## Cold boot benchmark" >> "$GITHUB_STEP_SUMMARY"
+          go run ./cmd/stratus-bench boot -binary "$STRATUS_BIN" -runs 10 -engine -json boot.json | tee -a "$GITHUB_STEP_SUMMARY"
+
   release-gate:
     runs-on: ubuntu-latest
     needs: test
