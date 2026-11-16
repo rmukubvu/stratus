@@ -482,8 +482,9 @@ See [docs/load.md](docs/load.md) and [examples/k6-load](examples/k6-load).
 DynamoDB tables throttle on provisioned capacity, on-demand maximums and
 hot partition keys, with `UnprocessedItems` from batches and
 `ThrottlingError` from transactions. Lambda enforces reserved and account
-concurrency: synchronous calls get a 429, async events and event source
-mappings retry with backoff.
+concurrency: synchronous calls get a 429, async events retry with backoff,
+and SQS event source mappings leave the batch on the queue for a retry after
+its visibility timeout.
 
 See [docs/limits.md](docs/limits.md).
 

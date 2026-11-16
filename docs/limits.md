@@ -178,7 +178,8 @@ you chose for the function. A scaled pool always admits one execution.
 | --- | --- |
 | `Invoke` (`RequestResponse`), API Gateway, Step Functions, EventBridge Scheduler | `429 TooManyRequestsException` with `Reason` `ReservedFunctionConcurrentInvocationLimitExceeded` or `ConcurrentInvocationLimitExceeded` |
 | `Invoke` (`Event`), SNS, EventBridge | Accepted, then retried with backoff (100 ms doubling to 5 s) until the function's `MaximumEventAgeInSeconds`, default 6 hours |
-| Event source mappings (SQS, Kinesis, DynamoDB Streams) | Retried with backoff, as Lambda's pollers do |
+| SQS event source mappings | The batch stays on the queue and comes back after its visibility timeout, counting towards the queue's `maxReceiveCount`, as in AWS |
+| Event source mappings (Kinesis, DynamoDB Streams) | Retried with backoff, as Lambda's pollers do |
 
 ```json
 {"profile": "aws-default", "scale": 0.01, "lambda": {"account_concurrency": 1000}}

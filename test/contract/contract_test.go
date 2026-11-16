@@ -667,7 +667,27 @@ func TestAWSCLILambdaLayersAndEventSourceMappings(t *testing.T) {
 	}
 
 	runAWS(t, h.baseURL, "sqs", "send-message", "--queue-url", queue.QueueURL, "--message-body", "hello mapping")
-	time.Sleep(750 * time.Millisecond)
+
+	// The mapping polls the queue and deletes the message once the
+	// function has processed it.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		attrsOut := runAWS(t, h.baseURL, "sqs", "get-queue-attributes", "--queue-url", queue.QueueURL,
+			"--attribute-names", "ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible", "--output", "json")
+		var counts struct {
+			Attributes map[string]string `json:"Attributes"`
+		}
+		if err := json.Unmarshal(attrsOut, &counts); err != nil {
+			t.Fatalf("decode queue counts: %v\n%s", err, attrsOut)
+		}
+		if counts.Attributes["ApproximateNumberOfMessages"] == "0" && counts.Attributes["ApproximateNumberOfMessagesNotVisible"] == "0" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the mapping never processed the message: %s", attrsOut)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 
 	snapshotPath := filepath.Join(t.TempDir(), "mapping-snapshot.json")
 	_ = runAWS(t, h.baseURL,

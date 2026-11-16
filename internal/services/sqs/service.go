@@ -2,7 +2,6 @@ package sqs
 
 import (
 	"bytes"
-	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -40,7 +39,7 @@ var queueNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
 type Service struct {
 	scope    scope.Scope
 	metadata store.Store
-	lambda   *lambdasvc.Service
+	listener MessageListener
 	now      func() time.Time
 	mu       sync.Mutex
 }
@@ -175,8 +174,83 @@ func NewService(metadata store.Store) *Service {
 	return &Service{scope: scope.Default(), metadata: metadata, now: time.Now}
 }
 
-func (s *Service) SetLambda(lambda *lambdasvc.Service) {
-	s.lambda = lambda
+// MessageListener hears when a queue has new messages, so Lambda event
+// source mappings can poll it straight away.
+type MessageListener interface {
+	QueueMessagesAvailable(queueARN string)
+}
+
+// SetMessageListener connects the queues to the Lambda pollers.
+func (s *Service) SetMessageListener(listener MessageListener) {
+	s.listener = listener
+}
+
+// ReceiveFromARN receives up to max visible messages for a Lambda event
+// source mapping, exactly as ReceiveMessage does: with the queue's
+// visibility timeout, counting receives and redriving to the dead-letter
+// queue past maxReceiveCount.
+func (s *Service) ReceiveFromARN(queueARN string, max int) ([]lambdasvc.QueueMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	queue, err := s.loadQueue(queueNameFromARN(queueARN))
+	if err != nil {
+		return nil, err
+	}
+	received, err := s.receiveVisibleMessages(queue, max, attributeInt(queue.Attributes, "VisibilityTimeout", 30), []string{"All"})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]lambdasvc.QueueMessage, 0, len(received))
+	for _, message := range received {
+		attributes := map[string]string{"SenderId": s.scope.Account}
+		for _, entry := range message.Attributes {
+			attributes[entry.Name] = entry.Value
+		}
+		out = append(out, lambdasvc.QueueMessage{
+			MessageID:     message.MessageID,
+			ReceiptHandle: message.ReceiptHandle,
+			Body:          message.Body,
+			MD5OfBody:     message.MD5OfBody,
+			Attributes:    attributes,
+		})
+	}
+	return out, nil
+}
+
+// DeleteFromARN deletes messages a Lambda event source mapping processed.
+// A handle that no longer names an in-flight message, because its
+// visibility timeout ended and it was received again, is skipped, as AWS
+// ignores a stale receipt handle; the first other error is returned after
+// the rest are deleted.
+func (s *Service) DeleteFromARN(queueARN string, receiptHandles []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	queue, err := s.loadQueue(queueNameFromARN(queueARN))
+	if err != nil {
+		return err
+	}
+	inflight, err := s.inflightMessages(queue.Name)
+	if err != nil {
+		return err
+	}
+	var first error
+	for _, handle := range receiptHandles {
+		if _, ok := inflight[handle]; !ok {
+			continue
+		}
+		if err := s.deleteOne(inflight, handle); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+func (s *Service) notifyListener(queueName string) {
+	if s.listener != nil {
+		s.listener.QueueMessagesAvailable(s.queueARN(queueName))
+	}
 }
 
 func (s *Service) SendMessageToARN(queueArn string, body string) error {
@@ -198,12 +272,7 @@ func (s *Service) SendMessageToARN(queueArn string, body string) error {
 	if err := s.putMessage(record); err != nil {
 		return internal(err)
 	}
-	if s.lambda != nil {
-		s.lambda.DispatchSQSEvent(context.Background(), s.queueARN(queue.Name), record.MessageID, uuid.NewString(), record.Body, map[string]string{
-			"ApproximateReceiveCount": "1",
-			"SentTimestamp":           strconv.FormatInt(record.SentAt.UnixMilli(), 10),
-		})
-	}
+	s.notifyListener(queue.Name)
 	return nil
 }
 
@@ -847,8 +916,8 @@ func (s *Service) deleteMessage(w http.ResponseWriter, r *http.Request, requestI
 	return nil
 }
 
-// sendOne validates and stores one message, then hands it to any Lambda
-// event source mapping on the queue. The service lock must be held.
+// sendOne validates and stores one message, then wakes the Lambda event
+// source mappings that poll queues. The service lock must be held.
 func (s *Service) sendOne(queue queueRecord, body, rawDelay string) (messageRecord, error) {
 	if err := validateMessageBody(queue, body); err != nil {
 		return messageRecord{}, err
@@ -870,12 +939,7 @@ func (s *Service) sendOne(queue queueRecord, body, rawDelay string) (messageReco
 	if err := s.putMessage(record); err != nil {
 		return messageRecord{}, internal(err)
 	}
-	if s.lambda != nil {
-		s.lambda.DispatchSQSEvent(context.Background(), s.queueARN(queue.Name), record.MessageID, uuid.NewString(), record.Body, map[string]string{
-			"ApproximateReceiveCount": "1",
-			"SentTimestamp":           strconv.FormatInt(record.SentAt.UnixMilli(), 10),
-		})
-	}
+	s.notifyListener(queue.Name)
 	return record, nil
 }
 

@@ -114,7 +114,7 @@ A delivery is described by where it comes from and where it goes:
 
 | Path | `source` | `service` | `operation` | Async |
 | --- | --- | --- | --- | --- |
-| SQS event source mapping | `sqs` | `lambda` | `Invoke` | yes |
+| SQS event source mapping | `sqs` | `lambda` | `Invoke` | polled (see below) |
 | Kinesis event source mapping | `kinesis` | `lambda` | `Invoke` | yes |
 | DynamoDB Streams event source mapping | `dynamodb` | `lambda` | `Invoke` | yes |
 | SNS subscription | `sns` | `sqs` or `lambda` | `SendMessage` or `Invoke` | yes |
@@ -138,6 +138,14 @@ function (sync).
 | `latency` | The event arrives late, in the background. Later events can overtake it, so this also tests ordering. | The source waits for the delay. |
 | `throttle`, `internal_error`, `unavailable`, `error`, `function_error` | The event is not delivered. The source carries on (Stratus does not model AWS retries or dead-letter queues). | The source gets the error. For a Task state, its `Retry` and `Catch` apply. |
 | `cold_start` | The target function starts cold. | Same. |
+
+An SQS event source mapping polls its queue, so a faulted delivery behaves as
+it would in AWS rather than as a lost event: after `throttle`, an error,
+`function_error` or `drop`, the batch stays on the queue and is received
+again once its visibility timeout ends, counting towards the queue's
+`maxReceiveCount` and dead-letter queue. `latency` holds the batch in
+flight for the delay, and `duplicate` invokes the function twice with the
+same batch. See [sqs.md](sqs.md#lambda-event-source-mappings).
 
 Use `scope: "all"` to fault a function however it is invoked, directly or
 by an event: `{"scope": "all", "service": "lambda", "operation": "Invoke",

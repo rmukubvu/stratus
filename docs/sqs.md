@@ -15,6 +15,35 @@ protocols, so the AWS CLI and every current AWS SDK work unchanged.
 FIFO queues, message attributes and queue tags are not implemented yet and
 return `NotImplemented`.
 
+## Lambda event source mappings
+
+A Lambda event source mapping on a queue polls it the way Lambda's pollers
+do, through the same receive path as `ReceiveMessage`:
+
+- It receives up to `BatchSize` messages (default 10) and invokes the
+  function once with them. With `MaximumBatchingWindowInSeconds`, it keeps
+  gathering until the batch is full or the window ends.
+- When the function returns, the batch is deleted. When it throws, times
+  out or is throttled, nothing is deleted: the messages come back after the
+  queue's `VisibilityTimeout` with a higher `ApproximateReceiveCount`, and
+  once that passes the `RedrivePolicy`'s `maxReceiveCount` they move to the
+  dead-letter queue.
+- With `FunctionResponseTypes: ["ReportBatchItemFailures"]` the function can
+  fail single messages by returning
+  `{"batchItemFailures": [{"itemIdentifier": "<messageId>"}]}`; only those
+  stay on the queue. An empty or missing list means every message succeeded,
+  and an invalid response (not an object, an empty or unknown
+  `itemIdentifier`) fails the whole batch, as in AWS.
+- Messages already in the queue when the mapping is created are processed
+  too, and a disabled mapping (`UpdateEventSourceMapping` with
+  `Enabled: false`) leaves messages in the queue until it is enabled again.
+- An idle mapping keeps one poller. With a backlog it scales up to five
+  concurrent batches, or `ScalingConfig.MaximumConcurrency` (2 to 1,000).
+
+Retries wait for the visibility timeout, so a queue with the default of 30
+seconds retries a failed batch 30 seconds later, as AWS does. Tests that
+expect quick retries should set a short `VisibilityTimeout` on the queue.
+
 ## Limits
 
 Stratus enforces the limits that are part of the SQS API, so code that

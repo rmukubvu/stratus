@@ -107,6 +107,27 @@ image's own settings.
 - **Architectures.** Containers run on the host's architecture. An `arm64`
   function on an x86 host needs Docker's emulation (binfmt/QEMU).
 
+## Updating functions
+
+`ListFunctions`, `UpdateFunctionCode` (`ZipFile` or `ImageUri`, `DryRun`,
+`Publish`, `RevisionId`) and `UpdateFunctionConfiguration` (`Description`,
+`Environment`, `Handler`, `ImageConfig`, `Layers`, `MemorySize`, `Role`,
+`Runtime`, `Timeout`) work as in Lambda, so a redeploy is an update, not a
+delete and create. An update discards the function's warm containers, so the
+next invocation runs the new code and settings. A stale `RevisionId` gets
+`PreconditionFailedException`. Code from S3 (`S3Bucket`, `S3Key`) is not
+supported yet.
+
+## Event source mappings
+
+`CreateEventSourceMapping`, `UpdateEventSourceMapping`, `GetEventSourceMapping`,
+`ListEventSourceMappings` and `DeleteEventSourceMapping` are supported. A
+mapping on an SQS queue polls it with Lambda's semantics: batches, delete on
+success, retry after the visibility timeout, `ReportBatchItemFailures`,
+batching windows, scaling and redrive to the queue's dead-letter queue. See
+[sqs.md](sqs.md#lambda-event-source-mappings). Kinesis and DynamoDB Streams
+mappings deliver each change as it happens.
+
 ## Credentials
 
 Each container starts with session credentials for the function's execution
