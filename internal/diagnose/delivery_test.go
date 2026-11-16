@@ -38,6 +38,17 @@ func TestFunctionErrorsInDeliveriesAreTheCallersBug(t *testing.T) {
 	if !strings.Contains(r.Summary, "2 function error") {
 		t.Errorf("summary: %q", r.Summary)
 	}
+	if !strings.Contains(g.NextStep, "stays on the queue") || strings.Contains(g.NextStep, "resend") {
+		t.Errorf("a queue retries the batch itself, so the next step should not say to resend it: %q", g.NextStep)
+	}
+}
+
+func TestFunctionErrorsFromPushSourcesSayToResend(t *testing.T) {
+	f := deliveryFailure("e1", time.Second, FunctionErrorCode, "boom", 200)
+	f.Delivery.Source = "sns"
+	if exp := explainDelivery(f); !strings.Contains(exp.NextStep, "resend the event") {
+		t.Fatalf("next step: %q", exp.NextStep)
+	}
 }
 
 func TestInjectedDeliveryFaultsAreSeparatedFromRealOnes(t *testing.T) {

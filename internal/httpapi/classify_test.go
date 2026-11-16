@@ -604,6 +604,12 @@ func TestClassifyLambdaConcurrencyAndAccountSettings(t *testing.T) {
 		{http.MethodGet, "/2019-09-30/functions/demo/concurrency", "GetFunctionConcurrency"},
 		{http.MethodDelete, "/2017-10-31/functions/demo/concurrency", "DeleteFunctionConcurrency"},
 		{http.MethodGet, "/2016-08-19/account-settings/", "GetAccountSettings"},
+		{http.MethodGet, "/2015-03-31/functions/", "ListFunctions"},
+		{http.MethodGet, "/2015-03-31/functions", "ListFunctions"},
+		{http.MethodPut, "/2015-03-31/functions/demo/code", "UpdateFunctionCode"},
+		{http.MethodPut, "/2015-03-31/functions/demo/configuration", "UpdateFunctionConfiguration"},
+		{http.MethodGet, "/2015-03-31/functions/demo/configuration", "GetFunctionConfiguration"},
+		{http.MethodPut, "/2015-03-31/event-source-mappings/1234", "UpdateEventSourceMapping"},
 	}
 	for _, tc := range cases {
 		req, _ := http.NewRequest(tc.method, "http://localhost:4566"+tc.path, nil)

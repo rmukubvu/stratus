@@ -544,6 +544,8 @@ func classifyLambdaOperation(r *http.Request) string {
 		return "ListEventSourceMappings"
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/2015-03-31/event-source-mappings/"):
 		return "GetEventSourceMapping"
+	case r.Method == http.MethodPut && strings.HasPrefix(path, "/2015-03-31/event-source-mappings/"):
+		return "UpdateEventSourceMapping"
 	case r.Method == http.MethodDelete && strings.HasPrefix(path, "/2015-03-31/event-source-mappings/"):
 		return "DeleteEventSourceMapping"
 	case r.Method == http.MethodPut && strings.HasSuffix(path, "/event-invoke-config"):
@@ -562,6 +564,12 @@ func classifyLambdaOperation(r *http.Request) string {
 		return "RemovePermission"
 	case r.Method == http.MethodPost && path == "/2015-03-31/functions":
 		return "CreateFunction"
+	case r.Method == http.MethodGet && path == "/2015-03-31/functions":
+		return "ListFunctions"
+	case r.Method == http.MethodPut && strings.HasPrefix(path, "/2015-03-31/functions/") && strings.HasSuffix(path, "/code"):
+		return "UpdateFunctionCode"
+	case r.Method == http.MethodPut && strings.HasPrefix(path, "/2015-03-31/functions/") && strings.HasSuffix(path, "/configuration"):
+		return "UpdateFunctionConfiguration"
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/versions"):
 		return "PublishVersion"
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/versions"):

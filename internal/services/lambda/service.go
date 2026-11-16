@@ -26,6 +26,9 @@ import (
 	"github.com/stratus/internal/store/fsblob"
 )
 
+// lastModifiedLayout is how Lambda formats a function's LastModified.
+const lastModifiedLayout = "2006-01-02T15:04:05.000-0700"
+
 const (
 	functionsBucket     = "lambda-functions"
 	versionsBucket      = "lambda-versions"
@@ -50,9 +53,11 @@ type Service struct {
 	invoker        Invoker
 	queuePublisher QueuePublisher
 	topicPublisher TopicPublisher
+	queueConsumer  QueueConsumer
 	faults         chaos.Gate
 	concurrency    ConcurrencyGate
 	logs           LogSink
+	poller         *sqsPoller
 	now            func() time.Time
 }
 
@@ -232,16 +237,19 @@ type layerVersionRecord struct {
 }
 
 type eventSourceMappingRecord struct {
-	BatchSize        int       `json:"batch_size"`
-	CreatedAt        time.Time `json:"created_at"`
-	Enabled          bool      `json:"enabled"`
-	EventSourceArn   string    `json:"event_source_arn"`
-	FunctionName     string    `json:"function_name"`
-	FunctionArn      string    `json:"function_arn"`
-	LastModified     string    `json:"last_modified"`
-	StartingPosition string    `json:"starting_position,omitempty"`
-	State            string    `json:"state"`
-	UUID             string    `json:"uuid"`
+	BatchSize                      int       `json:"batch_size"`
+	CreatedAt                      time.Time `json:"created_at"`
+	Enabled                        bool      `json:"enabled"`
+	EventSourceArn                 string    `json:"event_source_arn"`
+	FunctionName                   string    `json:"function_name"`
+	FunctionArn                    string    `json:"function_arn"`
+	FunctionResponseTypes          []string  `json:"function_response_types,omitempty"`
+	LastModified                   string    `json:"last_modified"`
+	MaximumBatchingWindowInSeconds int       `json:"maximum_batching_window_in_seconds,omitempty"`
+	MaximumConcurrency             int       `json:"maximum_concurrency,omitempty"`
+	StartingPosition               string    `json:"starting_position,omitempty"`
+	State                          string    `json:"state"`
+	UUID                           string    `json:"uuid"`
 }
 
 type eventInvokeConfigRecord struct {
@@ -321,6 +329,7 @@ func NewService(opts Options) *Service {
 		blobs:    opts.Blobs,
 		invoker:  opts.Invoker,
 		faults:   chaos.Passthrough{},
+		poller:   newSQSPoller(),
 		now:      time.Now,
 	}
 }
@@ -345,6 +354,12 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.createFunction(w, r)
 	case "GetFunction":
 		return s.getFunction(w, r)
+	case "ListFunctions":
+		return s.listFunctions(w, r)
+	case "UpdateFunctionCode":
+		return s.updateFunctionCode(w, r)
+	case "UpdateFunctionConfiguration":
+		return s.updateFunctionConfiguration(w, r)
 	case "GetFunctionConfiguration":
 		return s.getFunctionConfiguration(w, r)
 	case "DeleteFunction":
@@ -377,6 +392,8 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.listEventSourceMappings(w, r)
 	case "GetEventSourceMapping":
 		return s.getEventSourceMapping(w, r)
+	case "UpdateEventSourceMapping":
+		return s.updateEventSourceMapping(w, r)
 	case "DeleteEventSourceMapping":
 		return s.deleteEventSourceMapping(w, r)
 	case "PutFunctionEventInvokeConfig":
@@ -566,18 +583,27 @@ func (s *Service) publishVersion(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	version, err := s.nextVersion(name)
+	published, err := s.publishRecord(record)
 	if err != nil {
 		return err
 	}
+	writeJSON(w, http.StatusCreated, s.configurationResponse(published))
+	return nil
+}
+
+// publishRecord snapshots $LATEST as the function's next numbered version.
+func (s *Service) publishRecord(record functionRecord) (functionRecord, error) {
+	version, err := s.nextVersion(record.FunctionName)
+	if err != nil {
+		return functionRecord{}, err
+	}
 	record.Version = version
 	record.RevisionID = uuid.NewString()
-	record.LastModified = s.now().UTC().Format("2006-01-02T15:04:05.000-0700")
+	record.LastModified = s.now().UTC().Format(lastModifiedLayout)
 	if err := s.putVersionRecord(record); err != nil {
-		return err
+		return functionRecord{}, err
 	}
-	writeJSON(w, http.StatusCreated, s.configurationResponse(record))
-	return nil
+	return record, nil
 }
 
 func (s *Service) listVersionsByFunction(w http.ResponseWriter, r *http.Request) error {
@@ -728,21 +754,15 @@ func (s *Service) getLayerVersion(w http.ResponseWriter, r *http.Request) error 
 }
 
 func (s *Service) createEventSourceMapping(w http.ResponseWriter, r *http.Request) error {
-	var input struct {
-		BatchSize        int    `json:"BatchSize"`
-		Enabled          *bool  `json:"Enabled"`
-		EventSourceArn   string `json:"EventSourceArn"`
-		FunctionName     string `json:"FunctionName"`
-		StartingPosition string `json:"StartingPosition"`
-	}
+	var input eventSourceMappingInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		return badRequest("InvalidRequestContentException", "request body is not valid JSON")
 	}
-	mapping, err := s.createEventSourceMappingRecord(input.FunctionName, input.EventSourceArn, input.BatchSize, input.StartingPosition, input.Enabled)
+	mapping, err := s.createEventSourceMappingFromInput(input)
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusCreated, eventSourceMappingResponse(mapping))
+	writeJSON(w, http.StatusAccepted, eventSourceMappingResponse(mapping))
 	return nil
 }
 
@@ -974,21 +994,6 @@ func (s *Service) removePermission(w http.ResponseWriter, r *http.Request) error
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
-}
-
-func (s *Service) DispatchSQSEvent(ctx context.Context, queueARN string, messageID, receiptHandle, body string, attributes map[string]string) {
-	event := map[string]any{
-		"Records": []map[string]any{{
-			"messageId":      messageID,
-			"receiptHandle":  receiptHandle,
-			"body":           body,
-			"attributes":     attributes,
-			"eventSource":    "aws:sqs",
-			"eventSourceARN": queueARN,
-			"awsRegion":      s.scope.Region,
-		}},
-	}
-	s.dispatchEventSource(ctx, queueARN, event)
 }
 
 func (s *Service) DispatchKinesisRecords(ctx context.Context, streamARN string, records []map[string]any) {
@@ -1267,7 +1272,7 @@ func (s *Service) provisionFunction(input ProvisionInput) (functionRecord, error
 		Timeout:       defaultInt(createInput.Timeout, 3),
 		MemorySize:    defaultInt(createInput.MemorySize, 128),
 		Environment:   cloneMap(createInput.Environment.Variables),
-		LastModified:  now.Format("2006-01-02T15:04:05.000-0700"),
+		LastModified:  now.Format(lastModifiedLayout),
 		RevisionID:    uuid.NewString(),
 		Version:       "$LATEST",
 		Architectures: normalizeArchitectures(createInput.Architectures),
@@ -1551,44 +1556,13 @@ func (s *Service) resolveLayerDirs(layers []string) []string {
 }
 
 func (s *Service) createEventSourceMappingRecord(functionNameOrArn, eventSourceArn string, batchSize int, startingPosition string, enabled *bool) (eventSourceMappingRecord, error) {
-	record, err := s.resolveFunctionFromReference(functionNameOrArn)
-	if err != nil {
-		return eventSourceMappingRecord{}, err
-	}
-	if eventSourceArn == "" {
-		return eventSourceMappingRecord{}, badRequest("InvalidParameterValueException", "EventSourceArn is required")
-	}
-	if batchSize <= 0 {
-		batchSize = 1
-	}
-	stateEnabled := true
-	if enabled != nil {
-		stateEnabled = *enabled
-	}
-	if strings.Contains(eventSourceArn, ":stream/") && startingPosition == "" {
-		return eventSourceMappingRecord{}, badRequest("InvalidParameterValueException", "StartingPosition is required for stream event sources")
-	}
-	now := s.now().UTC()
-	mapping := eventSourceMappingRecord{
+	return s.createEventSourceMappingFromInput(eventSourceMappingInput{
 		BatchSize:        batchSize,
-		CreatedAt:        now,
-		Enabled:          stateEnabled,
+		Enabled:          enabled,
 		EventSourceArn:   eventSourceArn,
-		FunctionArn:      s.lambdaARN(record.FunctionName),
-		FunctionName:     record.FunctionName,
-		LastModified:     now.Format(time.RFC3339),
+		FunctionName:     functionNameOrArn,
 		StartingPosition: startingPosition,
-		State:            ternary(stateEnabled, "Enabled", "Disabled"),
-		UUID:             uuid.NewString(),
-	}
-	raw, err := json.Marshal(mapping)
-	if err != nil {
-		return eventSourceMappingRecord{}, internal(err)
-	}
-	if err := s.metadata.Put(mappingsBucket, mapping.UUID, raw); err != nil {
-		return eventSourceMappingRecord{}, internal(err)
-	}
-	return mapping, nil
+	})
 }
 
 func (s *Service) listEventSourceMappingRecords(functionName, eventSourceArn string) ([]eventSourceMappingRecord, error) {
@@ -1848,19 +1822,6 @@ func (s *Service) layerVersionResponse(layerName string, record layerVersionReco
 		"LayerVersionArn": record.Arn,
 		"LicenseInfo":     record.LicenseInfo,
 		"Version":         record.Version,
-	}
-}
-
-func eventSourceMappingResponse(record eventSourceMappingRecord) map[string]any {
-	return map[string]any{
-		"BatchSize":        record.BatchSize,
-		"EventSourceArn":   record.EventSourceArn,
-		"FunctionArn":      record.FunctionArn,
-		"FunctionName":     record.FunctionName,
-		"LastModified":     record.LastModified,
-		"StartingPosition": record.StartingPosition,
-		"State":            record.State,
-		"UUID":             record.UUID,
 	}
 }
 

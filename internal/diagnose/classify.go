@@ -213,8 +213,8 @@ func explainDelivery(f Failure) Explanation {
 		return Explanation{
 			Category:    CategoryFunctionError,
 			LikelyCause: fmt.Sprintf("function %s failed while handling %s: %s", function, route, f.Message),
-			NextStep: fmt.Sprintf("read what the function printed with `aws logs filter-log-events --log-group-name /aws/lambda/%s` (or invoke it with the same event and --log-type Tail), fix the handler, and resend the event; "+
-				"the producer's call succeeded, so nothing upstream reports this failure", function),
+			NextStep: fmt.Sprintf("read what the function printed with `aws logs filter-log-events --log-group-name /aws/lambda/%s` (or invoke it with the same event and --log-type Tail), fix the handler, and %s; "+
+				"the producer's call succeeded, so nothing upstream reports this failure", function, afterFunctionFix(f.Delivery.Source)),
 			YourBug: true,
 		}
 	}
@@ -222,6 +222,15 @@ func explainDelivery(f Failure) Explanation {
 	exp.LikelyCause = fmt.Sprintf("Stratus could not deliver %s: %s", route, exp.LikelyCause)
 	exp.NextStep += "; the producer's call succeeded, so nothing upstream reports this failure"
 	return exp
+}
+
+// afterFunctionFix says what happens to the failed event once the handler
+// is fixed: a queue keeps it and retries it, other sources do not.
+func afterFunctionFix(source string) string {
+	if source == "sqs" {
+		return "redeploy it with `aws lambda update-function-code`: the batch stays on the queue and is retried after its visibility timeout, then moves to the dead-letter queue once it passes maxReceiveCount"
+	}
+	return "resend the event"
 }
 
 func lastSegment(arn string) string {

@@ -86,6 +86,7 @@ type stack struct {
 	scope     scope.Scope
 	services  httpapi.Services
 	scheduler *scheduler.Service
+	lambda    *lambdasvc.Service
 	logs      *logs.Service
 	ses       *ses.Service
 	kafka     *kafka.Service
@@ -191,6 +192,9 @@ func (s *Stacks) Close() error {
 		if err := st.scheduler.Close(); err != nil && first == nil {
 			first = err
 		}
+		if err := st.lambda.Close(); err != nil && first == nil {
+			first = err
+		}
 	}
 	return first
 }
@@ -277,11 +281,12 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 		svc.SetScope(sc)
 	}
 
-	sqsService.SetLambda(lambdaService)
+	sqsService.SetMessageListener(lambdaService)
 	snsService.SetQueuePublisher(sqsService)
 	snsService.SetLambdaInvoker(lambdaService)
 	monitoringService.SetSNS(snsService)
 	lambdaService.SetQueuePublisher(sqsService)
+	lambdaService.SetQueueConsumer(sqsService)
 	lambdaService.SetTopicPublisher(snsService)
 	lambdaService.SetLogSink(logsService)
 	streamsService.SetLambda(lambdaService)
@@ -303,6 +308,7 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 	stepFunctionsService.SetFaults(p.faults)
 	schedulerService.SetFaults(p.faults)
 	schedulerService.Start()
+	lambdaService.StartPolling()
 
 	cloudFormationService := cloudformation.NewService(cloudformation.Options{
 		Metadata:       meta,
@@ -360,6 +366,7 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 			Scheduler:       schedulerService,
 		},
 		scheduler: schedulerService,
+		lambda:    lambdaService,
 		logs:      logsService,
 		ses:       sesService,
 		kafka:     kafkaService,
