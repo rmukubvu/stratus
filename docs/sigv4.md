@@ -48,8 +48,10 @@ do*. Turn on both to get AWS's full front door.
   - `STREAMING-AWS4-HMAC-SHA256-PAYLOAD` (and `-TRAILER`) aws-chunked uploads
     are verified chunk by chunk along the signature chain, including the
     trailer signature, and against `x-amz-decoded-content-length`.
-- **S3's extra rules.** The path is signed exactly as sent (other services
-  sign it URI-encoded once more), and every `x-amz-*` header must be signed.
+- **S3's extra rules.** The path is decoded and each segment URI-encoded
+  once, so a key signs the same however the client escaped it: `$` sent raw
+  and `%24` both sign as `%24` (other services encode the path as sent once
+  more). Every `x-amz-*` header must be signed.
 - **Session tokens.** STS credentials need their own `X-Amz-Security-Token`;
   an IAM user's long-term key must not send one.
 

@@ -40,7 +40,8 @@ type CredentialStore interface {
 
 // Rules are the service-specific parts of verification.
 type Rules struct {
-	// S3 applies S3's rules: the path is signed as sent, the body hash
+	// S3 applies S3's rules: the path is decoded and each segment encoded
+	// once (other services encode it once more as sent), the body hash
 	// comes from x-amz-content-sha256 (required on signed requests),
 	// x-amz-* headers must be signed, presigned URLs need X-Amz-Expires,
 	// and aws-chunked bodies are verified chunk by chunk.
@@ -120,7 +121,7 @@ func (v *Verifier) Verify(r *http.Request, rules Rules) (*Result, *Failure, erro
 	key := SigningKey(cred.SecretAccessKey, auth.Date, auth.Region, auth.Service)
 	style := PathDoubleEncoded
 	if rules.S3 {
-		style = PathAsSent
+		style = PathReencoded
 	}
 	canonical := CanonicalRequest(r, auth, style, payloadHash)
 	stringToSign := StringToSign(auth, canonical)

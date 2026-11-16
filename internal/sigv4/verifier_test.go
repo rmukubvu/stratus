@@ -71,7 +71,7 @@ func signRequest(r *http.Request, key, secret, token string, now time.Time, payl
 	}
 	style := PathDoubleEncoded
 	if s3 {
-		style = PathAsSent
+		style = PathReencoded
 	}
 	sts := StringToSign(auth, CanonicalRequest(r, auth, style, hash))
 	sig := Signature(SigningKey(secret, auth.Date, auth.Region, auth.Service), sts)
@@ -290,7 +290,7 @@ func TestS3PayloadRules(t *testing.T) {
 			t.Fatalf("message should name the header: %s", f.Message)
 		}
 	})
-	t.Run("S3 signs the path as sent, not double-encoded", func(t *testing.T) {
+	t.Run("S3 encodes the path once, not twice", func(t *testing.T) {
 		r := s3Put(body)
 		signRequest(r, userKey, userSecret, "", signingTime, hash, false) // signed as a non-S3 service would
 		r.Header.Set("Authorization", strings.Replace(r.Header.Get("Authorization"), "/sqs/", "/s3/", 1))
@@ -309,9 +309,51 @@ func presign(key, secret, token string, signedAt time.Time, expires int, target 
 		query += "&X-Amz-Security-Token=" + URIEncode(token)
 	}
 	r := newRequest(http.MethodGet, target+"?"+query, "")
-	sts := StringToSign(auth, CanonicalRequest(r, auth, PathAsSent, UnsignedPayload))
+	sts := StringToSign(auth, CanonicalRequest(r, auth, PathReencoded, UnsignedPayload))
 	sig := Signature(SigningKey(secret, auth.Date, auth.Region, auth.Service), sts)
 	return newRequest(http.MethodGet, target+"?"+query+"&X-Amz-Signature="+sig, "")
+}
+
+// resignWithURI re-signs r over a canonical request whose URI line is uri,
+// written out by hand rather than computed by the code under test.
+func resignWithURI(t *testing.T, r *http.Request, secret, uri string) {
+	t.Helper()
+	auth, f := ParseHeader(r)
+	if f != nil {
+		t.Fatalf("ParseHeader: %v", f)
+	}
+	lines := strings.Split(CanonicalRequest(r, auth, PathReencoded, r.Header.Get("X-Amz-Content-Sha256")), "\n")
+	lines[1] = uri
+	sig := Signature(SigningKey(secret, auth.Date, auth.Region, auth.Service), StringToSign(auth, strings.Join(lines, "\n")))
+	r.Header.Set("Authorization", strings.Replace(r.Header.Get("Authorization"), "Signature="+auth.Signature, "Signature="+sig, 1))
+}
+
+// S3 decodes the path and URI-encodes each segment once, whatever escaping
+// the client put on the wire. Go's net/http sends ":", "+", "=", "(", ")",
+// "@" and "," raw where an SDK escapes them, and AWS signs both forms as
+// escaped. A client that signs the raw path is refused by AWS.
+func TestS3PathIsDecodedThenEncodedOnce(t *testing.T) {
+	const (
+		raw     = "/bucket/ledger/10:00+01=(a)@b,c$.json"
+		escaped = "/bucket/ledger/10%3A00%2B01%3D%28a%29%40b%2Cc%24.json"
+	)
+	for name, sent := range map[string]string{"sent raw": raw, "sent escaped": escaped} {
+		t.Run(name, func(t *testing.T) {
+			r := newRequest(http.MethodPut, "http://localhost:4566"+sent, "")
+			signRequest(r, userKey, userSecret, "", signingTime, UnsignedPayload, true)
+			resignWithURI(t, r, userSecret, escaped)
+			if _, f, err := verifierAt(signingTime).Verify(r, Rules{S3: true}); f != nil || err != nil {
+				t.Fatalf("Verify: %v %v", f, err)
+			}
+		})
+	}
+	t.Run("signed over the raw path", func(t *testing.T) {
+		r := newRequest(http.MethodPut, "http://localhost:4566"+raw, "")
+		signRequest(r, userKey, userSecret, "", signingTime, UnsignedPayload, true)
+		resignWithURI(t, r, userSecret, raw)
+		_, f, err := verifierAt(signingTime).Verify(r, Rules{S3: true})
+		wantKind(t, f, err, KindSignatureMismatch)
+	})
 }
 
 func TestPresignedURLs(t *testing.T) {

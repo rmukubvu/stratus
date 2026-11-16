@@ -92,7 +92,7 @@ func TestS3DocumentationVectors(t *testing.T) {
 		{"GetObject", "GET /test.txt HTTP/1.1\nHost: examplebucket.s3.amazonaws.com\nRange: bytes=0-9\n" +
 			"x-amz-content-sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nx-amz-date: 20130524T000000Z\n" +
 			"Authorization: AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=host;range;x-amz-content-sha256;x-amz-date,Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41\n\n"},
-		{"PutObject", "PUT /test%24file.text HTTP/1.1\nHost: examplebucket.s3.amazonaws.com\nDate: Fri, 24 May 2013 00:00:00 GMT\n" +
+		{"PutObject", "PUT /test$file.text HTTP/1.1\nHost: examplebucket.s3.amazonaws.com\nDate: Fri, 24 May 2013 00:00:00 GMT\n" +
 			"x-amz-date: 20130524T000000Z\nx-amz-storage-class: REDUCED_REDUNDANCY\nContent-Length: 21\n" +
 			"x-amz-content-sha256: 44ce7dd67c959e0d3524ffac1771dfbba87d2b6b4b4e99e42034a8b803f8b072\n" +
 			"Authorization: AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request,SignedHeaders=date;host;x-amz-content-sha256;x-amz-date;x-amz-storage-class,Signature=98ad721746da40c64f1a55b78f14c238d841ea1380cd77a1b5971af0ece108bd\n\nWelcome to Amazon S3."},
