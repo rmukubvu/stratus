@@ -315,6 +315,22 @@ func TestClassifyS3ListObjectsV2(t *testing.T) {
 	}
 }
 
+func TestClassifyS3ListObjects(t *testing.T) {
+	for _, query := range []string{"", "?prefix=logs/", "?marker=a&max-keys=10", "?delimiter=/"} {
+		req, err := http.NewRequest(http.MethodGet, "http://localhost:4566/demo-bucket"+query, nil)
+		if err != nil {
+			t.Fatalf("new request: %v", err)
+		}
+		got, err := Classify(req)
+		if err != nil {
+			t.Fatalf("classify: %v", err)
+		}
+		if got.Service != "s3" || got.Operation != "ListObjects" || got.Bucket != "demo-bucket" {
+			t.Fatalf("GET /demo-bucket%s: unexpected classification: %+v", query, got)
+		}
+	}
+}
+
 func TestClassifyS3PutObject(t *testing.T) {
 	req, err := http.NewRequest(http.MethodPut, "http://localhost:4566/demo-bucket/path/to/file.json", nil)
 	if err != nil {
