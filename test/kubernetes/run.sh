@@ -26,12 +26,26 @@ fail() {
   exit 1
 }
 
+# contains TEXT PATTERN succeeds when TEXT contains the fixed string PATTERN.
+# Checks capture a command's output first and match it here instead of piping
+# into `grep -q`: grep -q exits on the first match, the writer then gets
+# SIGPIPE, and with pipefail a passing check fails with exit 141 and no error.
+contains() { grep -qF -- "$2" <<<"$1"; }
+
+# select_one HOST PORT fails unless PostgreSQL at HOST:PORT answers "select 1".
+select_one() {
+  local out
+  out="$(kubectl exec stratus-runner -c psql -- env PGPASSWORD=secret123 \
+    psql -h "$1" -p "$2" -U app -d postgres -tAc "select 1")" || return 1
+  [ "$out" = 1 ]
+}
+
 kubectl apply -f "$here/runner-pod.yaml"
 kubectl wait --for=condition=Ready pod/stratus-runner --timeout=180s
 
 node_ip="$(kubectl get pod stratus-runner -o jsonpath='{.status.hostIP}')"
 pod_ip="$(kubectl get pod stratus-runner -o jsonpath='{.status.podIP}')"
-kubectl logs stratus-runner -c stratus | grep -q "\"reach\":\"host:$node_ip\"" ||
+contains "$(kubectl logs stratus-runner -c stratus)" "\"reach\":\"host:$node_ip\"" ||
   fail "Stratus did not pick host reach on $node_ip"
 
 kubectl port-forward pod/stratus-runner 4566:4566 >/dev/null 2>&1 &
@@ -63,8 +77,7 @@ aws rds create-db-instance --db-instance-identifier orders --engine postgres \
 read -r address port < <(aws rds describe-db-instances --db-instance-identifier orders \
   --query 'DBInstances[0].Endpoint.[Address,Port]' --output text)
 [ "$address" = "$node_ip" ] || fail "rds endpoint is $address, want the node $node_ip"
-kubectl exec stratus-runner -c psql -- env PGPASSWORD=secret123 \
-  psql -h "$address" -p "$port" -U app -d postgres -tc "select 1" | grep -q 1 || fail "psql"
+select_one "$address" "$port" || fail "psql"
 
 echo "--- MSK: produce and consume from the pod"
 arn="$(aws kafka create-cluster-v2 --cluster-name events --provisioned \
@@ -75,15 +88,15 @@ case "$brokers" in "$node_ip":*) ;; *) fail "brokers are $brokers, want the node
 rpk() { kubectl exec -i stratus-runner -c rpk -- rpk "$@" -X brokers="$brokers"; }
 rpk topic create orders >/dev/null
 echo '{"order":1}' | rpk topic produce orders >/dev/null
-rpk topic consume orders -n 1 | grep -q '"order\\":1' || fail "kafka consume"
+consumed="$(rpk topic consume orders -n 1)" || fail "kafka consume"
+contains "$consumed" '"order\":1' || fail "kafka consume: $consumed"
 
 echo "--- Snapshot and restore with engines running"
 kubectl exec stratus-runner -c stratus -- env STRATUS_ENDPOINT=http://127.0.0.1:4566 stratus snapshot save k8s >/dev/null
 kubectl exec stratus-runner -c stratus -- env STRATUS_ENDPOINT=http://127.0.0.1:4566 stratus snapshot restore k8s >/dev/null
 read -r address port < <(aws rds describe-db-instances --db-instance-identifier orders \
   --query 'DBInstances[0].Endpoint.[Address,Port]' --output text)
-kubectl exec stratus-runner -c psql -- env PGPASSWORD=secret123 \
-  psql -h "$address" -p "$port" -U app -d postgres -tc "select 1" | grep -q 1 || fail "psql after restore"
+select_one "$address" "$port" || fail "psql after restore"
 
 echo "--- Delete the pod: Stratus must remove its containers"
 kill "$forward_pid" 2>/dev/null || true
