@@ -488,9 +488,12 @@ func classifyS3Operation(r *http.Request, bucket, key string) string {
 	case bucket != "" && key == "" && r.Method == http.MethodPut:
 		return "CreateBucket"
 	case bucket != "" && key == "" && r.Method == http.MethodGet:
-		if query.Get("list-type") == "2" || len(query) == 0 {
+		// The original ListObjects is a GET on the bucket without
+		// list-type=2, with or without a prefix, marker or delimiter.
+		if query.Get("list-type") == "2" {
 			return "ListObjectsV2"
 		}
+		return "ListObjects"
 	case bucket != "" && key == "" && r.Method == http.MethodHead:
 		return "HeadBucket"
 	case bucket != "" && key == "" && r.Method == http.MethodDelete:
@@ -518,7 +521,6 @@ func classifyS3Operation(r *http.Request, bucket, key string) string {
 	default:
 		return ""
 	}
-	return ""
 }
 
 func classifyLambdaOperation(r *http.Request) string {

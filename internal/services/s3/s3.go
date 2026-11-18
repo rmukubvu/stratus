@@ -99,14 +99,39 @@ type bucketEntry struct {
 }
 
 type listObjectsV2Result struct {
-	XMLName     xml.Name      `xml:"ListBucketResult"`
-	XMLNS       string        `xml:"xmlns,attr"`
-	Name        string        `xml:"Name"`
-	Prefix      string        `xml:"Prefix"`
-	MaxKeys     int           `xml:"MaxKeys"`
-	KeyCount    int           `xml:"KeyCount"`
-	IsTruncated bool          `xml:"IsTruncated"`
-	Contents    []objectEntry `xml:"Contents"`
+	XMLName               xml.Name       `xml:"ListBucketResult"`
+	XMLNS                 string         `xml:"xmlns,attr"`
+	Name                  string         `xml:"Name"`
+	Prefix                string         `xml:"Prefix"`
+	Delimiter             string         `xml:"Delimiter,omitempty"`
+	MaxKeys               int            `xml:"MaxKeys"`
+	KeyCount              int            `xml:"KeyCount"`
+	IsTruncated           bool           `xml:"IsTruncated"`
+	ContinuationToken     string         `xml:"ContinuationToken,omitempty"`
+	NextContinuationToken string         `xml:"NextContinuationToken,omitempty"`
+	StartAfter            string         `xml:"StartAfter,omitempty"`
+	Contents              []objectEntry  `xml:"Contents"`
+	CommonPrefixes        []commonPrefix `xml:"CommonPrefixes"`
+}
+
+// listObjectsResult is the original ListObjects answer: a marker in place
+// of a continuation token, and no KeyCount.
+type listObjectsResult struct {
+	XMLName        xml.Name       `xml:"ListBucketResult"`
+	XMLNS          string         `xml:"xmlns,attr"`
+	Name           string         `xml:"Name"`
+	Prefix         string         `xml:"Prefix"`
+	Marker         string         `xml:"Marker"`
+	NextMarker     string         `xml:"NextMarker,omitempty"`
+	Delimiter      string         `xml:"Delimiter,omitempty"`
+	MaxKeys        int            `xml:"MaxKeys"`
+	IsTruncated    bool           `xml:"IsTruncated"`
+	Contents       []objectEntry  `xml:"Contents"`
+	CommonPrefixes []commonPrefix `xml:"CommonPrefixes"`
+}
+
+type commonPrefix struct {
+	Prefix string `xml:"Prefix"`
 }
 
 type objectEntry struct {
@@ -216,7 +241,7 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, bucket, key str
 		case http.MethodPut:
 			return s.createBucket(w, r, bucket)
 		case http.MethodGet:
-			return s.listObjectsV2(w, r, bucket)
+			return s.listObjects(w, r, bucket)
 		case http.MethodHead:
 			return s.headBucket(w, bucket)
 		case http.MethodDelete:
@@ -678,67 +703,6 @@ func (s *Service) copyObject(w http.ResponseWriter, r *http.Request, bucket, key
 	writeXML(w, http.StatusOK, copyResult{
 		ETag:         meta.ETag,
 		LastModified: meta.LastModified.UTC().Format(time.RFC3339Nano),
-	})
-	return nil
-}
-
-func (s *Service) listObjectsV2(w http.ResponseWriter, r *http.Request, bucket string) error {
-	if err := s.requireBucket(bucket, "/"+bucket); err != nil {
-		return err
-	}
-
-	prefix := r.URL.Query().Get("prefix")
-	maxKeys := 1000
-	if raw := r.URL.Query().Get("max-keys"); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			maxKeys = parsed
-		}
-	}
-
-	var contents []objectEntry
-	scanPrefix := bucket + "/"
-	if prefix != "" {
-		scanPrefix += prefix
-	}
-
-	err := s.metadata.Scan(objectMetadataBucket, scanPrefix, func(k, v []byte) error {
-		if len(contents) >= maxKeys {
-			return errStopScan
-		}
-
-		var meta objectMetadata
-		if err := json.Unmarshal(v, &meta); err != nil {
-			return nil
-		}
-
-		contents = append(contents, objectEntry{
-			Key:          strings.TrimPrefix(string(k), bucket+"/"),
-			LastModified: meta.LastModified.UTC().Format(time.RFC3339Nano),
-			ETag:         meta.ETag,
-			Size:         meta.ContentLength,
-			StorageClass: "STANDARD",
-		})
-		return nil
-	})
-	if err != nil && !errors.Is(err, errStopScan) {
-		return internalError(err, "/"+bucket)
-	}
-
-	sort.Slice(contents, func(i, j int) bool {
-		return contents[i].Key < contents[j].Key
-	})
-	if contents == nil {
-		contents = []objectEntry{}
-	}
-
-	writeXML(w, http.StatusOK, listObjectsV2Result{
-		XMLNS:       xmlNamespace,
-		Name:        bucket,
-		Prefix:      prefix,
-		MaxKeys:     maxKeys,
-		KeyCount:    len(contents),
-		IsTruncated: false,
-		Contents:    contents,
 	})
 	return nil
 }
