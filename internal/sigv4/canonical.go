@@ -18,11 +18,12 @@ const (
 	// PathDoubleEncoded is what every service but S3 verifies: each path
 	// segment, as sent, is URI-encoded once more.
 	PathDoubleEncoded PathStyle = iota
-	// PathAsSent is S3's rule: the path exactly as sent on the wire.
-	PathAsSent
-	// PathReencoded decodes the path and encodes each segment once. It is
-	// an S3 fallback for clients whose HTTP stack rewrote the path after
-	// signing it.
+	// PathReencoded is S3's rule: the path is decoded and each segment
+	// URI-encoded once, so a key signs the same however the client escaped
+	// it on the wire. The AWS documentation's PutObject example sends
+	// /test$file.text and signs /test%24file.text, and Go's net/http sends
+	// ":", "+", "=", "(", ")", "@" and "," raw where an SDK signs them
+	// escaped.
 	PathReencoded
 )
 
@@ -116,8 +117,6 @@ func canonicalURI(path string, style PathStyle) string {
 		return "/"
 	}
 	switch style {
-	case PathAsSent:
-		return path
 	case PathReencoded:
 		segments := strings.Split(path, "/")
 		for i, s := range segments {
