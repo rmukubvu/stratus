@@ -22,6 +22,7 @@ import (
 	"github.com/stratus/internal/control"
 	"github.com/stratus/internal/diagnose"
 	"github.com/stratus/internal/httpapi"
+	"github.com/stratus/internal/idle"
 	"github.com/stratus/internal/limits"
 	"github.com/stratus/internal/loadrun"
 	"github.com/stratus/internal/operator"
@@ -42,6 +43,8 @@ type App struct {
 	server  *http.Server
 	closers []io.Closer
 	daemon  *container.Daemon
+	// idle is nil unless an idle timeout is set.
+	idle *idle.Watcher
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -194,9 +197,18 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		ColdStart:     lambdaRuntime.CleanupFunction,
 	})
 
+	var (
+		watcher *idle.Watcher
+		served  http.Handler = handler
+	)
+	if cfg.IdleTimeout > 0 {
+		watcher = idle.NewWatcher(cfg.IdleTimeout, nil, isProbe)
+		served = watcher.Middleware(handler)
+	}
+
 	server := &http.Server{
 		Addr:              cfg.Address(),
-		Handler:           handler,
+		Handler:           served,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -207,6 +219,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		server:  server,
 		closers: []io.Closer{stacks, metaStore, lambdaRuntime, engines, daemon},
 		daemon:  daemon,
+		idle:    watcher,
 	}, nil
 }
 
@@ -255,6 +268,8 @@ func (a *App) Run(ctx context.Context) error {
 // Serve serves on an existing listener until ctx is cancelled, then shuts
 // down and releases all resources, including warm Lambda containers.
 func (a *App) Serve(ctx context.Context, ln net.Listener) error {
+	ctx, stopIdleWatch := a.stopWhenIdle(ctx)
+	defer stopIdleWatch()
 	errCh := make(chan error, 1)
 
 	a.logger.Info("starting stratus",
@@ -294,6 +309,29 @@ func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 		}
 		return a.closeResources()
 	}
+}
+
+// stopWhenIdle returns a context that also ends once the idle watcher sees
+// no requests for the idle timeout, so Serve shuts down and releases every
+// container exactly as it does on Ctrl-C.
+func (a *App) stopWhenIdle(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	if a.idle == nil {
+		return ctx, cancel
+	}
+	go func() {
+		if a.idle.Wait(ctx, idle.CheckInterval(a.idle.Timeout())) {
+			a.logger.Info("no requests for the idle timeout; stopping", "idle_timeout", a.idle.Timeout().String())
+			cancel()
+		}
+	}()
+	return ctx, cancel
+}
+
+// isProbe reports health and readiness checks, which don't count as use.
+func isProbe(r *http.Request) bool {
+	return r.Method == http.MethodGet &&
+		(r.URL.Path == control.PathPrefix+"/health" || r.URL.Path == control.PathPrefix+"/ready")
 }
 
 func (a *App) closeResources() error {

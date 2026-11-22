@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"path/filepath"
+	"time"
 )
 
 const (
@@ -31,6 +32,10 @@ type Config struct {
 	// LambdaContainers caps the warm containers one Lambda function may
 	// have; zero falls back to STRATUS_LAMBDA_CONTAINERS, then 4.
 	LambdaContainers int
+	// IdleTimeout stops Stratus after this long without a request (health
+	// and readiness probes don't count). Zero falls back to
+	// STRATUS_IDLE_TIMEOUT; both unset keeps it running until stopped.
+	IdleTimeout time.Duration
 }
 
 func RegisterFlags(fs *flag.FlagSet) *Config {
@@ -43,6 +48,7 @@ func RegisterFlags(fs *flag.FlagSet) *Config {
 	fs.StringVar(&cfg.Limits, "limits", "", "Limits profile to apply at startup: aws-default, strict or a JSON file (default $STRATUS_LIMITS)")
 	fs.StringVar(&cfg.SigV4, "sigv4", "", "Verify AWS request signatures: off, audit or strict (default $STRATUS_SIGV4)")
 	fs.IntVar(&cfg.LambdaContainers, "lambda-containers", 0, "Most warm containers one Lambda function may run at once (default $STRATUS_LAMBDA_CONTAINERS, or 4)")
+	fs.DurationVar(&cfg.IdleTimeout, "idle-timeout", 0, "Stop after this long without a request, e.g. 30m (default $STRATUS_IDLE_TIMEOUT, or never)")
 	return cfg
 }
 
@@ -66,6 +72,9 @@ func (c *Config) Validate() error {
 	if c.LambdaContainers < 0 {
 		return fmt.Errorf("lambda containers must not be negative")
 	}
+	if c.IdleTimeout < 0 {
+		return fmt.Errorf("idle timeout must not be negative")
+	}
 	abs, err := filepath.Abs(c.DataDir)
 	if err != nil {
 		return fmt.Errorf("resolve data dir: %w", err)
@@ -76,4 +85,20 @@ func (c *Config) Validate() error {
 
 func (c Config) Address() string {
 	return fmt.Sprintf(":%d", c.Port)
+}
+
+// ApplyIdleTimeoutEnv applies STRATUS_IDLE_TIMEOUT when --idle-timeout was
+// not given. Only the long-lived modes (serve, dev) read it: a `stratus ci`
+// or `stratus mcp --start` server already ends with its command or session.
+func (c *Config) ApplyIdleTimeoutEnv(getenv func(string) string) error {
+	if c.IdleTimeout == 0 {
+		if raw := getenv("STRATUS_IDLE_TIMEOUT"); raw != "" {
+			d, err := time.ParseDuration(raw)
+			if err != nil {
+				return fmt.Errorf("invalid STRATUS_IDLE_TIMEOUT %q: use a duration such as 30m", raw)
+			}
+			c.IdleTimeout = d
+		}
+	}
+	return nil
 }

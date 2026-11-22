@@ -69,6 +69,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := cfg.ApplyIdleTimeoutEnv(os.Getenv); err != nil {
+		fmt.Fprintf(os.Stderr, "stratus: %v\n", err)
+		os.Exit(1)
+	}
 	if err := cfg.Validate(); err != nil {
 		fmt.Fprintf(os.Stderr, "stratus: %v\n", err)
 		os.Exit(1)
@@ -169,6 +173,8 @@ Common flags:
   --limits <profile|file>       Enforce AWS quotas from the start (env STRATUS_LIMITS)
   --sigv4 <off|audit|strict>    Verify request signatures from the start (env STRATUS_SIGV4)
   --lambda-containers <n>       Warm containers per Lambda function (default 4, env STRATUS_LAMBDA_CONTAINERS)
+  --idle-timeout <duration>     Stop and clean up after this long without a request, e.g. 30m
+                                (health and ready probes don't count; env STRATUS_IDLE_TIMEOUT)
 
 Dev-only flags:
   --no-open                     Do not open the operator portal in the browser

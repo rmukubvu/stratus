@@ -357,6 +357,8 @@ Headless server mode for scripts, CI, or existing automation:
 ```
 
 This is the stable machine-oriented mode. It does not try to open the browser.
+Add `--idle-timeout 30m` and a server nobody is calling stops by itself and
+removes its containers (see [docs/ci.md](docs/ci.md#stop-a-forgotten-server-by-itself)).
 
 Legacy compatibility:
 
