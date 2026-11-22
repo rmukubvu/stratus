@@ -17,6 +17,7 @@ import (
 	"github.com/stratus/internal/authz"
 	"github.com/stratus/internal/backing"
 	"github.com/stratus/internal/chaos"
+	"github.com/stratus/internal/clock"
 	"github.com/stratus/internal/config"
 	"github.com/stratus/internal/container"
 	"github.com/stratus/internal/control"
@@ -101,6 +102,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	blobStore := fsblob.New(blobRoot)
+	emulatorClock := clock.New(metaStore, nil)
 	iamKeys := iam.NewKeyDirectory(metaStore)
 	stsService := sts.NewService(metaStore, iamKeys)
 	lambdaRuntime.SetCredentialIssuer(stsService)
@@ -110,25 +112,32 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}
 	governor.SetEmulatorStats(func() any { return map[string]any{"lambda": lambdaRuntime.PoolStats()} })
 	deliveries := diagnose.NewDeliveryLog(0)
+	bedrockService := bedrock.NewService(bedrock.Options{
+		Metadata:   metaStore,
+		FixtureDir: bedrockConfig.FixtureDir,
+		Mode:       bedrockConfig.Mode,
+		Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
+	})
+	bedrockService.SetClock(emulatorClock.Now)
 	stacks := newStacks(platform{
-		meta:    metaStore,
-		blobs:   blobStore,
-		invoker: lambdaRuntime,
-		engines: engines,
-		faults:  newRecordingGate(chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger), deliveries),
-		chaos:   chaosEngine,
-		bedrock: bedrock.NewService(bedrock.Options{
-			Metadata:   metaStore,
-			FixtureDir: bedrockConfig.FixtureDir,
-			Mode:       bedrockConfig.Mode,
-			Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
-		}),
+		meta:        metaStore,
+		blobs:       blobStore,
+		invoker:     lambdaRuntime,
+		engines:     engines,
+		faults:      newRecordingGate(chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger), deliveries),
+		chaos:       chaosEngine,
+		bedrock:     bedrockService,
 		sts:         stsService,
 		iamKeys:     iamKeys,
 		getenv:      os.Getenv,
 		logger:      logger,
 		capacity:    capacityGate{governor: governor},
 		concurrency: concurrencyGate{governor: governor},
+		now:         emulatorClock.Now,
+	})
+	emulatorClock.OnAdvance(func(ctx context.Context) (clock.Effect, error) {
+		fired, err := stacks.FireDueSchedules(ctx)
+		return clock.Effect{Source: "scheduler", Count: len(fired), Detail: fired}, err
 	})
 	defaults := stacks.Default()
 	if err := stacks.Restore(); err != nil {
@@ -172,6 +181,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	loadrun.RegisterRoutes(controlHandler, runs)
 	ses.RegisterRoutes(controlHandler, defaults.ses)
 	scheduler.RegisterRoutes(controlHandler, defaults.scheduler)
+	clock.RegisterRoutes(controlHandler, emulatorClock)
 	bedrock.RegisterRoutes(controlHandler, defaults.services.Bedrock)
 	kafka.RegisterRoutes(controlHandler, defaults.kafka)
 	route53.RegisterRoutes(controlHandler, defaults.route53)
@@ -328,10 +338,17 @@ func (a *App) stopWhenIdle(ctx context.Context) (context.Context, context.Cancel
 	return ctx, cancel
 }
 
-// isProbe reports health and readiness checks, which don't count as use.
+// isProbe reports health and readiness checks (the control API's and the
+// container image's), which don't count as use.
 func isProbe(r *http.Request) bool {
-	return r.Method == http.MethodGet &&
-		(r.URL.Path == control.PathPrefix+"/health" || r.URL.Path == control.PathPrefix+"/ready")
+	if r.Method != http.MethodGet {
+		return false
+	}
+	switch r.URL.Path {
+	case control.PathPrefix + "/health", control.PathPrefix + "/ready", "/_stratus/health":
+		return true
+	}
+	return false
 }
 
 func (a *App) closeResources() error {

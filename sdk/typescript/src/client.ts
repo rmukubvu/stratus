@@ -23,6 +23,8 @@ import type {
   ResetResult,
   SignatureMode,
   SignatureStatus,
+  ClockAdvance,
+  ClockStatus,
   SchedulerAdvance,
   SchedulerClock,
   SchedulerInvocation,
@@ -224,6 +226,40 @@ export class Ses {
   }
 }
 
+/**
+ * The emulator clock every Stratus service reads time from: SQS visibility
+ * timeouts and delays, DynamoDB TTL, alarm periods, Object Lock retention and
+ * schedules. Move it instead of sleeping. Lambda containers and database
+ * engines keep real time.
+ */
+export class Clock {
+  constructor(private readonly t: Transport) {}
+
+  status(): Promise<ClockStatus> {
+    return this.t.request("GET", "/clock");
+  }
+
+  /**
+   * Moves the clock forward by a duration such as "30m", or to a point in
+   * time, and fires every schedule that became due before resolving.
+   */
+  async advance(by: string | Date): Promise<ClockAdvance> {
+    const body = by instanceof Date ? { to: by.toISOString() } : { by };
+    const res = await this.t.request<ClockAdvance>("POST", "/clock/advance", body);
+    return { ...res, effects: res.effects ?? [] };
+  }
+
+  /** Holds the clock where it stands, so every recorded timestamp is the same. */
+  freeze(): Promise<ClockStatus> {
+    return this.t.request("POST", "/clock/freeze");
+  }
+
+  /** Lets a frozen clock run again from where it was held. */
+  resume(): Promise<ClockStatus> {
+    return this.t.request("POST", "/clock/resume");
+  }
+}
+
 /** The EventBridge Scheduler clock: move it instead of sleeping. */
 export class Scheduler {
   constructor(private readonly t: Transport) {}
@@ -355,6 +391,7 @@ export class StratusClient {
   readonly runs: Runs;
   readonly ses: Ses;
   readonly scheduler: Scheduler;
+  readonly clock: Clock;
   readonly bedrock: Bedrock;
   readonly kafka: Kafka;
   readonly dns: Dns;
@@ -376,6 +413,7 @@ export class StratusClient {
     this.runs = new Runs(this.t);
     this.ses = new Ses(this.t);
     this.scheduler = new Scheduler(this.t);
+    this.clock = new Clock(this.t);
     this.bedrock = new Bedrock(this.t);
     this.kafka = new Kafka(this.t);
     this.dns = new Dns(this.t);

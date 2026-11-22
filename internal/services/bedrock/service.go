@@ -475,3 +475,7 @@ func randomHex(n int) string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// SetClock makes the service read time from now, normally Stratus's
+// controllable clock, so advancing that clock moves this service too.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }

@@ -71,6 +71,20 @@ DELETE /_stratus/control/v1/ses/messages          empty the inbox; identities an
 List filters: `to`, `from`, `subject` (substring), `since` (RFC 3339 or a
 duration such as `5m`) and `limit` (newest N). See [ses.md](ses.md).
 
+## Emulator clock
+
+```
+GET  /_stratus/control/v1/clock            the emulator's time, real time, offset and whether it is frozen
+POST /_stratus/control/v1/clock/advance    {"by": "30m"} or {"to": "<RFC 3339>"}; fires due schedules before returning
+POST /_stratus/control/v1/clock/freeze     hold the clock where it stands
+POST /_stratus/control/v1/clock/resume     let it run again from where it was held
+```
+
+Every service reads time from this clock, so advancing it crosses SQS
+visibility timeouts, DynamoDB TTL, alarm periods and Object Lock retention
+without waiting. A full reset returns it to real time and a snapshot restores
+it. See [clock.md](clock.md).
+
 ## Scheduler clock
 
 ```

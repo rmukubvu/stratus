@@ -31,6 +31,8 @@ from .types import (
     ResetResult,
     SignatureMode,
     SignatureStatus,
+    ClockAdvance,
+    ClockStatus,
     SchedulerAdvance,
     SchedulerClock,
     SchedulerInvocation,
@@ -210,6 +212,40 @@ class Ses:
         return int(self._t.request("DELETE", "/ses/messages")["cleared"])
 
 
+class Clock:
+    """The emulator clock every Stratus service reads time from.
+
+    SQS visibility timeouts and delays, DynamoDB TTL, alarm periods, Object
+    Lock retention and schedules all follow it, so move it instead of
+    sleeping. Lambda containers and database engines keep real time.
+    """
+
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def status(self) -> ClockStatus:
+        return cast(ClockStatus, self._t.request("GET", "/clock"))
+
+    def advance(self, by: Union[str, datetime]) -> ClockAdvance:
+        """Move the clock forward by a duration such as ``"30m"``, or to a datetime.
+
+        Every schedule that became due fires before this returns; the result
+        lists what the move set off under ``effects``.
+        """
+        body = {"to": _rfc3339(by)} if isinstance(by, datetime) else {"by": by}
+        res = self._t.request("POST", "/clock/advance", body)
+        res["effects"] = res.get("effects") or []
+        return cast(ClockAdvance, res)
+
+    def freeze(self) -> ClockStatus:
+        """Hold the clock where it stands, so every recorded timestamp is the same."""
+        return cast(ClockStatus, self._t.request("POST", "/clock/freeze"))
+
+    def resume(self) -> ClockStatus:
+        """Let a frozen clock run again from where it was held."""
+        return cast(ClockStatus, self._t.request("POST", "/clock/resume"))
+
+
 class Scheduler:
     """The EventBridge Scheduler clock: move it instead of sleeping."""
 
@@ -382,6 +418,7 @@ class StratusClient:
         self.runs = Runs(self._t)
         self.ses = Ses(self._t)
         self.scheduler = Scheduler(self._t)
+        self.clock = Clock(self._t)
         self.bedrock = Bedrock(self._t)
         self.kafka = Kafka(self._t)
         self.dns = Dns(self._t)

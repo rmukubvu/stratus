@@ -65,6 +65,12 @@ func (f *fakeAPI) Diagnose(_ context.Context, q url.Values) (json.RawMessage, er
 func (f *fakeAPI) SESMessages(_ context.Context, q url.Values) (json.RawMessage, error) {
 	return f.rec("ses-messages " + q.Encode())
 }
+func (f *fakeAPI) ClockStatus(context.Context) (json.RawMessage, error) { return f.rec("clock-status") }
+func (f *fakeAPI) ClockAdvance(_ context.Context, by, to string) (json.RawMessage, error) {
+	return f.rec("clock-advance by=" + by + " to=" + to)
+}
+func (f *fakeAPI) ClockFreeze(context.Context) (json.RawMessage, error) { return f.rec("clock-freeze") }
+func (f *fakeAPI) ClockResume(context.Context) (json.RawMessage, error) { return f.rec("clock-resume") }
 func (f *fakeAPI) SchedulerAdvance(_ context.Context, by, to string) (json.RawMessage, error) {
 	return f.rec("scheduler-advance by=" + by + " to=" + to)
 }
@@ -129,6 +135,11 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_diagnose", `{"since":"5m","service":"sqs","exclude_injected":true,"max_groups":3}`, "diagnose exclude_injected=true&max_groups=3&service=sqs&since=5m"},
 		{"stratus_ses_inbox", `{}`, "ses-messages "},
 		{"stratus_ses_inbox", `{"to":"ada@b.example","subject":"Welcome","since":"5m","limit":2}`, "ses-messages limit=2&since=5m&subject=Welcome&to=ada%40b.example"},
+		{"stratus_clock_status", `{}`, "clock-status"},
+		{"stratus_clock_advance", `{"by":"36h"}`, "clock-advance by=36h to="},
+		{"stratus_clock_advance", `{"to":"2026-11-23T09:00:00Z"}`, "clock-advance by= to=2026-11-23T09:00:00Z"},
+		{"stratus_clock_freeze", `{}`, "clock-freeze"},
+		{"stratus_clock_resume", `{}`, "clock-resume"},
 		{"stratus_scheduler_advance", `{"by":"30m"}`, "scheduler-advance by=30m to="},
 		{"stratus_scheduler_advance", `{"to":"2026-11-10T09:00:00Z"}`, "scheduler-advance by= to=2026-11-10T09:00:00Z"},
 		{"stratus_scheduler_run", `{"name":"nightly"}`, "scheduler-run group= name=nightly"},

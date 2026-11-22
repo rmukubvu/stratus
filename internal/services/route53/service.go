@@ -265,3 +265,7 @@ func randomID(n int) string {
 	}
 	return string(b)
 }
+
+// SetClock makes the service read time from now, normally Stratus's
+// controllable clock, so advancing that clock moves this service too.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }

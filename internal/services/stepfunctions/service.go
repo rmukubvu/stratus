@@ -809,3 +809,7 @@ func cloneMapAny(in map[string]any) map[string]any {
 func (s *Service) SetScope(sc scope.Scope) {
 	s.scope = sc
 }
+
+// SetClock makes the service read time from now, normally Stratus's
+// controllable clock, so advancing that clock moves this service too.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }

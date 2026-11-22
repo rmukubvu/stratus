@@ -32,6 +32,10 @@ type ControlAPI interface {
 	StopRun(ctx context.Context, id string) (json.RawMessage, error)
 	Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error)
 	SESMessages(ctx context.Context, query url.Values) (json.RawMessage, error)
+	ClockStatus(ctx context.Context) (json.RawMessage, error)
+	ClockAdvance(ctx context.Context, by, to string) (json.RawMessage, error)
+	ClockFreeze(ctx context.Context) (json.RawMessage, error)
+	ClockResume(ctx context.Context) (json.RawMessage, error)
 	SchedulerAdvance(ctx context.Context, by, to string) (json.RawMessage, error)
 	SchedulerRun(ctx context.Context, group, name string) (json.RawMessage, error)
 	BedrockAddFixture(ctx context.Context, fixture json.RawMessage) (json.RawMessage, error)
@@ -47,8 +51,10 @@ ready, stratus_snapshot_save after seeding, run tests, stratus_diagnose when som
 fails (it says whether a failure is your bug, an injected chaos fault, or an emulator
 gap), stratus_snapshot_restore to get back to the seeded state. Use stratus_chaos_start
 to inject seeded, reproducible faults. Emails sent through SES land in a captured inbox
-(stratus_ses_inbox); EventBridge Scheduler runs on a clock you can fast-forward with
-stratus_scheduler_advance, so tests never wait for real time. Bedrock model calls are
+(stratus_ses_inbox). Never sleep to wait for time-based behaviour: stratus_clock_advance moves
+the emulator's clock forward (SQS visibility timeouts and delays, alarm periods, Object Lock
+retention, schedules) and fires due EventBridge schedules before returning;
+stratus_clock_freeze holds time still so timestamps are predictable. Bedrock model calls are
 answered from fixtures: add one with stratus_bedrock_fixture_add, and see every prompt
 the application sent (and which calls had no fixture) with stratus_bedrock_invocations.
 MSK clusters are real Kafka brokers: stratus_kafka_clusters gives each one's bootstrap address.
@@ -482,6 +488,60 @@ func Tools(api ControlAPI) []Tool {
 					q.Set("limit", fmt.Sprint(a.Limit))
 				}
 				return api.SESMessages(ctx, q)
+			},
+		},
+		{
+			Name: "stratus_clock_status",
+			Description: "Show the emulator clock: its current time, real time, how far ahead it runs and whether it is frozen. " +
+				"Every Stratus service reads time from this clock; Lambda containers and database engines keep real time.",
+			InputSchema: schema(map[string]any{}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				if _, err := decode[struct{}](raw); err != nil {
+					return nil, err
+				}
+				return api.ClockStatus(ctx)
+			},
+		},
+		{
+			Name: "stratus_clock_advance",
+			Description: "Move the emulator clock forward instead of sleeping, then fire every EventBridge schedule that became due before returning. " +
+				"Use it to cross an SQS visibility timeout or delay, a CloudWatch alarm's evaluation period, an S3 Object Lock retention date or an hourly schedule in one call. " +
+				"The clock never moves backwards; a full reset or a snapshot restore puts it back. Returns the new time and what fired.",
+			InputSchema: schema(map[string]any{
+				"by": str("How far to advance, as a duration such as \"30m\" or \"36h\"."),
+				"to": str("Advance to this RFC 3339 time instead; must be ahead of the clock."),
+			}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					By string `json:"by"`
+					To string `json:"to"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				return api.ClockAdvance(ctx, a.By, a.To)
+			},
+		},
+		{
+			Name:        "stratus_clock_freeze",
+			Description: "Hold the emulator clock where it stands, so every timestamp Stratus records is the same until you advance or resume it. Useful for snapshot-style assertions.",
+			InputSchema: schema(map[string]any{}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				if _, err := decode[struct{}](raw); err != nil {
+					return nil, err
+				}
+				return api.ClockFreeze(ctx)
+			},
+		},
+		{
+			Name:        "stratus_clock_resume",
+			Description: "Let a frozen emulator clock run again from where it was held.",
+			InputSchema: schema(map[string]any{}),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				if _, err := decode[struct{}](raw); err != nil {
+					return nil, err
+				}
+				return api.ClockResume(ctx)
 			},
 		},
 		{

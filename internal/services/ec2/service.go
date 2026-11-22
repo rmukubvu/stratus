@@ -776,3 +776,7 @@ func (c *call) describeTags() error {
 type staticFields map[string][]string
 
 func (f staticFields) filterValues(name string) []string { return f[name] }
+
+// SetClock makes the service read time from now, normally Stratus's
+// controllable clock, so advancing that clock moves this service too.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }

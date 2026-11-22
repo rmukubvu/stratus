@@ -93,8 +93,8 @@ long:
 stratus serve --idle-timeout 30m &      # or STRATUS_IDLE_TIMEOUT=30m
 ```
 
-Health and readiness probes (`/_stratus/control/v1/health` and `/ready`) do
-not count as use, so a supervisor polling them does not keep it alive. A
+Health and readiness probes (`/_stratus/health`, `/_stratus/control/v1/health`
+and `/ready`) do not count as use, so a supervisor polling them does not keep it alive. A
 request still in flight, such as an SQS long poll, does. `stratus ci` and
 `stratus mcp --start` don't need it: their server already ends with the
 command or the agent session.

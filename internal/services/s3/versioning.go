@@ -44,6 +44,14 @@ func newVersionID(now time.Time) string {
 	return fmt.Sprintf("%016x%08x%s", uint64(math.MaxInt64-now.UnixNano()), math.MaxUint32-versionSequence.Add(1), hex.EncodeToString(random[:]))
 }
 
+// newUploadID names a multipart upload. It is random rather than derived
+// from the clock, which a test may freeze.
+func newUploadID() string {
+	var random [16]byte
+	_, _ = rand.Read(random[:])
+	return hex.EncodeToString(random[:])
+}
+
 func versionRecordKey(bucket, key, versionID string) string {
 	return versionPrefix(bucket, key) + versionID
 }

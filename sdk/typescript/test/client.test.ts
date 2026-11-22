@@ -242,6 +242,35 @@ describe("ses and scheduler", () => {
     );
   });
 
+  test("emulator clock calls map to the control API", async () => {
+    const status = { now: "t", real_now: "r", offset: "0s", frozen: false };
+    const { fetch, calls } = fakeFetch(
+      { body: status },
+      { body: { ...status, offset: "30m0s", effects: [{ source: "scheduler", count: 1 }] } },
+      { body: { ...status, effects: null } },
+      { body: { ...status, frozen: true, frozen_at: "t" } },
+      { body: status },
+    );
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch });
+
+    assert.equal((await c.clock.status()).offset, "0s");
+    assert.deepEqual((await c.clock.advance("30m")).effects, [{ source: "scheduler", count: 1 }]);
+    assert.deepEqual((await c.clock.advance(new Date("2026-11-23T09:00:00Z"))).effects, []);
+    assert.equal((await c.clock.freeze()).frozen, true);
+    assert.equal((await c.clock.resume()).frozen, false);
+
+    assert.deepEqual(
+      calls.map((x) => [x.method, x.url.slice(base.length), x.body]),
+      [
+        ["GET", "/clock", undefined],
+        ["POST", "/clock/advance", { by: "30m" }],
+        ["POST", "/clock/advance", { to: "2026-11-23T09:00:00.000Z" }],
+        ["POST", "/clock/freeze", undefined],
+        ["POST", "/clock/resume", undefined],
+      ],
+    );
+  });
+
   test("scheduler clock calls map to the control API", async () => {
     const fired = { name: "nightly", group: "default", schedule_arn: "arn", target: "arn:sqs", scheduled_time: "t", execution_id: "e", input: "{}" };
     const { fetch, calls } = fakeFetch(

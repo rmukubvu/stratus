@@ -532,7 +532,7 @@ func (s *Service) createMultipartUpload(w http.ResponseWriter, r *http.Request, 
 	upload := multipartUpload{
 		Bucket:      bucket,
 		Key:         key,
-		UploadID:    strconv.FormatInt(s.now().UnixNano(), 36),
+		UploadID:    newUploadID(),
 		ContentType: contentTypeOf(r),
 		CreatedAt:   s.now().UTC(),
 		Lock:        lock,
@@ -929,3 +929,7 @@ func writeXML(w http.ResponseWriter, status int, payload any) {
 func (s *Service) SetScope(sc scope.Scope) {
 	s.scope = sc
 }
+
+// SetClock makes the service read time from now, normally Stratus's
+// controllable clock, so advancing that clock moves this service too.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }

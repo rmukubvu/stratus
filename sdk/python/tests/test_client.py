@@ -241,6 +241,31 @@ class SesAndSchedulerTest(unittest.TestCase):
             ],
         )
 
+    def test_emulator_clock_calls_map_to_control_api(self) -> None:
+        status = {"now": "t", "real_now": "r", "offset": "0s", "frozen": False}
+        c, t = client(
+            status,
+            {**status, "offset": "30m0s", "effects": [{"source": "scheduler", "count": 1}]},
+            {**status, "effects": None},
+            {**status, "frozen": True, "frozen_at": "t"},
+            status,
+        )
+        self.assertEqual(c.clock.status()["offset"], "0s")
+        self.assertEqual(c.clock.advance("30m")["effects"], [{"source": "scheduler", "count": 1}])
+        self.assertEqual(c.clock.advance(datetime(2026, 11, 23, 9, 0, 0, tzinfo=timezone.utc))["effects"], [])
+        self.assertTrue(c.clock.freeze()["frozen"])
+        self.assertFalse(c.clock.resume()["frozen"])
+        self.assertEqual(
+            t.calls,
+            [
+                ("GET", "/clock", None),
+                ("POST", "/clock/advance", {"by": "30m"}),
+                ("POST", "/clock/advance", {"to": "2026-11-23T09:00:00Z"}),
+                ("POST", "/clock/freeze", None),
+                ("POST", "/clock/resume", None),
+            ],
+        )
+
     def test_scheduler_clock_calls_map_to_control_api(self) -> None:
         c, t = client(
             {"now": "t", "offset": "1h0m0s", "fired": [FIRED]},
