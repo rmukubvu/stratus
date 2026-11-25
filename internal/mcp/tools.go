@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+
+	"github.com/stratus/internal/awsmodel"
+	"github.com/stratus/internal/check"
 )
 
 // ControlAPI is the part of the Stratus control client the tools use.
@@ -58,7 +61,10 @@ stratus_clock_freeze holds time still so timestamps are predictable. Bedrock mod
 answered from fixtures: add one with stratus_bedrock_fixture_add, and see every prompt
 the application sent (and which calls had no fixture) with stratus_bedrock_invocations.
 MSK clusters are real Kafka brokers: stratus_kafka_clusters gives each one's bootstrap address.
-Route 53 zones and the records Cloud Map registers can be looked up with stratus_dns_resolve.`
+Route 53 zones and the records Cloud Map registers can be looked up with stratus_dns_resolve.
+Before relying on an AWS operation, stratus_coverage says whether Stratus implements it, and
+stratus_check scans a codebase for calls Stratus would answer with 501. Requests that break
+AWS's input constraints get AWS's own ValidationException, so fix the input rather than the test.`
 
 func schema(props map[string]any, required ...string) map[string]any {
 	s := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
@@ -688,7 +694,75 @@ func Tools(api ControlAPI) []Tool {
 				return api.DNSResolve(ctx, a.Name, a.Type)
 			},
 		},
+		{
+			Name: "stratus_coverage",
+			Description: "List which AWS operations of a service Stratus implements and which it answers with 501 NotImplemented, " +
+				"from the catalogue generated from AWS's service models. Check here before writing code or tests against an operation. " +
+				"Without a service, lists every emulated service with its counts.",
+			InputSchema: schema(map[string]any{
+				"service":   str("Stratus service name, e.g. \"sqs\", \"dynamodb\", \"cognitoidp\", \"monitoring\" (CloudWatch)."),
+				"operation": str("Optional AWS operation name, e.g. \"SendMessage\"; returns just that operation's support."),
+			}),
+			Handler: func(_ context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					Service   string `json:"service"`
+					Operation string `json:"operation"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				return coverage(a.Service, a.Operation)
+			},
+		},
+		{
+			Name: "stratus_check",
+			Description: "Scan a codebase's source (boto3, AWS SDK for JavaScript v3, AWS SDK for Go v2) for the AWS operations it calls " +
+				"and report which Stratus does not implement, with file and line, and which services it does not emulate. " +
+				"Reads files only; nothing runs. Use it before running a project's tests against Stratus.",
+			InputSchema: schema(map[string]any{
+				"path": str("Directory to scan; defaults to the current directory."),
+			}),
+			Handler: func(_ context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					Path string `json:"path"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				if a.Path == "" {
+					a.Path = "."
+				}
+				return check.Run(a.Path)
+			},
+		},
 	}
+}
+
+// coverage answers stratus_coverage from the embedded catalogue.
+func coverage(service, operation string) (any, error) {
+	if service == "" {
+		type row struct {
+			Service        string `json:"service"`
+			Implemented    int    `json:"implemented"`
+			NotImplemented int    `json:"not_implemented"`
+		}
+		rows := []row{}
+		for _, name := range awsmodel.Services() {
+			c, err := awsmodel.Coverage(name)
+			if err != nil {
+				return nil, err
+			}
+			rows = append(rows, row{name, len(c.Implemented), len(c.NotImplemented)})
+		}
+		return map[string]any{"services": rows}, nil
+	}
+	if _, err := awsmodel.Load(service); err != nil {
+		return nil, fmt.Errorf("unknown service %q: Stratus emulates %v", service, awsmodel.Services())
+	}
+	if operation != "" {
+		return map[string]any{"service": service, "operation": operation, "support": awsmodel.Lookup(service, operation)}, nil
+	}
+	return awsmodel.Coverage(service)
 }
 
 // loadReport trims a run summary to what an agent needs to act on: the

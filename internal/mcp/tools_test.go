@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -266,5 +268,29 @@ func TestLimitsSchemaDescribesDynamoDBAndLambdaFields(t *testing.T) {
 				t.Errorf("%s: schema does not describe %q", section, field)
 			}
 		}
+	}
+}
+
+func TestCoverageAnswersFromTheCatalogueWithoutCallingStratus(t *testing.T) {
+	api := &fakeAPI{}
+	res := call(t, api, "stratus_coverage", `{"service":"sqs","operation":"AddPermission"}`)
+	if res.IsError || len(api.calls) != 0 || !strings.Contains(res.Content[0].Text, `"not_implemented"`) {
+		t.Fatalf("%+v calls=%v", res, api.calls)
+	}
+	res = call(t, api, "stratus_coverage", `{"service":"glue"}`)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "unknown service") {
+		t.Fatalf("unknown service: %+v", res)
+	}
+}
+
+func TestCheckScansTheGivenDirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "app.py"), []byte("import boto3\nboto3.client('sqs').add_permission()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]string{"path": root})
+	res := call(t, &fakeAPI{}, "stratus_check", string(args))
+	if res.IsError || !strings.Contains(res.Content[0].Text, "AddPermission") {
+		t.Fatalf("%+v", res)
 	}
 }
