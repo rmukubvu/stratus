@@ -121,17 +121,21 @@ var queryActionToService = map[string]string{
 	"DeleteCacheCluster":           "elasticache",
 }
 
-var signedQueryServices = map[string]struct{}{
-	"sts":            {},
-	"sns":            {},
-	"sqs":            {},
-	"iam":            {},
-	"cloudformation": {},
-	"monitoring":     {},
-	"rds":            {},
-	"elasticache":    {},
-	"ses":            {},
-	"ec2":            {},
+// signedQueryServices maps the SigV4 signing name of a query-protocol API to
+// the Stratus service that serves it, so an action Stratus does not route by
+// name still reaches its service and gets that service's NotImplemented.
+var signedQueryServices = map[string]string{
+	"sts":                  "sts",
+	"sns":                  "sns",
+	"sqs":                  "sqs",
+	"iam":                  "iam",
+	"cloudformation":       "cloudformation",
+	"monitoring":           "monitoring",
+	"rds":                  "rds",
+	"elasticache":          "elasticache",
+	"ses":                  "ses",
+	"ec2":                  "ec2",
+	"elasticloadbalancing": "elbv2",
 }
 
 func init() {
@@ -374,8 +378,8 @@ func classifyQuery(r *http.Request) (Classification, bool) {
 
 func queryService(sigv4 *awscompat.SigV4Identity, action string) string {
 	if sigv4 != nil {
-		if _, ok := signedQueryServices[sigv4.Service]; ok {
-			return sigv4.Service
+		if service, ok := signedQueryServices[sigv4.Service]; ok {
+			return service
 		}
 	}
 	return queryActionToService[action]

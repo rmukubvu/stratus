@@ -135,6 +135,12 @@ func notImplementedSubresource(name, resource string) error {
 	return apiError(http.StatusNotImplemented, "NotImplemented", "S3 ?"+name+" is not implemented", resource)
 }
 
+// notImplementedOperation answers an S3 operation Stratus routes but does not
+// implement.
+func notImplementedOperation(operation, resource string) error {
+	return apiError(http.StatusNotImplemented, "NotImplemented", "S3 "+operation+" is not implemented", resource)
+}
+
 // handleBucketSubresource serves a bucket-level request that names a
 // sub-resource.
 func (s *Service) handleBucketSubresource(w http.ResponseWriter, r *http.Request, bucket, name string) error {

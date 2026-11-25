@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"sort"
@@ -324,7 +325,7 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request) error {
 	case len(parts) == 3 && parts[0] == "restapis" && parts[2] == "stages" && r.Method == http.MethodGet:
 		return s.getStages(w, parts[1])
 	default:
-		return &apierror.Error{StatusCode: http.StatusNotFound, Code: "NotFoundException", Message: "api gateway route was not found"}
+		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: fmt.Sprintf("API Gateway operation %s %s is not implemented", r.Method, r.URL.Path)}
 	}
 }
 

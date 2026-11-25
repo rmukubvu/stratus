@@ -260,7 +260,9 @@ func respondEmpty(w http.ResponseWriter, operation, requestID string, err error)
 	if err != nil {
 		return err
 	}
-	return respond(w, operation, requestID, nil)
+	// AWS answers with an empty <OpResult/>, and SDKs that unwrap the
+	// result element fail without it.
+	return respond(w, operation, requestID, struct{}{})
 }
 
 // respond writes the query-protocol envelope: <OpResponse><OpResult>…

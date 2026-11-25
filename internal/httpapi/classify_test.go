@@ -638,3 +638,17 @@ func TestClassifyLambdaConcurrencyAndAccountSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestAnELBv2ActionStratusDoesNotRouteByNameStillReachesELBv2(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("Action=AddListenerCertificates&Version=2015-12-01"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260407/us-east-1/elasticloadbalancing/aws4_request, SignedHeaders=host;x-amz-date, Signature=deadbeef")
+
+	got, err := Classify(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Protocol != ProtocolQuery || got.Service != "elbv2" || got.Operation != "AddListenerCertificates" {
+		t.Fatalf("Classify = %+v, want query elbv2 AddListenerCertificates", got)
+	}
+}

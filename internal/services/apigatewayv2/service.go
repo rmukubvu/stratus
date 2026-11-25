@@ -165,9 +165,9 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	return &apierror.Error{
-		StatusCode: http.StatusNotFound,
-		Code:       "NotFoundException",
-		Message:    "apigatewayv2 resource was not found",
+		StatusCode: http.StatusNotImplemented,
+		Code:       "NotImplementedException",
+		Message:    "API Gateway v2 operation " + r.Method + " " + r.URL.Path + " is not implemented",
 	}
 }
 

@@ -11,6 +11,11 @@ func invalidInput(format string, args ...any) error {
 	return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "InvalidInput", Message: fmt.Sprintf(format, args...)}
 }
 
+// notImplemented answers a Route 53 operation Stratus does not implement.
+func notImplemented(method, path string) error {
+	return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplemented", Message: fmt.Sprintf("Route 53 operation %s %s is not implemented", method, path)}
+}
+
 func invalidChangeBatch(format string, args ...any) error {
 	return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "InvalidChangeBatch", Message: fmt.Sprintf(format, args...)}
 }
