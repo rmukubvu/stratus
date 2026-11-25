@@ -9,10 +9,12 @@ botocore, filling only the required parameters with placeholder values, and read
 It writes internal/awsmodel/coverage.json (embedded in the binary, read by ``stratus check``
 and the MCP coverage tool) and docs/coverage/<service>.md.
 
-    stratus serve --port 4599 &
+    STRATUS_VALIDATION=off DOCKER_HOST=unix:///nonexistent stratus serve --port 4599 &
     python scripts/models/coverage.py --endpoint http://localhost:4599
 
-Run it against a fresh Stratus with Docker off: some placeholders would otherwise start engines.
+Turn request validation off: placeholders do not satisfy every pattern, and a ValidationException
+for an operation Stratus lacks would read as implemented. Docker off keeps placeholders from
+starting engines; it does not change the result.
 """
 
 from __future__ import annotations

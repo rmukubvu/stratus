@@ -1,0 +1,51 @@
+name: Coverage
+
+# Keeps docs/coverage and internal/awsmodel/coverage.json (read by `stratus check` and the MCP
+# coverage tool) true: probes a fresh Stratus with every AWS operation and fails if the result
+# differs from what is committed. See docs/operation-catalogue.md.
+
+on:
+  pull_request:
+    paths:
+      - internal/services/**
+      - internal/httpapi/**
+      - internal/awsmodel/**
+      - scripts/models/**
+      - docs/coverage/**
+      - .github/workflows/coverage.yml
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Unit-test the scripts
+        run: python -m unittest discover -s scripts/models -v
+      - name: Install the pinned botocore
+        run: pip install -r scripts/models/requirements.txt
+      - name: Catalogue matches the pinned models
+        run: |
+          python scripts/models/generate.py
+          git diff --exit-code -- internal/awsmodel/models || {
+            echo "::error::internal/awsmodel/models is stale: run python scripts/models/generate.py"; exit 1; }
+      - name: Probe a fresh Stratus
+        run: |
+          go build -o "$RUNNER_TEMP/stratus" ./cmd/stratus
+          # Validation off: placeholders need not satisfy every pattern. No Docker: placeholders
+          # must not start engines, and the result does not depend on it.
+          STRATUS_VALIDATION=off DOCKER_HOST=unix:///nonexistent \
+            "$RUNNER_TEMP/stratus" serve --port 4599 --data-dir "$RUNNER_TEMP/data" &
+          for i in $(seq 1 60); do curl -fsS localhost:4599/_stratus/control/v1/ready >/dev/null && break; sleep 1; done
+          python scripts/models/coverage.py --endpoint http://localhost:4599
+      - name: Coverage matches what is committed
+        run: |
+          git diff --exit-code -- internal/awsmodel/coverage.json docs/coverage || {
+            echo "::error::coverage changed: run scripts/models/coverage.py and commit the result (see docs/operation-catalogue.md)"; exit 1; }
