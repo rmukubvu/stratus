@@ -59,6 +59,13 @@ type Authorizer interface {
 	Authorize(r *http.Request, metadata RequestMetadata) error
 }
 
+// RequestValidator checks a request's input against the AWS model before the
+// service sees it. It returns an *apierror.Error, such as ValidationException,
+// to refuse, and must leave the body readable.
+type RequestValidator interface {
+	Validate(r *http.Request, service, operation string) error
+}
+
 // Authenticator verifies that a request was signed by credentials Stratus
 // knows. It returns an *apierror.Error, such as SignatureDoesNotMatch, to
 // refuse. It may replace r.Body with a replay of the bytes it read; the

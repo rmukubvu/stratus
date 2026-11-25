@@ -175,6 +175,7 @@ Common flags:
   --seed <dir>                  Initialise an empty data dir from a snapshot dir
   --limits <profile|file>       Enforce AWS quotas from the start (env STRATUS_LIMITS)
   --sigv4 <off|audit|strict>    Verify request signatures from the start (env STRATUS_SIGV4)
+  --validation <on|off>         Reject input that breaks AWS model constraints (default on; env STRATUS_VALIDATION)
   --lambda-containers <n>       Warm containers per Lambda function (default 4, env STRATUS_LAMBDA_CONTAINERS)
   --idle-timeout <duration>     Stop and clean up after this long without a request, e.g. 30m
                                 (health and ready probes don't count; env STRATUS_IDLE_TIMEOUT)

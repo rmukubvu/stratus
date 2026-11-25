@@ -63,3 +63,23 @@ func TestANegativeIdleTimeoutIsRefused(t *testing.T) {
 		t.Fatal("accepted a negative idle timeout")
 	}
 }
+
+func TestRequestValidationIsOnUnlessTurnedOff(t *testing.T) {
+	cases := []struct {
+		flag, env string
+		want      bool
+		wantErr   bool
+	}{
+		{"", "", true, false},
+		{"off", "", false, false},
+		{"", "off", false, false},
+		{"on", "off", true, false},
+		{"maybe", "", false, true},
+	}
+	for _, c := range cases {
+		got, err := Config{Validation: c.flag}.ValidationEnabled(func(string) string { return c.env })
+		if (err != nil) != c.wantErr || got != c.want {
+			t.Errorf("flag %q env %q: got %v, %v", c.flag, c.env, got, err)
+		}
+	}
+}

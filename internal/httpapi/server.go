@@ -114,6 +114,9 @@ type Options struct {
 	// API request, after faults and before dispatch.
 	Authorizer Authorizer
 	Operator   *operator.Service
+	// Validator, when set, rejects JSON-protocol requests whose input breaks
+	// the AWS model's constraints, after authorization and before dispatch.
+	Validator RequestValidator
 	// Faults, when set, injects chaos faults into AWS API requests.
 	Faults FaultDecider
 	// Limits, when set, throttles requests that exceed the active limits
@@ -145,6 +148,7 @@ type Server struct {
 	coldStart     func(ctx context.Context, functionName string) error
 	authenticator Authenticator
 	authorizer    Authorizer
+	validator     RequestValidator
 }
 
 func NewServer(opts Options) *Server {
@@ -161,6 +165,7 @@ func NewServer(opts Options) *Server {
 		accounts:      opts.Accounts,
 		authenticator: opts.Authenticator,
 		authorizer:    opts.Authorizer,
+		validator:     opts.Validator,
 		operator:      opts.Operator,
 		control:       opts.Control,
 		gate:          opts.Gate,
@@ -253,6 +258,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil && outcome == faultProceed && s.authorizer != nil {
 		err = s.authorizer.Authorize(r, metadata)
+	}
+	if err == nil && outcome == faultProceed && s.validator != nil && classification.Protocol == ProtocolJSON {
+		err = s.validator.Validate(r, classification.Service, classification.Operation)
 	}
 	if err == nil && outcome == faultProceed {
 		err = s.dispatch(recorder, r, metadata)
