@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/stratus/internal/backing"
 	"github.com/stratus/internal/chaos"
@@ -71,6 +72,21 @@ type platform struct {
 	capacity dynamodb.CapacityGate
 	// concurrency enforces Lambda concurrency; nil leaves it off.
 	concurrency lambdasvc.ConcurrencyGate
+	// now is the emulator's controllable clock; nil uses real time.
+	now func() time.Time
+}
+
+// clocked is a service that reads time from a clock it is given.
+type clocked interface{ SetClock(func() time.Time) }
+
+// setClock points every service at the platform's clock.
+func (p platform) setClock(services ...clocked) {
+	if p.now == nil {
+		return
+	}
+	for _, svc := range services {
+		svc.SetClock(p.now)
+	}
 }
 
 // accountServices are global AWS services: one instance per account, shared
@@ -185,6 +201,20 @@ func (s *Stacks) all() []*stack {
 	return out
 }
 
+// FireDueSchedules runs every built stack's scheduler once, so schedules the
+// emulator clock just moved past fire before a clock move returns.
+func (s *Stacks) FireDueSchedules(ctx context.Context) ([]scheduler.Invocation, error) {
+	var fired []scheduler.Invocation
+	for _, st := range s.all() {
+		invocations, err := st.scheduler.Tick(ctx)
+		if err != nil {
+			return fired, err
+		}
+		fired = append(fired, invocations...)
+	}
+	return fired, nil
+}
+
 // Close stops every stack's background work.
 func (s *Stacks) Close() error {
 	var first error
@@ -231,6 +261,9 @@ func (s *Stacks) account(id string) *accountServices {
 	}
 	acct.iam.SetScope(sc)
 	acct.s3.SetScope(sc)
+	// IAM keeps real time: access keys and the signatures made with them
+	// follow the machine's clock, which is what SDKs sign with.
+	s.platform.setClock(acct.s3, acct.route53)
 	s.accounts[id] = acct
 	return acct
 }
@@ -280,6 +313,12 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 	} {
 		svc.SetScope(sc)
 	}
+	p.setClock(
+		lambdaService, snsService, sqsService, streamsService, dynamoDBService, apiGatewayV2Service, apiGatewayService,
+		eventsService, kinesisService, cognitoIDPService, stepFunctionsService, sesService, schedulerService,
+		ecrService, ecsService, elbv2Service, ec2Service, monitoringService, acmService, ssmService, kmsService, secretsService,
+		logsService, rdsService, elastiCacheService, kafkaService, cloudMapService, fisService,
+	)
 
 	sqsService.SetMessageListener(lambdaService)
 	snsService.SetQueuePublisher(sqsService)
@@ -326,6 +365,7 @@ func (s *Stacks) build(sc scope.Scope, acct *accountServices) *stack {
 		KMS:            kmsService,
 	})
 	cloudFormationService.SetScope(sc)
+	p.setClock(cloudFormationService)
 
 	return &stack{
 		scope: sc,

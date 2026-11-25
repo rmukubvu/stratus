@@ -2417,3 +2417,7 @@ func (s *Service) FunctionPolicy(name string) (string, bool, error) {
 	}
 	return s.permissionPolicyJSON(records), true, nil
 }
+
+// SetClock makes the service read time from now, normally Stratus's
+// controllable clock, so advancing that clock moves this service too.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }

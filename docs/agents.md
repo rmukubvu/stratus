@@ -49,6 +49,7 @@ Logs go to stderr; stdout carries only protocol messages.
 | `stratus_limits_set` / `_status` / `_clear` | Enforce AWS quotas so the app meets throttling under load (see [limits.md](limits.md)) |
 | `stratus_sigv4_set` / `_status` | Verify request signatures as AWS does and show the canonical request Stratus expected for each failure (see [sigv4.md](sigv4.md)) |
 | `stratus_ses_inbox` | Emails the application sent through SES, with filters (see [ses.md](ses.md)) |
+| `stratus_clock_status` / `_advance` / `_freeze` / `_resume` | Move the emulator clock instead of sleeping: SQS visibility and delays, DynamoDB TTL, alarm periods, Object Lock retention, schedules (see [clock.md](clock.md)) |
 | `stratus_scheduler_advance` / `_run` | Fast-forward the EventBridge Scheduler clock, or fire one schedule now (see [scheduler.md](scheduler.md)) |
 | `stratus_bedrock_fixture_add` | Make Bedrock answer matching model calls with a fixed reply (see [bedrock.md](bedrock.md)) |
 | `stratus_bedrock_invocations` | The prompts the application sent to Bedrock, the replies, and which calls had no fixture |

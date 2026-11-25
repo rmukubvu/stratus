@@ -770,3 +770,7 @@ func expectsJSON(r *http.Request) bool {
 	}
 	return strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "json")
 }
+
+// SetClock makes the service read time from now, normally Stratus's
+// controllable clock, so advancing that clock moves this service too.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }

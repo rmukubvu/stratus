@@ -216,6 +216,35 @@ func (c *Client) SESMessages(ctx context.Context, query url.Values) (json.RawMes
 	return c.Do(ctx, http.MethodGet, path, nil)
 }
 
+// ClockStatus reports the emulator clock: its time, real time, the offset
+// between them and whether it is frozen.
+func (c *Client) ClockStatus(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/clock", nil)
+}
+
+// ClockAdvance moves the emulator clock forward by a duration (by) or to an
+// RFC 3339 time (to), and runs whatever became due, such as schedules.
+func (c *Client) ClockAdvance(ctx context.Context, by, to string) (json.RawMessage, error) {
+	body := map[string]string{}
+	if by != "" {
+		body["by"] = by
+	}
+	if to != "" {
+		body["to"] = to
+	}
+	return c.Do(ctx, http.MethodPost, "/clock/advance", body)
+}
+
+// ClockFreeze holds the emulator clock where it stands.
+func (c *Client) ClockFreeze(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/clock/freeze", nil)
+}
+
+// ClockResume lets a frozen emulator clock run again from where it was held.
+func (c *Client) ClockResume(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/clock/resume", nil)
+}
+
 // SchedulerAdvance moves the EventBridge Scheduler clock forward by a
 // duration (by) or to an RFC 3339 time (to) and fires what became due.
 func (c *Client) SchedulerAdvance(ctx context.Context, by, to string) (json.RawMessage, error) {

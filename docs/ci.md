@@ -82,6 +82,23 @@ Containers owned by a live process, or by a process on another host
 sharing the same Docker daemon, are left alone. Container names include
 the instance, so parallel runs never collide.
 
+### Stop a forgotten server by itself
+
+A `stratus serve` started in the background, by a script or a coding agent,
+can outlive the work that needed it. Give it an idle timeout and it shuts
+down cleanly, removing its containers, once nothing has called it for that
+long:
+
+```sh
+stratus serve --idle-timeout 30m &      # or STRATUS_IDLE_TIMEOUT=30m
+```
+
+Health and readiness probes (`/_stratus/health`, `/_stratus/control/v1/health`
+and `/ready`) do not count as use, so a supervisor polling them does not keep it alive. A
+request still in flight, such as an SQS long poll, does. `stratus ci` and
+`stratus mcp --start` don't need it: their server already ends with the
+command or the agent session.
+
 ## GitHub Action
 
 Run a command against a throwaway instance:

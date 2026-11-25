@@ -76,6 +76,18 @@ func (f *fakeControl) ClearSigV4(context.Context) (json.RawMessage, error) {
 func (f *fakeControl) Diagnose(_ context.Context, q url.Values) (json.RawMessage, error) {
 	return f.record("diagnose " + q.Encode())
 }
+func (f *fakeControl) ClockStatus(context.Context) (json.RawMessage, error) {
+	return f.record("clock status")
+}
+func (f *fakeControl) ClockAdvance(_ context.Context, by, to string) (json.RawMessage, error) {
+	return f.record("clock advance by=" + by + " to=" + to)
+}
+func (f *fakeControl) ClockFreeze(context.Context) (json.RawMessage, error) {
+	return f.record("clock freeze")
+}
+func (f *fakeControl) ClockResume(context.Context) (json.RawMessage, error) {
+	return f.record("clock resume")
+}
 func (f *fakeControl) WaitReady(context.Context, time.Duration) error {
 	_, err := f.record("wait")
 	return err
@@ -119,6 +131,12 @@ func TestControlCommandsMapToClientCalls(t *testing.T) {
 		{[]string{"snapshot", "delete", "baseline"}, "delete baseline"},
 		{[]string{"diagnose"}, "diagnose "},
 		{[]string{"diagnose", "--since", "5m", "--service", "sqs", "--exclude-injected"}, "diagnose exclude_injected=true&service=sqs&since=5m"},
+		{[]string{"clock"}, "clock status"},
+		{[]string{"clock", "status"}, "clock status"},
+		{[]string{"clock", "advance", "90m"}, "clock advance by=90m to="},
+		{[]string{"clock", "advance", "2026-11-23T09:00:00Z"}, "clock advance by= to=2026-11-23T09:00:00Z"},
+		{[]string{"clock", "freeze"}, "clock freeze"},
+		{[]string{"clock", "resume"}, "clock resume"},
 	}
 	for _, tc := range cases {
 		fake := &fakeControl{}
@@ -258,4 +276,14 @@ func (f *fakeControl) StopRun(_ context.Context, id string) (json.RawMessage, er
 }
 func (f *fakeControl) ListRuns(context.Context) (json.RawMessage, error) {
 	return f.record("run-list")
+}
+
+func TestClockCommandRejectsAnAdvanceItCannotRead(t *testing.T) {
+	for _, args := range [][]string{{"clock", "advance"}, {"clock", "advance", "tomorrow"}, {"clock", "rewind"}} {
+		fake := &fakeControl{}
+		code, _, stderr := run(t, fake, args...)
+		if code != 2 || len(fake.calls) != 0 || !strings.Contains(stderr, "usage:") {
+			t.Errorf("%v: code=%d calls=%v stderr=%q", args, code, fake.calls, stderr)
+		}
+	}
 }

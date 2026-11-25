@@ -379,6 +379,32 @@ export interface SchedulerAdvance extends SchedulerClock {
   fired: SchedulerInvocation[];
 }
 
+/** The emulator clock every Stratus service reads time from. */
+export interface ClockStatus {
+  /** The emulator's current time. */
+  now: string;
+  /** The machine's real time. */
+  real_now: string;
+  /** How far the emulator clock is from real time, such as "1h30m0s". */
+  offset: string;
+  /** Whether the clock is held still. */
+  frozen: boolean;
+  /** Where a frozen clock is held. */
+  frozen_at?: string;
+}
+
+/** Something a clock move set off, such as the schedules that fired. */
+export interface ClockEffect {
+  source: string;
+  count: number;
+  detail?: unknown;
+}
+
+export interface ClockAdvance extends ClockStatus {
+  /** What the move set off; empty when nothing became due. */
+  effects: ClockEffect[];
+}
+
 /** What Bedrock does with a request no fixture answers. */
 export type BedrockMode = "replay" | "record";
 

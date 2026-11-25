@@ -17,11 +17,13 @@ import (
 	"github.com/stratus/internal/authz"
 	"github.com/stratus/internal/backing"
 	"github.com/stratus/internal/chaos"
+	"github.com/stratus/internal/clock"
 	"github.com/stratus/internal/config"
 	"github.com/stratus/internal/container"
 	"github.com/stratus/internal/control"
 	"github.com/stratus/internal/diagnose"
 	"github.com/stratus/internal/httpapi"
+	"github.com/stratus/internal/idle"
 	"github.com/stratus/internal/limits"
 	"github.com/stratus/internal/loadrun"
 	"github.com/stratus/internal/operator"
@@ -42,6 +44,8 @@ type App struct {
 	server  *http.Server
 	closers []io.Closer
 	daemon  *container.Daemon
+	// idle is nil unless an idle timeout is set.
+	idle *idle.Watcher
 }
 
 func New(cfg config.Config, logger *slog.Logger) (*App, error) {
@@ -98,6 +102,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	blobStore := fsblob.New(blobRoot)
+	emulatorClock := clock.New(metaStore, nil)
 	iamKeys := iam.NewKeyDirectory(metaStore)
 	stsService := sts.NewService(metaStore, iamKeys)
 	lambdaRuntime.SetCredentialIssuer(stsService)
@@ -107,25 +112,32 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	}
 	governor.SetEmulatorStats(func() any { return map[string]any{"lambda": lambdaRuntime.PoolStats()} })
 	deliveries := diagnose.NewDeliveryLog(0)
+	bedrockService := bedrock.NewService(bedrock.Options{
+		Metadata:   metaStore,
+		FixtureDir: bedrockConfig.FixtureDir,
+		Mode:       bedrockConfig.Mode,
+		Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
+	})
+	bedrockService.SetClock(emulatorClock.Now)
 	stacks := newStacks(platform{
-		meta:    metaStore,
-		blobs:   blobStore,
-		invoker: lambdaRuntime,
-		engines: engines,
-		faults:  newRecordingGate(chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger), deliveries),
-		chaos:   chaosEngine,
-		bedrock: bedrock.NewService(bedrock.Options{
-			Metadata:   metaStore,
-			FixtureDir: bedrockConfig.FixtureDir,
-			Mode:       bedrockConfig.Mode,
-			Upstream:   bedrock.UpstreamFromEnv(os.Getenv),
-		}),
+		meta:        metaStore,
+		blobs:       blobStore,
+		invoker:     lambdaRuntime,
+		engines:     engines,
+		faults:      newRecordingGate(chaos.NewInjector(chaosEngine, lambdaRuntime.CleanupFunction, logger), deliveries),
+		chaos:       chaosEngine,
+		bedrock:     bedrockService,
 		sts:         stsService,
 		iamKeys:     iamKeys,
 		getenv:      os.Getenv,
 		logger:      logger,
 		capacity:    capacityGate{governor: governor},
 		concurrency: concurrencyGate{governor: governor},
+		now:         emulatorClock.Now,
+	})
+	emulatorClock.OnAdvance(func(ctx context.Context) (clock.Effect, error) {
+		fired, err := stacks.FireDueSchedules(ctx)
+		return clock.Effect{Source: "scheduler", Count: len(fired), Detail: fired}, err
 	})
 	defaults := stacks.Default()
 	if err := stacks.Restore(); err != nil {
@@ -169,6 +181,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	loadrun.RegisterRoutes(controlHandler, runs)
 	ses.RegisterRoutes(controlHandler, defaults.ses)
 	scheduler.RegisterRoutes(controlHandler, defaults.scheduler)
+	clock.RegisterRoutes(controlHandler, emulatorClock)
 	bedrock.RegisterRoutes(controlHandler, defaults.services.Bedrock)
 	kafka.RegisterRoutes(controlHandler, defaults.kafka)
 	route53.RegisterRoutes(controlHandler, defaults.route53)
@@ -194,9 +207,18 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		ColdStart:     lambdaRuntime.CleanupFunction,
 	})
 
+	var (
+		watcher *idle.Watcher
+		served  http.Handler = handler
+	)
+	if cfg.IdleTimeout > 0 {
+		watcher = idle.NewWatcher(cfg.IdleTimeout, nil, isProbe)
+		served = watcher.Middleware(handler)
+	}
+
 	server := &http.Server{
 		Addr:              cfg.Address(),
-		Handler:           handler,
+		Handler:           served,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -207,6 +229,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		server:  server,
 		closers: []io.Closer{stacks, metaStore, lambdaRuntime, engines, daemon},
 		daemon:  daemon,
+		idle:    watcher,
 	}, nil
 }
 
@@ -255,6 +278,8 @@ func (a *App) Run(ctx context.Context) error {
 // Serve serves on an existing listener until ctx is cancelled, then shuts
 // down and releases all resources, including warm Lambda containers.
 func (a *App) Serve(ctx context.Context, ln net.Listener) error {
+	ctx, stopIdleWatch := a.stopWhenIdle(ctx)
+	defer stopIdleWatch()
 	errCh := make(chan error, 1)
 
 	a.logger.Info("starting stratus",
@@ -294,6 +319,36 @@ func (a *App) Serve(ctx context.Context, ln net.Listener) error {
 		}
 		return a.closeResources()
 	}
+}
+
+// stopWhenIdle returns a context that also ends once the idle watcher sees
+// no requests for the idle timeout, so Serve shuts down and releases every
+// container exactly as it does on Ctrl-C.
+func (a *App) stopWhenIdle(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	if a.idle == nil {
+		return ctx, cancel
+	}
+	go func() {
+		if a.idle.Wait(ctx, idle.CheckInterval(a.idle.Timeout())) {
+			a.logger.Info("no requests for the idle timeout; stopping", "idle_timeout", a.idle.Timeout().String())
+			cancel()
+		}
+	}()
+	return ctx, cancel
+}
+
+// isProbe reports health and readiness checks (the control API's and the
+// container image's), which don't count as use.
+func isProbe(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	switch r.URL.Path {
+	case control.PathPrefix + "/health", control.PathPrefix + "/ready", "/_stratus/health":
+		return true
+	}
+	return false
 }
 
 func (a *App) closeResources() error {

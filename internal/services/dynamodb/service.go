@@ -339,3 +339,7 @@ func validReturnConsumed(mode string) error {
 	}
 	return validation("1 validation error detected: Value '" + mode + "' at 'returnConsumedCapacity' failed to satisfy constraint: Member must satisfy enum value set: [INDEXES, TOTAL, NONE]")
 }
+
+// SetClock makes the service read time from now, normally Stratus's
+// controllable clock, so advancing that clock moves this service too.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }

@@ -39,6 +39,10 @@ type ControlClient interface {
 	GetRun(ctx context.Context, id string) (json.RawMessage, error)
 	StopRun(ctx context.Context, id string) (json.RawMessage, error)
 	ListRuns(ctx context.Context) (json.RawMessage, error)
+	ClockStatus(ctx context.Context) (json.RawMessage, error)
+	ClockAdvance(ctx context.Context, by, to string) (json.RawMessage, error)
+	ClockFreeze(ctx context.Context) (json.RawMessage, error)
+	ClockResume(ctx context.Context) (json.RawMessage, error)
 }
 
 // ClientFactory builds a client for an endpoint; tests substitute a fake.
@@ -115,6 +119,11 @@ func RunControl(ctx context.Context, mode Mode, args []string, newClient ClientF
 		}
 	case ModeSigV4:
 		out, err = runSigV4(ctx, c, rest, stderr)
+		if errors.Is(err, errUsage) {
+			return 2
+		}
+	case ModeClock:
+		out, err = runClock(ctx, c, rest, stderr)
 		if errors.Is(err, errUsage) {
 			return 2
 		}
@@ -330,4 +339,41 @@ func readSpec(path string) ([]byte, error) {
 		return io.ReadAll(os.Stdin)
 	}
 	return os.ReadFile(path)
+}
+
+const clockUsage = `usage:
+  stratus clock [status]                 show the emulator clock: its time, real time, offset, frozen or not
+  stratus clock advance <30m | RFC3339>  move it forward by a duration or to a time, firing what became due
+  stratus clock freeze                   hold it where it stands
+  stratus clock resume                   let it run again from where it was held
+`
+
+func runClock(ctx context.Context, c ControlClient, args []string, stderr io.Writer) (json.RawMessage, error) {
+	if len(args) == 0 {
+		return c.ClockStatus(ctx)
+	}
+	switch verb, rest := args[0], args[1:]; verb {
+	case "status":
+		return c.ClockStatus(ctx)
+	case "advance":
+		if len(rest) != 1 {
+			fmt.Fprint(stderr, clockUsage)
+			return nil, errUsage
+		}
+		if _, err := time.ParseDuration(rest[0]); err == nil {
+			return c.ClockAdvance(ctx, rest[0], "")
+		}
+		if _, err := time.Parse(time.RFC3339, rest[0]); err == nil {
+			return c.ClockAdvance(ctx, "", rest[0])
+		}
+		fmt.Fprintf(stderr, "stratus clock: %q is neither a duration such as 30m nor an RFC 3339 time\n%s", rest[0], clockUsage)
+		return nil, errUsage
+	case "freeze":
+		return c.ClockFreeze(ctx)
+	case "resume":
+		return c.ClockResume(ctx)
+	default:
+		fmt.Fprintf(stderr, "stratus clock: unknown command %q\n%s", verb, clockUsage)
+		return nil, errUsage
+	}
 }

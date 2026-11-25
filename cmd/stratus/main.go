@@ -69,6 +69,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := cfg.ApplyIdleTimeoutEnv(os.Getenv); err != nil {
+		fmt.Fprintf(os.Stderr, "stratus: %v\n", err)
+		os.Exit(1)
+	}
 	if err := cfg.Validate(); err != nil {
 		fmt.Fprintf(os.Stderr, "stratus: %v\n", err)
 		os.Exit(1)
@@ -158,6 +162,9 @@ Control a running Stratus (for CI and agents; output is JSON):
   stratus load start|status|stop|list   Drive load runs yourself (flags: --name, --limits, --chaos)
   stratus load report [run-id]          Findings (hot partitions, missing retries or queues) as Markdown
   stratus diagnose [--since 5m]         Explain recent failures (cause, next step)
+  stratus clock [status]                Show the emulator clock every service reads time from
+  stratus clock advance <30m|RFC3339>   Move it forward instead of sleeping; fires due schedules
+  stratus clock freeze|resume           Hold the clock still, or let it run again
   Control flags go before arguments: --endpoint <url> (env STRATUS_ENDPOINT)
 
 Common flags:
@@ -169,6 +176,8 @@ Common flags:
   --limits <profile|file>       Enforce AWS quotas from the start (env STRATUS_LIMITS)
   --sigv4 <off|audit|strict>    Verify request signatures from the start (env STRATUS_SIGV4)
   --lambda-containers <n>       Warm containers per Lambda function (default 4, env STRATUS_LAMBDA_CONTAINERS)
+  --idle-timeout <duration>     Stop and clean up after this long without a request, e.g. 30m
+                                (health and ready probes don't count; env STRATUS_IDLE_TIMEOUT)
 
 Dev-only flags:
   --no-open                     Do not open the operator portal in the browser
@@ -177,7 +186,7 @@ Key endpoints:
   /_stratus/                    Built-in operator portal
   /_stratus/health              Health check
   /_stratus/operator/bootstrap  Service inventory and quick-start data
-  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, chaos, limits, sigv4, runs, diagnostics
+  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, clock, chaos, limits, sigv4, runs, diagnostics
 `)
 }
 

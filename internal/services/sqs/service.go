@@ -1512,3 +1512,7 @@ func (s *Service) QueuePolicy(name string) (string, bool, error) {
 	policy := queue.Attributes["Policy"]
 	return policy, policy != "", nil
 }
+
+// SetClock makes the service read time from now, normally Stratus's
+// controllable clock, so advancing that clock moves this service too.
+func (s *Service) SetClock(now func() time.Time) { s.now = now }

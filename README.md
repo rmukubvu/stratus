@@ -127,10 +127,12 @@ runs no instances. See [docs/ec2.md](docs/ec2.md).
 
 Emails sent through SES are never delivered; they land in an inbox the
 control API, MCP server and SDKs can read and filter, so a test asserts on
-the email an application sent. EventBridge Scheduler runs on a clock the
-control API can move forward: advance it an hour and the hourly schedule
-delivers to its queue, topic, function or state machine before the call
-returns. See [docs/ses.md](docs/ses.md) and
+the email an application sent. Every service reads time from one clock that
+tests can move forward or freeze instead of sleeping: advance it five
+minutes and an SQS message's visibility timeout has passed; advance it an
+hour and the hourly EventBridge schedule delivers to its queue, topic,
+function or state machine before the call returns. See
+[docs/clock.md](docs/clock.md), [docs/ses.md](docs/ses.md) and
 [docs/scheduler.md](docs/scheduler.md).
 
 Bedrock Runtime calls (`Converse`, `InvokeModel` and their streaming
@@ -357,6 +359,8 @@ Headless server mode for scripts, CI, or existing automation:
 ```
 
 This is the stable machine-oriented mode. It does not try to open the browser.
+Add `--idle-timeout 30m` and a server nobody is calling stops by itself and
+removes its containers (see [docs/ci.md](docs/ci.md#stop-a-forgotten-server-by-itself)).
 
 Legacy compatibility:
 

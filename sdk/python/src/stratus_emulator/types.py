@@ -368,6 +368,36 @@ class SchedulerAdvance(SchedulerClock):
     fired: List[SchedulerInvocation]
 
 
+class _ClockStatusRequired(TypedDict):
+    #: The emulator's current time.
+    now: str
+    #: The machine's real time.
+    real_now: str
+    #: How far the emulator clock is from real time, such as "1h30m0s".
+    offset: str
+    #: Whether the clock is held still.
+    frozen: bool
+
+
+class ClockStatus(_ClockStatusRequired, total=False):
+    #: Where a frozen clock is held.
+    frozen_at: str
+
+
+class _ClockEffectRequired(TypedDict):
+    source: str
+    count: int
+
+
+class ClockEffect(_ClockEffectRequired, total=False):
+    detail: Any
+
+
+class ClockAdvance(ClockStatus):
+    #: What the move set off, such as schedules that fired; empty when nothing became due.
+    effects: List[ClockEffect]
+
+
 class BedrockStatus(TypedDict, total=False):
     #: "replay" or "record".
     mode: str

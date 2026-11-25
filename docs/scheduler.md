@@ -40,8 +40,11 @@ not checked.
 
 ## The clock
 
-Schedules fire against the scheduler clock: real time plus an offset that
-starts at zero. A ticker checks every 250 ms, so a `rate(1 minute)` schedule
+Schedules fire against the scheduler clock: the [emulator clock](clock.md)
+plus an offset that starts at zero. Advancing the emulator clock with
+`POST /_stratus/control/v1/clock/advance` fires due schedules too, and moves
+every other service with them; the scheduler-only endpoints below move just
+the scheduler. A ticker checks every 250 ms, so a `rate(1 minute)` schedule
 also fires on its own if you wait. The control API moves the clock:
 
 ```
