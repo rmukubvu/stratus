@@ -197,6 +197,8 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, bucket, key str
 			return s.completeMultipartUpload(w, r, bucket, key, uploadID)
 		case http.MethodDelete:
 			return s.abortMultipartUpload(w, bucket, uploadID)
+		case http.MethodGet:
+			return notImplementedOperation("ListParts", "/"+bucket+"/"+key)
 		default:
 			return methodNotAllowed("/" + bucket + "/" + key)
 		}
@@ -246,6 +248,11 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, bucket, key str
 			return s.headBucket(w, bucket)
 		case http.MethodDelete:
 			return s.deleteBucket(w, bucket)
+		case http.MethodPost:
+			if r.URL.Query().Has("delete") {
+				return notImplementedOperation("DeleteObjects", "/"+bucket)
+			}
+			return methodNotAllowed("/" + bucket)
 		default:
 			return methodNotAllowed("/" + bucket)
 		}

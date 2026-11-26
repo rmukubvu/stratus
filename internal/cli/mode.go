@@ -18,6 +18,8 @@ const (
 	ModeLoad     Mode = "load"
 	ModeSigV4    Mode = "sigv4"
 	ModeClock    Mode = "clock"
+	// ModeCheck scans a codebase for AWS calls Stratus does not implement.
+	ModeCheck Mode = "check"
 )
 
 // IsControl reports whether the mode talks to a running Stratus instead of
@@ -38,7 +40,7 @@ func ParseMode(args []string) (Mode, []string) {
 
 	head := strings.TrimSpace(args[0])
 	switch Mode(head) {
-	case ModeDev, ModeServe, ModeWait, ModeReset, ModeSnapshot, ModeCI, ModeChaos, ModeMCP, ModeDiagnose, ModeLimits, ModeLoad, ModeSigV4, ModeClock:
+	case ModeDev, ModeServe, ModeWait, ModeReset, ModeSnapshot, ModeCI, ModeChaos, ModeMCP, ModeDiagnose, ModeLimits, ModeLoad, ModeSigV4, ModeClock, ModeCheck:
 		return Mode(head), args[1:]
 	default:
 		if strings.HasPrefix(head, "-") {

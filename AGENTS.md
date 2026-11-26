@@ -17,6 +17,8 @@ internal/chaos/         seeded fault injection;   internal/limits/  AWS quotas a
 internal/authn/         SigV4 checking;           internal/authz/   opt-in IAM enforcement
 internal/iampolicy/     IAM policy evaluation;    internal/tags/    the shared resource-tag type
 internal/container/     Docker: Lambda runtimes and real engines (RDS, ElastiCache, MSK)
+internal/awsmodel/      catalogue of AWS operations and constraints (generated) and coverage
+internal/validation/    AWS-style request validation from the catalogue;  internal/check/  `stratus check`
 internal/mcp/           MCP server for agents;    internal/diagnose/ failure explanations
 sdk/typescript, sdk/python   control-API SDKs, published as stratus-emulator
 docs/                   one page per feature
@@ -30,9 +32,11 @@ scripts/fidelity/       runs AWS's evaluation suite against Stratus
 | --- | --- |
 | Implement or fix an AWS operation | `internal/services/<service>/` and its `_test.go` |
 | Route a new operation or protocol shape | `internal/httpapi/classify.go` (+ `classify_test.go`) |
-| Add a new service | its package, a `ServiceState` in `internal/control/catalog.go` (bucket prefixes, so reset and snapshots cover it), a field in `httpapi.Services`, wiring in `internal/app/stack.go`, the list in README.md |
+| Add a new service | its package, a `ServiceState` in `internal/control/catalog.go` (bucket prefixes, so reset and snapshots cover it), a field in `httpapi.Services`, wiring in `internal/app/stack.go`, its botocore model in `scripts/models/generate.py`, the list in README.md |
 | Connect services (SQS to Lambda, SNS to SQS) | the `Set<Thing>` calls in `internal/app/stack.go`; the consumer declares a small interface |
 | Add a control-API feature | a `RegisterRoutes` in the owning package, `internal/control/client`, `internal/cli`, `internal/mcp/tools.go`, both SDKs, `docs/control-api.md` and a docs page, all in one change |
+| Implement an operation Stratus answered 501 for | the service, then rerun `scripts/models/coverage.py` so `docs/coverage` and `stratus check` know (see `docs/operation-catalogue.md`) |
+| Move to a newer AWS model | bump `scripts/models/requirements.txt`, run `generate.py` then `coverage.py` |
 | Add a server flag | `internal/config/config.go`, the usage text in `cmd/stratus/main.go` |
 
 ## Rules

@@ -102,6 +102,14 @@ the datapoints you published and move between `INSUFFICIENT_DATA`, `OK` and
 test can check that its metrics really trip its alarms. See
 [docs/cloudwatch.md](docs/cloudwatch.md).
 
+Which operations each service implements is listed in
+[docs/coverage](docs/coverage/README.md), generated from AWS's own service
+models; anything else answers `501 NotImplemented`. `stratus check` scans a
+codebase for the AWS calls it makes and lists the ones Stratus lacks, with
+file and line, before you run anything. Requests that break AWS's input
+constraints get AWS's own validation error. See
+[docs/operation-catalogue.md](docs/operation-catalogue.md).
+
 How close each service is to real AWS is measured with AWS's own fidelity
 tests, the ones AWS scores AWS Emulator with; scores, the gaps that block the
 most tests and how to rerun them are in [docs/fidelity.md](docs/fidelity.md).

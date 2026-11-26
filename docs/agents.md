@@ -53,6 +53,8 @@ Logs go to stderr; stdout carries only protocol messages.
 | `stratus_scheduler_advance` / `_run` | Fast-forward the EventBridge Scheduler clock, or fire one schedule now (see [scheduler.md](scheduler.md)) |
 | `stratus_bedrock_fixture_add` | Make Bedrock answer matching model calls with a fixed reply (see [bedrock.md](bedrock.md)) |
 | `stratus_bedrock_invocations` | The prompts the application sent to Bedrock, the replies, and which calls had no fixture |
+| `stratus_coverage` | Whether Stratus implements an AWS operation, or a service's implemented and missing operations (see [operation-catalogue.md](operation-catalogue.md)) |
+| `stratus_check` | Scan a codebase for AWS calls Stratus would answer with 501, with file and line |
 | `stratus_kafka_clusters` | MSK clusters with the bootstrap broker address of each (see [msk.md](msk.md)) |
 | `stratus_dns_resolve` | Resolve a name against the Route 53 zones, including Cloud Map's records (see [route53.md](route53.md)) |
 

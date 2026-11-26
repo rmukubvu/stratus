@@ -139,7 +139,7 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request) error {
 			XMLNS   string   `xml:"xmlns,attr"`
 		}{XMLNS: xmlns})
 	default:
-		return invalidInput("no Route 53 operation matches %s %s", r.Method, r.URL.Path)
+		return notImplemented(r.Method, r.URL.Path)
 	}
 }
 

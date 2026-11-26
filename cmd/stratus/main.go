@@ -42,6 +42,9 @@ func main() {
 		stop()
 		os.Exit(code)
 	}
+	if mode == cli.ModeCheck {
+		os.Exit(cli.RunCheck(args, os.Stdout, os.Stderr))
+	}
 	if mode.IsControl() {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		code := cli.RunControl(ctx, mode, args, cli.DefaultClientFactory, os.Stdout, os.Stderr)
@@ -143,6 +146,10 @@ Let coding agents drive Stratus (Model Context Protocol over stdio):
   stratus mcp [--start] [--endpoint URL]
                                 e.g. claude mcp add stratus -- stratus mcp --start
 
+Check a codebase before running it (reads source; nothing runs):
+  stratus check [--json] [dir]  List the AWS calls it makes (boto3, JS SDK v3, Go SDK v2) that
+                                Stratus does not implement, with file:line. Exits 1 if any.
+
 Control a running Stratus (for CI and agents; output is JSON):
   stratus wait [--timeout 60s]          Block until Stratus is ready
   stratus reset [service...]            Reset all state, or only the named services
@@ -175,6 +182,7 @@ Common flags:
   --seed <dir>                  Initialise an empty data dir from a snapshot dir
   --limits <profile|file>       Enforce AWS quotas from the start (env STRATUS_LIMITS)
   --sigv4 <off|audit|strict>    Verify request signatures from the start (env STRATUS_SIGV4)
+  --validation <on|off>         Reject input that breaks AWS model constraints (default on; env STRATUS_VALIDATION)
   --lambda-containers <n>       Warm containers per Lambda function (default 4, env STRATUS_LAMBDA_CONTAINERS)
   --idle-timeout <duration>     Stop and clean up after this long without a request, e.g. 30m
                                 (health and ready probes don't count; env STRATUS_IDLE_TIMEOUT)

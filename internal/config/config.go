@@ -29,6 +29,9 @@ type Config struct {
 	// SigV4 sets signature verification at startup: off, audit or strict.
 	// Empty falls back to STRATUS_SIGV4; both empty leaves it off.
 	SigV4 string
+	// Validation checks AWS requests against the AWS model's constraints:
+	// on or off. Empty falls back to STRATUS_VALIDATION; both empty is on.
+	Validation string
 	// LambdaContainers caps the warm containers one Lambda function may
 	// have; zero falls back to STRATUS_LAMBDA_CONTAINERS, then 4.
 	LambdaContainers int
@@ -47,6 +50,7 @@ func RegisterFlags(fs *flag.FlagSet) *Config {
 	fs.StringVar(&cfg.Seed, "seed", "", "Snapshot directory to initialise an empty data dir from")
 	fs.StringVar(&cfg.Limits, "limits", "", "Limits profile to apply at startup: aws-default, strict or a JSON file (default $STRATUS_LIMITS)")
 	fs.StringVar(&cfg.SigV4, "sigv4", "", "Verify AWS request signatures: off, audit or strict (default $STRATUS_SIGV4)")
+	fs.StringVar(&cfg.Validation, "validation", "", "Reject requests that break AWS's input constraints: on or off (default $STRATUS_VALIDATION, or on)")
 	fs.IntVar(&cfg.LambdaContainers, "lambda-containers", 0, "Most warm containers one Lambda function may run at once (default $STRATUS_LAMBDA_CONTAINERS, or 4)")
 	fs.DurationVar(&cfg.IdleTimeout, "idle-timeout", 0, "Stop after this long without a request, e.g. 30m (default $STRATUS_IDLE_TIMEOUT, or never)")
 	return cfg
@@ -101,4 +105,20 @@ func (c *Config) ApplyIdleTimeoutEnv(getenv func(string) string) error {
 		}
 	}
 	return nil
+}
+
+// ValidationEnabled reports whether request validation is on: --validation,
+// else STRATUS_VALIDATION, else on.
+func (c Config) ValidationEnabled(getenv func(string) string) (bool, error) {
+	raw := c.Validation
+	if raw == "" {
+		raw = getenv("STRATUS_VALIDATION")
+	}
+	switch raw {
+	case "", "on":
+		return true, nil
+	case "off":
+		return false, nil
+	}
+	return false, fmt.Errorf("invalid validation mode %q: want on or off", raw)
 }

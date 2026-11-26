@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/stratus/internal/validation"
 	"io"
 	"log/slog"
 	"net"
@@ -89,6 +90,10 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	sigv4Settings, err := sigv4SettingsFrom(cfg, os.Getenv)
+	if err != nil {
+		return nil, err
+	}
+	validate, err := cfg.ValidationEnabled(os.Getenv)
 	if err != nil {
 		return nil, err
 	}
@@ -198,6 +203,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 		Accounts:      httpapi.AccountResolvers{stsService, iamKeys, sigv4Settings.static},
 		Authenticator: authenticator,
 		Authorizer:    authz.New(iamMode, authz.Callers{Sessions: stsService, Keys: iamKeys}, stacks, stacks, logger),
+		Validator:     requestValidator(validate),
 		Operator:      operatorService,
 		Control:       controlHandler,
 		Gate:          controlService.Gate(),
@@ -485,4 +491,13 @@ func sigv4SettingsFrom(cfg config.Config, getenv func(string) string) (sigv4Sett
 		return sigv4Settings{}, err
 	}
 	return sigv4Settings{mode: mode, static: static, rootSecret: getenv("STRATUS_SIGV4_ROOT_SECRET")}, nil
+}
+
+// requestValidator is the validator for the server, or nil when validation
+// is off (a typed nil would still be called).
+func requestValidator(enabled bool) httpapi.RequestValidator {
+	if !enabled {
+		return nil
+	}
+	return validation.New()
 }

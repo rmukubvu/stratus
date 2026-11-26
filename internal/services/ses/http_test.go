@@ -33,8 +33,8 @@ func TestQuerySendEmailRoundTrip(t *testing.T) {
 	svc, _ := newTestService(t)
 
 	body := mustQuery(t, svc, "VerifyEmailIdentity", url.Values{"EmailAddress": {"noreply@shop.example"}})
-	if !strings.Contains(body, "<VerifyEmailIdentityResponse") || !strings.Contains(body, "<RequestId>req-1</RequestId>") || strings.Contains(body, "Result") {
-		t.Fatalf("empty results still get the envelope:\n%s", body)
+	if !strings.Contains(body, "<VerifyEmailIdentityResponse") || !strings.Contains(body, "<RequestId>req-1</RequestId>") || !strings.Contains(body, "<VerifyEmailIdentityResult>") {
+		t.Fatalf("empty results get the envelope and an empty result element, as AWS sends:\n%s", body)
 	}
 
 	body = mustQuery(t, svc, "SendEmail", url.Values{
