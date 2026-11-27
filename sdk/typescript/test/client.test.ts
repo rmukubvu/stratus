@@ -422,4 +422,24 @@ describe("advise", () => {
     assert.deepEqual(calls[4]?.body, { option: "kinesis", rationale: "we replay" });
     assert.deepEqual(calls[7]?.body, { option: "sqs-standard" });
   });
+
+  test("proofs are planned and their runs recorded as evidence", async () => {
+    const plan = { option: "kinesis", provable: true, account: "912345678901", region: "us-east-1", rate: 200, duration_seconds: 20, scale: 0.1, limits: { profile: "aws-default", scale: 0.1 }, script: "// k6" };
+    const { fetch, calls } = fakeFetch(
+      { body: { id: "adr-1", proofs: [plan] } },
+      { body: { id: "adr-1", evidence: [{ option: "kinesis", run_id: "run-3", verdict: "held" }] } },
+    );
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch });
+
+    const plans = await c.advise.planProofs("adr-1", { scale: 0.1 });
+    assert.equal(plans[0]?.script, "// k6");
+    const d = await c.advise.recordEvidence("adr-1", { option: "kinesis", run_id: "run-3", target_rate: 200, scale: 0.1 });
+    assert.equal(d.evidence?.[0]?.verdict, "held");
+    assert.deepEqual(
+      calls.map((x) => `${x.method} ${x.url.slice(base.length)}`),
+      ["POST /advise/decisions/adr-1/proofs", "POST /advise/decisions/adr-1/evidence"],
+    );
+    assert.deepEqual(calls[0]?.body, { scale: 0.1 });
+    assert.deepEqual(calls[1]?.body, { option: "kinesis", run_id: "run-3", target_rate: 200, scale: 0.1 });
+  });
 });

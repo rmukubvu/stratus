@@ -120,6 +120,13 @@ func (f *fakeAPI) AdviseADR(_ context.Context, id string) (string, error) {
 	return "# ADR", err
 }
 
+func (f *fakeAPI) AdvisePlanProofs(_ context.Context, id string, in json.RawMessage) (json.RawMessage, error) {
+	return f.rec("advise-proofs " + id + " " + string(in))
+}
+func (f *fakeAPI) AdviseRecordEvidence(_ context.Context, id string, in json.RawMessage) (json.RawMessage, error) {
+	return f.rec("advise-evidence " + id + " " + string(in))
+}
+
 func call(t *testing.T, api *fakeAPI, name, args string) *toolResult {
 	t.Helper()
 	s, err := NewServer("stratus", "test", Instructions, Tools(api)...)
@@ -188,6 +195,8 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_advise_adr", `{"id":"adr-1"}`, "advise-adr adr-1"},
 		{"stratus_advise_get", `{"id":"adr-1"}`, "advise-get adr-1"},
 		{"stratus_advise_get", `{}`, "advise-list"},
+		{"stratus_advise_plan_proofs", `{"id":"adr-1","scale":0.1}`, `advise-proofs adr-1 {"duration_seconds":0,"options":null,"scale":0.1}`},
+		{"stratus_advise_record_evidence", `{"id":"adr-1","option":"kinesis","run_id":"run-3","target_rate":200}`, `advise-evidence adr-1 {"option":"kinesis","run_id":"run-3","target_rate":200}`},
 		{"stratus_bedrock_invocations", `{"model":"anthropic.*","contains":"refund","outcome":"missed","limit":3}`, "bedrock-invocations contains=refund&limit=3&model=anthropic.%2A&outcome=missed"},
 	}
 	for _, tc := range cases {

@@ -21,6 +21,8 @@ type Router interface {
 //	POST /_stratus/control/v1/advise/decisions/{id}/assess  judge and rank the options
 //	POST /_stratus/control/v1/advise/decisions/{id}/decide  choose an option {option, rationale?}
 //	GET  /_stratus/control/v1/advise/decisions/{id}/adr     the ADR as Markdown (?format=json wraps it as {id, markdown})
+//	POST /_stratus/control/v1/advise/decisions/{id}/proofs  plan load proofs {options?, scale?, duration_seconds?}
+//	POST /_stratus/control/v1/advise/decisions/{id}/evidence record a proof's run {option, run_id, target_rate, scale?, account?}
 func RegisterRoutes(r Router, s *Service) {
 	base := control.PathPrefix + "/advise"
 	r.HandleFunc("GET "+base+"/families", func(w http.ResponseWriter, _ *http.Request) {
@@ -65,6 +67,27 @@ func RegisterRoutes(r Router, s *Service) {
 			return
 		}
 		respond(w, http.StatusOK)(s.Decide(req.PathValue("id"), in))
+	})
+	r.HandleFunc("POST "+base+"/decisions/{id}/proofs", func(w http.ResponseWriter, req *http.Request) {
+		var in ProofOptions
+		if err := control.DecodeOptionalJSON(req, &in); err != nil {
+			control.WriteError(w, err)
+			return
+		}
+		plans, err := s.PlanProofs(req.PathValue("id"), in)
+		if err != nil {
+			control.WriteError(w, err)
+			return
+		}
+		control.WriteJSON(w, http.StatusOK, map[string]any{"id": req.PathValue("id"), "proofs": plans})
+	})
+	r.HandleFunc("POST "+base+"/decisions/{id}/evidence", func(w http.ResponseWriter, req *http.Request) {
+		var in EvidenceInput
+		if err := control.DecodeOptionalJSON(req, &in); err != nil {
+			control.WriteError(w, err)
+			return
+		}
+		respond(w, http.StatusOK)(s.RecordEvidence(req.PathValue("id"), in))
 	})
 	r.HandleFunc("GET "+base+"/decisions/{id}/adr", func(w http.ResponseWriter, req *http.Request) {
 		md, err := s.ADR(req.PathValue("id"))

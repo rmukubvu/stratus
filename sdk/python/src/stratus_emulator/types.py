@@ -647,9 +647,55 @@ class _AdviseDecisionBase(TypedDict):
     updated_at: str
 
 
+class _AdviseEvidenceBase(TypedDict):
+    option: str
+    run_id: str
+    verdict: Literal["held", "throttled", "failed", "short"]
+    target_rate: float
+    scale: float
+    duration_seconds: float
+    requests: int
+    ok: int
+    throttled: int
+    errors: int
+    faults: int
+    per_second: float
+    p99_ms: float
+    recorded_at: str
+
+
+class AdviseEvidence(_AdviseEvidenceBase, total=False):
+    """What a load proof recorded for one option."""
+
+    account: str
+    throttled_by: List[str]
+    findings: List[str]
+
+
+class _AdviseProofPlanBase(TypedDict):
+    option: str
+    provable: bool
+    account: str
+    region: str
+    rate: float
+    duration_seconds: int
+    scale: float
+    limits: Dict[str, Any]
+
+
+class AdviseProofPlan(_AdviseProofPlanBase, total=False):
+    """How to prove one option under load (a k6 ``script`` and the ``limits``
+    to run it under), or the ``reason`` it cannot be proved on Stratus."""
+
+    reason: str
+    operations: List[Dict[str, str]]
+    script: str
+
+
 class AdviseDecision(_AdviseDecisionBase, total=False):
     """An architecture decision with its ranking and what to do next."""
 
+    evidence: List[AdviseEvidence]
     assessments: List[AdviseAssessment]
     chosen: str
     rationale: str

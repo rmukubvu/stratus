@@ -191,7 +191,7 @@ func New(cfg config.Config, logger *slog.Logger) (*App, error) {
 	bedrock.RegisterRoutes(controlHandler, defaults.services.Bedrock)
 	kafka.RegisterRoutes(controlHandler, defaults.kafka)
 	route53.RegisterRoutes(controlHandler, defaults.route53)
-	advise.RegisterRoutes(controlHandler, newAdviseService(metaStore, emulatorClock.Now))
+	advise.RegisterRoutes(controlHandler, newAdviseService(metaStore, emulatorClock.Now, runs))
 	diagnose.RegisterRoutes(controlHandler, diagnose.NewService(
 		failuresFrom(operatorStore, deliveries, chaosEngine),
 		attributionsFrom(chaosEngine, governor, authenticator),

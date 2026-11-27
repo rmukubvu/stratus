@@ -53,6 +53,8 @@ type ControlAPI interface {
 	AdviseAssess(ctx context.Context, id string) (json.RawMessage, error)
 	AdviseDecide(ctx context.Context, id, option, rationale string) (json.RawMessage, error)
 	AdviseADR(ctx context.Context, id string) (string, error)
+	AdvisePlanProofs(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error)
+	AdviseRecordEvidence(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error)
 }
 
 // Instructions are sent to the client at initialization.

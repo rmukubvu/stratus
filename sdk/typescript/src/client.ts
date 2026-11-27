@@ -3,6 +3,9 @@ import { FetchTransport, type FetchLike, type Transport } from "./transport.js";
 import type {
   AdviseAnswers,
   AdviseDecision,
+  AdviseEvidenceInput,
+  AdviseProofOptions,
+  AdviseProofPlan,
   AdviseFamily,
   AdviseStartInput,
   BedrockFixture,
@@ -239,6 +242,22 @@ export class Advise {
   /** Chooses an option that was not ruled out. Throws OptionRuledOut or DecisionNotAssessed otherwise. */
   decide(id: string, option: string, rationale?: string): Promise<AdviseDecision> {
     return this.t.request("POST", `/advise/decisions/${encodeURIComponent(id)}/decide`, { option, ...(rationale && { rationale }) });
+  }
+
+  /**
+   * Plans a load proof of each candidate option: a k6 script, the limits to
+   * run it under and its throwaway account, or why it cannot be proved.
+   * Run each with `stratus load run --limits <limits> -- k6 run <script>`,
+   * then pass the run to recordEvidence (or run `stratus advise prove`).
+   */
+  async planProofs(id: string, options: AdviseProofOptions = {}): Promise<AdviseProofPlan[]> {
+    const out = await this.t.request<{ proofs: AdviseProofPlan[] }>("POST", `/advise/decisions/${encodeURIComponent(id)}/proofs`, options);
+    return out.proofs;
+  }
+
+  /** Records a finished load run as an option's proof; the ADR shows it. */
+  recordEvidence(id: string, input: AdviseEvidenceInput): Promise<AdviseDecision> {
+    return this.t.request("POST", `/advise/decisions/${encodeURIComponent(id)}/evidence`, input);
   }
 
   /** The decision as a Markdown ADR. */

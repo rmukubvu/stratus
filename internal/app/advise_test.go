@@ -5,6 +5,8 @@ import (
 
 	"github.com/stratus/internal/advise"
 	"github.com/stratus/internal/advise/families/messaging"
+	"github.com/stratus/internal/limits"
+	"github.com/stratus/internal/loadrun"
 	"github.com/stratus/internal/pricing"
 )
 
@@ -40,5 +42,27 @@ func TestTheMessagingFamilyIsWiredWithQuotasAndPrices(t *testing.T) {
 		if !e.Complete() || e.MonthlyUSD <= 0 {
 			t.Errorf("%s: %+v", e.Option, e)
 		}
+	}
+}
+
+func TestALoadRunBecomesAProofsRunResult(t *testing.T) {
+	s := loadrun.Summary{
+		ID: "run-3", Status: loadrun.StatusFinished, DurationSeconds: 10,
+		Totals:   loadrun.Totals{Counts: loadrun.Counts{Requests: 100, OK: 80, Throttled: 20, P99MS: 4}, PerSecond: 10},
+		Limits:   &limits.Status{Rules: []limits.RuleStatus{{Rule: limits.RateRule{ID: "sns-publish-rate"}, Throttled: 20}, {Rule: limits.RateRule{ID: "kms"}}}},
+		Findings: []loadrun.Finding{{Severity: loadrun.Severity("high"), Title: "No retries"}},
+	}
+	r := runResultOf(s)
+	if !r.Finished || r.Throttled != 20 || r.P99MS != 4 || len(r.ThrottledBy) != 1 || r.ThrottledBy[0] != "sns-publish-rate" || r.Findings[0] != "high: No retries" {
+		t.Errorf("got %+v", r)
+	}
+	if _, err := (recordedRuns{}).Run("run-1"); err == nil {
+		t.Error("no recorder should be an error")
+	}
+}
+
+func TestProofsOnlyUseOperationsStratusImplements(t *testing.T) {
+	if !implementedOperations.Implemented("sns", "Publish") || implementedOperations.Implemented("sns", "NoSuchOperation") {
+		t.Error("coverage adapter disagrees with internal/awsmodel")
 	}
 }
