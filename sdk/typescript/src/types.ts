@@ -679,6 +679,57 @@ export interface AdviseDecision {
   decided_at?: string;
   /** Load proofs recorded against the current answers. */
   evidence?: AdviseEvidence[];
+  /** Test deploys of options' Terraform against Stratus. */
+  deployments?: AdviseDeployment[];
+}
+
+/** One generated file. */
+export interface AdviseFile {
+  name: string;
+  content: string;
+}
+
+/** A decision's Terraform for one option: a root module to commit. */
+export interface AdviseTerraformModule {
+  option: string;
+  region: string;
+  /** versions.tf, variables.tf, main.tf and outputs.tf. */
+  files: AdviseFile[];
+  /** AWS provider endpoints the module calls. */
+  endpoints: string[];
+  /** False when Stratus cannot test-deploy it; reason says why. */
+  deployable: boolean;
+  reason?: string;
+  /** The throwaway account a test deploy uses. */
+  account: string;
+}
+
+export interface AdviseTerraform {
+  id: string;
+  module: AdviseTerraformModule;
+  /** Present when the module is deployable: an override file that points the AWS provider at this Stratus, and the steps. */
+  test_deploy?: { override: AdviseFile; steps: string[] };
+}
+
+export type AdviseDeployOutcome = "passed" | "drifted" | "failed";
+
+/** A recorded test deploy of an option's Terraform. */
+export interface AdviseDeployment {
+  option: string;
+  tool: string;
+  outcome: AdviseDeployOutcome;
+  resources: number;
+  detail?: string;
+  recorded_at: string;
+}
+
+export interface AdviseDeploymentInput {
+  option: string;
+  /** passed: applied, re-planned with no changes, destroyed; drifted: the plan after apply wanted changes; failed. */
+  outcome: AdviseDeployOutcome;
+  resources?: number;
+  tool?: string;
+  detail?: string;
 }
 
 /** How to prove one option under load, or why it cannot be proved on Stratus. */

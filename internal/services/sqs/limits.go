@@ -34,6 +34,7 @@ var queueAttributeRanges = map[string]attributeRange{
 	"MessageRetentionPeriod":        {60, 1209600},
 	"ReceiveMessageWaitTimeSeconds": {0, 20},
 	"VisibilityTimeout":             {0, maxVisibilityTimeout},
+	"KmsDataKeyReusePeriodSeconds":  {60, 86400},
 }
 
 // validateIntegerAttribute checks an integer queue attribute against its

@@ -194,6 +194,57 @@ func adviseTools(api ControlAPI) []Tool {
 			},
 		},
 		{
+			Name: "stratus_advise_terraform",
+			Description: "Write Terraform for one of a decision's options (default: the chosen one, else the one ranked first): a root module " +
+				"(versions.tf, variables.tf, main.tf, outputs.tf) sized from the answers, to commit with the code. When the module is deployable, " +
+				"test_deploy carries an override file that points the AWS provider at this Stratus in a throwaway account: write the files and " +
+				"the override to an empty directory, run terraform init, apply, plan -detailed-exitcode and destroy, then record the outcome " +
+				"with stratus_advise_record_deployment. Or run 'stratus advise terraform <id> --deploy', which does all of it.",
+			InputSchema: schema(map[string]any{
+				"id":     str("Decision ID."),
+				"option": str("Option to write Terraform for; omit for the chosen or top-ranked option."),
+			}, "id"),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					ID     string `json:"id"`
+					Option string `json:"option"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				if a.ID == "" {
+					return nil, errors.New("invalid arguments: id is required")
+				}
+				return api.AdviseTerraform(ctx, a.ID, a.Option)
+			},
+		},
+		{
+			Name: "stratus_advise_record_deployment",
+			Description: "Record a test deploy of an option's Terraform against Stratus, for the ADR: passed (applied, a plan straight after found " +
+				"no changes, destroyed), drifted (the plan after apply wanted changes) or failed (init, apply or destroy failed; put the error in detail).",
+			InputSchema: schema(map[string]any{
+				"id":        str("Decision ID."),
+				"option":    str("Option whose Terraform was deployed."),
+				"outcome":   map[string]any{"type": "string", "enum": []string{"passed", "drifted", "failed"}, "description": "How the deploy went."},
+				"resources": map[string]any{"type": "integer", "minimum": 0, "description": "Resources the apply created."},
+				"detail":    str("What failed or drifted, e.g. the first Error: line."),
+			}, "id", "option", "outcome"),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					ID string `json:"id"`
+					advise.DeploymentInput
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				if a.ID == "" || a.Option == "" || a.Outcome == "" {
+					return nil, errors.New("invalid arguments: id, option and outcome are required")
+				}
+				body, _ := json.Marshal(a.DeploymentInput)
+				return api.AdviseRecordDeployment(ctx, a.ID, body)
+			},
+		},
+		{
 			Name:        "stratus_advise_get",
 			Description: "Show a decision: its answers, pending questions, ranking, recommended option and what to do next. Without an id, lists decisions.",
 			InputSchema: schema(map[string]any{"id": str("Decision ID; omit to list decisions.")}),

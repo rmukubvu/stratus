@@ -26,6 +26,7 @@ import (
 	"github.com/stratus/internal/scope"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 	"github.com/stratus/internal/store"
+	"github.com/stratus/internal/tags"
 )
 
 const (
@@ -48,6 +49,7 @@ type queueRecord struct {
 	Name       string            `json:"name"`
 	CreatedAt  time.Time         `json:"created_at"`
 	Attributes map[string]string `json:"attributes"`
+	Tags       tags.List         `json:"tags,omitempty"`
 }
 
 type messageRecord struct {
@@ -305,6 +307,8 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation, requ
 		return s.deleteMessage(w, r, requestID)
 	case "DeleteQueue":
 		return s.deleteQueue(w, r, requestID)
+	case "TagQueue", "UntagQueue", "ListQueueTags":
+		return s.handleTagsQuery(w, r, operation, requestID)
 	default:
 		return &apierror.Error{
 			StatusCode: http.StatusNotImplemented,
@@ -377,15 +381,8 @@ func (s *Service) handleJSON(w http.ResponseWriter, r *http.Request, operation, 
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"Attributes": attrs})
 		return nil
-	case "ListQueueTags":
-		s.mu.Lock()
-		defer s.mu.Unlock()
-
-		if _, err := s.queueFromForm(r, form); err != nil {
-			return err
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"Tags": map[string]string{}})
-		return nil
+	case "TagQueue", "UntagQueue", "ListQueueTags":
+		return s.handleTagsJSON(w, r, form, operation)
 	case "SetQueueAttributes":
 		if err := s.setQueueAttributes(recorder, xmlReq, requestID); err != nil {
 			return err
@@ -474,6 +471,13 @@ func jsonRequestToForm(r *http.Request, operation string) (url.Values, error) {
 	case "CreateQueue":
 		setStringField(form, "QueueName", payload["QueueName"])
 		appendAttributeMap(form, payload["Attributes"])
+		appendTagMap(form, payload["tags"])
+	case "TagQueue":
+		setStringField(form, "QueueUrl", payload["QueueUrl"])
+		appendTagMap(form, payload["Tags"])
+	case "UntagQueue":
+		setStringField(form, "QueueUrl", payload["QueueUrl"])
+		appendStringList(form, "TagKey", payload["TagKeys"])
 	case "GetQueueUrl":
 		setStringField(form, "QueueName", payload["QueueName"])
 	case "ListQueues":
@@ -579,6 +583,10 @@ func (s *Service) createQueue(w http.ResponseWriter, r *http.Request, requestID 
 	if err != nil {
 		return err
 	}
+	queueTags, err := tagsFromForm(form)
+	if err != nil {
+		return err
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -601,6 +609,7 @@ func (s *Service) createQueue(w http.ResponseWriter, r *http.Request, requestID 
 		Name:       name,
 		CreatedAt:  s.now().UTC(),
 		Attributes: attrs,
+		Tags:       queueTags,
 	}
 	if err := s.putQueue(record); err != nil {
 		return internal(err)
@@ -1195,13 +1204,6 @@ func requestedAttributes(form url.Values) (map[string]string, error) {
 		}
 		attrs[name] = form.Get(fmt.Sprintf("Attribute.%d.Value", idx))
 	}
-	if hasIndexedPrefix(form, "Tag.") {
-		return nil, &apierror.Error{
-			StatusCode: http.StatusNotImplemented,
-			Code:       "NotImplemented",
-			Message:    "queue tags are not implemented",
-		}
-	}
 	return attrs, nil
 }
 
@@ -1232,7 +1234,7 @@ func normalizeAttributes(input map[string]string) (map[string]string, error) {
 	}
 	for name, value := range input {
 		switch name {
-		case "DelaySeconds", "MaximumMessageSize", "MessageRetentionPeriod", "ReceiveMessageWaitTimeSeconds", "VisibilityTimeout":
+		case "DelaySeconds", "MaximumMessageSize", "MessageRetentionPeriod", "ReceiveMessageWaitTimeSeconds", "VisibilityTimeout", "KmsDataKeyReusePeriodSeconds":
 			if err := validateIntegerAttribute(name, value); err != nil {
 				return nil, err
 			}
@@ -1249,6 +1251,17 @@ func normalizeAttributes(input map[string]string) (map[string]string, error) {
 				return nil, badRequest("InvalidAttributeValue", "RedrivePolicy is not valid JSON.")
 			}
 			attrs[name] = value
+		case "SqsManagedSseEnabled":
+			if value != "true" && value != "false" {
+				return nil, badRequest("InvalidAttributeValue", "Invalid value for the parameter SqsManagedSseEnabled.")
+			}
+			attrs[name] = value
+		case "KmsMasterKeyId":
+			// Stratus keeps messages unencrypted at rest; the key is
+			// recorded so the queue reads back as it was configured.
+			if value != "" {
+				attrs[name] = value
+			}
 		case "FifoQueue":
 			if strings.EqualFold(value, "true") {
 				return nil, &apierror.Error{
@@ -1383,14 +1396,15 @@ func decodeRedrivePolicy(raw string) (redrivePolicy, error) {
 	if raw == "" {
 		return redrivePolicy{}, nil
 	}
+	// AWS accepts maxReceiveCount as a number or a string of digits.
 	var payload struct {
-		DeadLetterTargetArn string `json:"deadLetterTargetArn"`
-		MaxReceiveCount     string `json:"maxReceiveCount"`
+		DeadLetterTargetArn string      `json:"deadLetterTargetArn"`
+		MaxReceiveCount     json.Number `json:"maxReceiveCount"`
 	}
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
 		return redrivePolicy{}, err
 	}
-	maxReceiveCount, err := strconv.Atoi(payload.MaxReceiveCount)
+	maxReceiveCount, err := strconv.Atoi(payload.MaxReceiveCount.String())
 	if err != nil || maxReceiveCount < 1 {
 		return redrivePolicy{}, fmt.Errorf("invalid maxReceiveCount")
 	}

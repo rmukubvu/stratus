@@ -191,3 +191,18 @@ func (l List) index(key string) int {
 	}
 	return -1
 }
+
+// FromMap reads a JSON-protocol tag map ({"key": "value"}) as a List,
+// sorted by key so the order is stable.
+func FromMap(m map[string]string) List {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	list := make(List, 0, len(keys))
+	for _, k := range keys {
+		list = append(list, Tag{Key: k, Value: m[k]})
+	}
+	return list
+}

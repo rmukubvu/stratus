@@ -124,3 +124,43 @@ func TestProofsArePlannedAndRecordedOverTheControlAPI(t *testing.T) {
 		t.Fatalf("adr: %d %s", status, body)
 	}
 }
+
+func TestTerraformAndItsTestDeployOverTheControlAPI(t *testing.T) {
+	srv := newServerWith(t, buildingFamily{}, nil)
+	do(t, srv, "POST", "/decisions", `{"family":"fake"}`)
+	if status, body := do(t, srv, "GET", "/decisions/adr-1/terraform", ""); status != http.StatusConflict || !strings.Contains(body, "DecisionNotAssessed") {
+		t.Fatalf("before assessing: %d %s", status, body)
+	}
+	do(t, srv, "POST", "/decisions/adr-1/assess", "")
+	status, body := do(t, srv, "GET", "/decisions/adr-1/terraform?option=simple", "")
+	if status != http.StatusOK {
+		t.Fatalf("terraform: %d %s", status, body)
+	}
+	var out struct {
+		Module     TerraformModule `json:"module"`
+		TestDeploy struct {
+			Override File     `json:"override"`
+			Steps    []string `json:"steps"`
+		} `json:"test_deploy"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatal(err)
+	}
+	host := strings.TrimPrefix(srv.URL, "http://")
+	if out.Module.Option != "simple" || len(out.Module.Files) != 4 || !strings.Contains(out.TestDeploy.Override.Content, `"http://`+host+`"`) {
+		t.Errorf("module %+v override %s", out.Module, out.TestDeploy.Override.Content)
+	}
+	if _, body := do(t, srv, "GET", "/decisions/adr-1/terraform?option=heavy", ""); strings.Contains(body, "test_deploy") {
+		t.Errorf("an undeployable module offered a test deploy: %s", body)
+	}
+	status, body = do(t, srv, "POST", "/decisions/adr-1/deployments", `{"option":"simple","outcome":"passed","resources":1}`)
+	if status != http.StatusOK || !strings.Contains(strings.Join(strings.Fields(body), ""), `"outcome":"passed"`) {
+		t.Errorf("record: %d %s", status, body)
+	}
+	if status, body := do(t, srv, "POST", "/decisions/adr-1/deployments", `{"option":"simple","outcome":"meh"}`); status != http.StatusBadRequest || !strings.Contains(body, "InvalidDeployment") {
+		t.Errorf("bad outcome: %d %s", status, body)
+	}
+	if _, adr := do(t, srv, "GET", "/decisions/adr-1/adr", ""); !strings.Contains(adr, "**Test deploy of Simple:**") {
+		t.Errorf("ADR:\n%s", adr)
+	}
+}

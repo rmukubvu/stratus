@@ -161,12 +161,23 @@ POST /_stratus/control/v1/advise/decisions/{id}/decide  choose an option {option
 GET  /_stratus/control/v1/advise/decisions/{id}/adr     the ADR as Markdown; ?format=json gives {id, markdown}
 POST /_stratus/control/v1/advise/decisions/{id}/proofs  plan load proofs {options?, scale?, duration_seconds?}
 POST /_stratus/control/v1/advise/decisions/{id}/evidence record a proof's run {option, run_id, target_rate, scale?, account?}
+GET  /_stratus/control/v1/advise/decisions/{id}/terraform Terraform for an option; ?option= (default: the chosen or top-ranked one)
+POST /_stratus/control/v1/advise/decisions/{id}/deployments record a test deploy {option, outcome, resources?, tool?, detail?}
 ```
 
 A proof plan gives, per candidate option, a k6 `script`, the `limits` spec
 to run it under, its throwaway `account`, `rate` and `duration_seconds`,
 or `provable: false` with the `reason`. Evidence reads the finished load
 run and judges it `held`, `throttled`, `failed` or `short`.
+
+Terraform returns `{id, module, test_deploy?}`: the `module` has the
+`option`, `region`, `files` (`versions.tf`, `variables.tf`, `main.tf`,
+`outputs.tf`, each `{name, content}`), the provider `endpoints` it calls,
+its throwaway `account`, and `deployable` (with a `reason` when false).
+A deployable module also gets `test_deploy`: an `override` file
+(`stratus_override.tf`) pointing the AWS provider at the Stratus that
+answered, and the `steps` to apply, re-plan and destroy it. Record the
+outcome (`passed`, `drifted` or `failed`) with `POST .../deployments`.
 
 Each assessment carries a `cost` estimate when the family prices its
 options: `monthly_usd`, priced `lines`, `assumptions`, `prices_as_of` (the
@@ -178,7 +189,9 @@ Errors: `UnknownDecisionFamily`, `UnknownQuestion` and `InvalidAnswer`
 `DecisionNotAssessed`, `OptionRuledOut` and `DecisionAlreadyDecided` (409,
 the hint names the options that can be chosen). Proofs add `InvalidProofScale`,
 `InvalidProofDuration` and `InvalidEvidence` (400), and `ProofsUnsupported`,
-`NothingToProve`, `RunStillRecording` and `LoadRunsUnavailable` (409). See [advise.md](advise.md).
+`NothingToProve`, `RunStillRecording` and `LoadRunsUnavailable` (409).
+Terraform adds `InvalidDeployment` (400), and `TerraformUnsupported` and
+`NothingToBuild` (409). See [advise.md](advise.md).
 
 ## MSK clusters
 

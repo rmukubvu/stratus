@@ -692,10 +692,63 @@ class AdviseProofPlan(_AdviseProofPlanBase, total=False):
     script: str
 
 
+class AdviseFile(TypedDict):
+    """One generated file."""
+
+    name: str
+    content: str
+
+
+class _AdviseTerraformModuleBase(TypedDict):
+    option: str
+    region: str
+    files: List[AdviseFile]
+    endpoints: List[str]
+    deployable: bool
+    account: str
+
+
+class AdviseTerraformModule(_AdviseTerraformModuleBase, total=False):
+    """A decision's Terraform for one option (versions.tf, variables.tf,
+    main.tf, outputs.tf); ``reason`` says why Stratus cannot test-deploy it."""
+
+    reason: str
+
+
+class _AdviseTerraformBase(TypedDict):
+    id: str
+    module: AdviseTerraformModule
+
+
+class AdviseTerraform(_AdviseTerraformBase, total=False):
+    """Terraform for one option; ``test_deploy`` (when deployable) holds an
+    ``override`` file pointing the AWS provider at this Stratus, and ``steps``."""
+
+    test_deploy: Dict[str, Any]
+
+
+AdviseDeployOutcome = Literal["passed", "drifted", "failed"]
+
+
+class _AdviseDeploymentBase(TypedDict):
+    option: str
+    tool: str
+    outcome: AdviseDeployOutcome
+    resources: int
+    recorded_at: str
+
+
+class AdviseDeployment(_AdviseDeploymentBase, total=False):
+    """A recorded test deploy of an option's Terraform."""
+
+    detail: str
+
+
 class AdviseDecision(_AdviseDecisionBase, total=False):
     """An architecture decision with its ranking and what to do next."""
 
     evidence: List[AdviseEvidence]
+    deployments: List[AdviseDeployment]
     assessments: List[AdviseAssessment]
     chosen: str
     rationale: str

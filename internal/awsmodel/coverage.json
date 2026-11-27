@@ -173,15 +173,19 @@
   "DeleteEventBus",
   "DeleteRule",
   "DescribeArchive",
+  "DescribeEventBus",
   "DescribeRule",
   "ListArchives",
   "ListEventBuses",
   "ListRules",
+  "ListTagsForResource",
   "ListTargetsByRule",
   "PutEvents",
   "PutRule",
   "PutTargets",
-  "RemoveTargets"
+  "RemoveTargets",
+  "TagResource",
+  "UntagResource"
  ],
  "fis": [
   "CreateExperimentTemplate",
@@ -252,16 +256,23 @@
   "UntagResource"
  ],
  "kinesis": [
+  "AddTagsToStream",
   "CreateStream",
+  "DecreaseStreamRetentionPeriod",
   "DeleteStream",
   "DescribeStream",
   "DescribeStreamSummary",
   "GetRecords",
   "GetShardIterator",
+  "IncreaseStreamRetentionPeriod",
   "ListShards",
   "ListStreams",
+  "ListTagsForStream",
   "PutRecord",
-  "PutRecords"
+  "PutRecords",
+  "RemoveTagsFromStream",
+  "StartStreamEncryption",
+  "StopStreamEncryption"
  ],
  "kms": [
   "CreateAlias",
@@ -555,7 +566,9 @@
   "ReceiveMessage",
   "SendMessage",
   "SendMessageBatch",
-  "SetQueueAttributes"
+  "SetQueueAttributes",
+  "TagQueue",
+  "UntagQueue"
  ],
  "ssm": [
   "DeleteParameter",

@@ -324,11 +324,9 @@ func (s *Service) subscribe(w http.ResponseWriter, r *http.Request, requestID st
 	if protocol != "sqs" && protocol != "lambda" {
 		return notImplemented("only sqs and lambda subscriptions are supported")
 	}
-	attributes := map[string]string{
-		"RawMessageDelivery": "false",
-	}
-	if filter := form.Get("Attributes.entry.1.value"); form.Get("Attributes.entry.1.key") == "FilterPolicy" && filter != "" {
-		attributes["FilterPolicy"] = filter
+	attributes, err := subscriptionAttributes(parseAttributeEntries(form))
+	if err != nil {
+		return err
 	}
 	record := subscriptionRecord{
 		Attributes:      attributes,
@@ -440,8 +438,13 @@ func (s *Service) getSubscriptionAttributes(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		return err
 	}
+	// Stratus confirms sqs and lambda subscriptions at once, as AWS does
+	// for those protocols within the same account.
 	attrs := []attributeMember{
+		{Key: "ConfirmationWasAuthenticated", Value: "true"},
 		{Key: "Endpoint", Value: record.Endpoint},
+		{Key: "Owner", Value: s.scope.Account},
+		{Key: "PendingConfirmation", Value: "false"},
 		{Key: "Protocol", Value: record.Protocol},
 		{Key: "SubscriptionArn", Value: record.SubscriptionArn},
 		{Key: "TopicArn", Value: record.TopicArn},
@@ -561,6 +564,9 @@ func (s *Service) getTopicAttributes(w http.ResponseWriter, r *http.Request, req
 			continue
 		}
 		attrs = append(attrs, attributeMember{Key: key, Value: record.Attributes[key]})
+	}
+	if record.Attributes["Policy"] == "" {
+		attrs = append(attrs, attributeMember{Key: "Policy", Value: defaultTopicPolicy(record.TopicArn, s.scope.Account)})
 	}
 
 	writeXML(w, http.StatusOK, getTopicAttributesResponse{

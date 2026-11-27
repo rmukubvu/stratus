@@ -115,3 +115,9 @@ func TestAdviseProveRejectsADryRunWithNowhereToWrite(t *testing.T) {
 		t.Errorf("code %d stderr %s", code, stderr)
 	}
 }
+func (f *fakeControl) AdviseTerraform(_ context.Context, id, option string) (json.RawMessage, error) {
+	return f.record("advise-terraform " + id + " " + option)
+}
+func (f *fakeControl) AdviseRecordDeployment(_ context.Context, id string, in json.RawMessage) (json.RawMessage, error) {
+	return f.record("advise-deployment " + id + " " + string(in))
+}

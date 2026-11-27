@@ -3,7 +3,9 @@ import { FetchTransport, type FetchLike, type Transport } from "./transport.js";
 import type {
   AdviseAnswers,
   AdviseDecision,
+  AdviseDeploymentInput,
   AdviseEvidenceInput,
+  AdviseTerraform,
   AdviseProofOptions,
   AdviseProofPlan,
   AdviseFamily,
@@ -258,6 +260,22 @@ export class Advise {
   /** Records a finished load run as an option's proof; the ADR shows it. */
   recordEvidence(id: string, input: AdviseEvidenceInput): Promise<AdviseDecision> {
     return this.t.request("POST", `/advise/decisions/${encodeURIComponent(id)}/evidence`, input);
+  }
+
+  /**
+   * Writes Terraform for one option (default: the chosen one, else the one
+   * ranked first). When deployable, test_deploy carries an override file
+   * that points the AWS provider at this Stratus: apply, re-plan and
+   * destroy it, then recordDeployment (or run `stratus advise terraform --deploy`).
+   */
+  terraform(id: string, option?: string): Promise<AdviseTerraform> {
+    const query = option ? `?option=${encodeURIComponent(option)}` : "";
+    return this.t.request("GET", `/advise/decisions/${encodeURIComponent(id)}/terraform${query}`);
+  }
+
+  /** Records a test deploy of an option's Terraform; the ADR shows it. */
+  recordDeployment(id: string, input: AdviseDeploymentInput): Promise<AdviseDecision> {
+    return this.t.request("POST", `/advise/decisions/${encodeURIComponent(id)}/deployments`, input);
   }
 
   /** The decision as a Markdown ADR. */

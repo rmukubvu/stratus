@@ -53,6 +53,8 @@ type ControlClient interface {
 	AdviseADR(ctx context.Context, id string) (string, error)
 	AdvisePlanProofs(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error)
 	AdviseRecordEvidence(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error)
+	AdviseTerraform(ctx context.Context, id, option string) (json.RawMessage, error)
+	AdviseRecordDeployment(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error)
 }
 
 // ClientFactory builds a client for an endpoint; tests substitute a fake.

@@ -15,8 +15,10 @@ from .transport import Transport, UrllibTransport
 from .types import (
     AdviseAnswers,
     AdviseDecision,
+    AdviseDeployOutcome,
     AdviseFamily,
     AdviseProofPlan,
+    AdviseTerraform,
     BedrockFixture,
     BedrockInvocation,
     BedrockStatus,
@@ -474,6 +476,32 @@ class Advise:
         if account:
             body["account"] = account
         return cast(AdviseDecision, self._t.request("POST", f"/advise/decisions/{_q(decision_id)}/evidence", body))
+
+    def terraform(self, decision_id: str, option: Optional[str] = None) -> AdviseTerraform:
+        """Writes Terraform for one option (default: the chosen one, else the one
+        ranked first). When deployable, ``test_deploy`` carries an override file
+        that points the AWS provider at this Stratus: apply, re-plan and destroy
+        it, then :meth:`record_deployment` (or run ``stratus advise terraform --deploy``)."""
+        query = f"?option={_q(option)}" if option else ""
+        return cast(AdviseTerraform, self._t.request("GET", f"/advise/decisions/{_q(decision_id)}/terraform{query}"))
+
+    def record_deployment(
+        self,
+        decision_id: str,
+        option: str,
+        outcome: AdviseDeployOutcome,
+        resources: int = 0,
+        detail: Optional[str] = None,
+        tool: Optional[str] = None,
+    ) -> AdviseDecision:
+        """Records a test deploy of an option's Terraform (passed, drifted or
+        failed); the ADR shows it."""
+        body: Dict[str, Any] = {"option": option, "outcome": outcome, "resources": resources}
+        if detail:
+            body["detail"] = detail
+        if tool:
+            body["tool"] = tool
+        return cast(AdviseDecision, self._t.request("POST", f"/advise/decisions/{_q(decision_id)}/deployments", body))
 
     def adr(self, decision_id: str) -> str:
         """The decision as a Markdown ADR."""
