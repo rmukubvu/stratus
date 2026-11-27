@@ -51,6 +51,8 @@ type Assessment struct {
 	Verdict Verdict  `json:"verdict"`
 	Score   int      `json:"score"`
 	Reasons []Reason `json:"reasons"`
+	// Cost is the option's monthly estimate, when the family prices it.
+	Cost *Estimate `json:"cost,omitempty"`
 }
 
 // Judge builds an assessment from its reasons: any rule-out rules the

@@ -626,11 +626,37 @@ export interface AdviseReason {
   citation?: { quota_id?: string; url?: string };
 }
 
+/** One priced item of a cost estimate. */
+export interface AdviseCostLine {
+  item: string;
+  price_id: string;
+  quantity: number;
+  unit: string;
+  usd: number;
+}
+
+/**
+ * An option's monthly cost at the stated average rate, from on-demand list
+ * prices published on `prices_as_of`. With `unpriced` set, the total is a
+ * lower bound.
+ */
+export interface AdviseEstimate {
+  option: string;
+  region: string;
+  monthly_usd: number;
+  lines: AdviseCostLine[];
+  unpriced?: string[];
+  assumptions?: string[];
+  prices_as_of?: string;
+  source?: string;
+}
+
 export interface AdviseAssessment {
   option: string;
   verdict: "fits" | "fits_with_caveats" | "ruled_out";
   score: number;
   reasons: AdviseReason[];
+  cost?: AdviseEstimate;
 }
 
 /** An architecture decision with what to do next. */

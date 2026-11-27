@@ -103,8 +103,8 @@ func TestAdviseAskAsksPendingQuestionsKeepsDefaultsForBlankLinesAndPrintsTheRank
 			{"id":"peak_rate","prompt":"Peak?","why":"quotas","kind":"quantity","unit":"messages/s","default":100},
 			{"id":"replay","prompt":"Replay?","why":"streams","kind":"bool","default":false}]}`,
 		"advise-assess": `{"id":"adr-1","title":"Order events","recommended":"kinesis","assessments":[
-			{"option":"kinesis","verdict":"fits","score":100,"reasons":[{"kind":"strength","text":"replays"}]},
-			{"option":"sqs-standard","verdict":"ruled_out","score":0,"reasons":[{"kind":"ruled_out","text":"cannot replay"}]}]}`,
+			{"option":"kinesis","verdict":"fits","score":100,"reasons":[{"kind":"strength","text":"replays"}],"cost":{"monthly_usd":25.918,"prices_as_of":"2026-11-26"}},
+			{"option":"sqs-standard","verdict":"ruled_out","score":0,"reasons":[{"kind":"ruled_out","text":"cannot replay"}],"cost":{"monthly_usd":31.5,"unpriced":["x"]}}]}`,
 	}}
 	adviseInput = strings.NewReader("\n2500\ntrue\n")
 	t.Cleanup(func() { adviseInput = os.Stdin })
@@ -115,7 +115,7 @@ func TestAdviseAskAsksPendingQuestionsKeepsDefaultsForBlankLinesAndPrintsTheRank
 	if fake.calls[1] != "advise-answer adr-1 peak_rate=2500,replay=true" {
 		t.Errorf("answers sent: %q", fake.calls)
 	}
-	for _, want := range []string{"Peak?", "[100 messages/s] >", "- none: No", "1. kinesis", "ruled out: cannot replay", "stratus advise decide adr-1 kinesis"} {
+	for _, want := range []string{"Peak?", "[100 messages/s] >", "- none: No", "1. kinesis", "~$25.92/month", "at least $31.50/month", "prices published 2026-11-26", "ruled out: cannot replay", "stratus advise decide adr-1 kinesis"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("output lacks %q:\n%s", want, stdout)
 		}

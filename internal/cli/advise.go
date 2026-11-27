@@ -212,6 +212,11 @@ type adviseView struct {
 		Verdict string         `json:"verdict"`
 		Score   int            `json:"score"`
 		Reasons []adviseReason `json:"reasons"`
+		Cost    *struct {
+			MonthlyUSD float64  `json:"monthly_usd"`
+			Unpriced   []string `json:"unpriced"`
+			AsOf       string   `json:"prices_as_of"`
+		} `json:"cost"`
 	} `json:"assessments"`
 }
 
@@ -268,13 +273,27 @@ func writeRanking(raw json.RawMessage, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, "Decision %s: %s\n\n", v.ID, v.Title)
+	asOf := ""
 	for i, a := range v.Assessments {
-		fmt.Fprintf(out, "%d. %-14s %-18s %3d/100\n", i+1, a.Option, strings.ReplaceAll(a.Verdict, "_", " "), a.Score)
+		cost := ""
+		if a.Cost != nil {
+			cost = fmt.Sprintf("  ~$%.2f/month", a.Cost.MonthlyUSD)
+			if len(a.Cost.Unpriced) > 0 {
+				cost = fmt.Sprintf("  at least $%.2f/month", a.Cost.MonthlyUSD)
+			}
+			if asOf == "" {
+				asOf = a.Cost.AsOf
+			}
+		}
+		fmt.Fprintf(out, "%d. %-14s %-18s %3d/100%s\n", i+1, a.Option, strings.ReplaceAll(a.Verdict, "_", " "), a.Score, cost)
 		for _, r := range a.Reasons {
 			if r.Kind == "ruled_out" || r.Kind == "caveat" {
 				fmt.Fprintf(out, "     %s: %s\n", strings.ReplaceAll(r.Kind, "_", " "), r.Text)
 			}
 		}
+	}
+	if asOf != "" {
+		fmt.Fprintf(out, "\nCosts: on-demand list prices published %s, at the average rate; see the ADR for the breakdown.\n", asOf)
 	}
 	if v.Recommended != "" {
 		fmt.Fprintf(out, "\nRanked first: %s\n", v.Recommended)
