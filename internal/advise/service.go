@@ -17,6 +17,8 @@ type Service struct {
 	families Registry
 	now      func() time.Time
 	newID    func() string
+	coverage Coverage
+	runs     RunSource
 	mu       sync.Mutex // serialises read-modify-write of one decision
 }
 
@@ -33,6 +35,13 @@ func NewService(repo Repository, families Registry, now func() time.Time, newID 
 
 // SetClock points the service at the emulator clock.
 func (s *Service) SetClock(now func() time.Time) { s.now = now }
+
+// SetProofs gives the service what load proofs need: Stratus's operation
+// coverage, to plan only proofs Stratus can serve, and the load runs, to
+// read what a proof recorded.
+func (s *Service) SetProofs(coverage Coverage, runs RunSource) {
+	s.coverage, s.runs = coverage, runs
+}
 
 func randomID() string {
 	b := make([]byte, 6)
@@ -126,6 +135,36 @@ func (s *Service) Decide(id string, in DecideInput) (View, error) {
 	})
 }
 
+// PlanProofs plans a load proof of each candidate option.
+func (s *Service) PlanProofs(id string, opts ProofOptions) ([]ProofPlan, error) {
+	d, f, err := s.load(id)
+	if err != nil {
+		return nil, err
+	}
+	return d.PlanProofs(f, s.coverage, opts)
+}
+
+// RecordEvidence attaches a finished load run to an option as its proof.
+func (s *Service) RecordEvidence(id string, in EvidenceInput) (View, error) {
+	in.Option, in.RunID = strings.TrimSpace(in.Option), strings.TrimSpace(in.RunID)
+	if in.Option == "" || in.RunID == "" {
+		return View{}, invalid("InvalidEvidence", "evidence needs an option and a run_id", "send {option, run_id, target_rate} from the proof plan and the run you recorded")
+	}
+	if s.runs == nil {
+		return View{}, conflict("LoadRunsUnavailable", "this Stratus has no load runs to read", "record the proof with a Stratus started by 'stratus serve'")
+	}
+	run, err := s.runs.Run(in.RunID)
+	if err != nil {
+		return View{}, control.AsError(err)
+	}
+	if !run.Finished {
+		return View{}, conflict("RunStillRecording", "load run "+in.RunID+" is still recording", "stop it (stratus load stop) and record the evidence again")
+	}
+	return s.update(id, func(d *Decision, _ Family, now time.Time) error {
+		return d.RecordEvidence(NewEvidence(in, run, now), now)
+	})
+}
+
 // ADR renders a decision as a Markdown architecture decision record.
 func (s *Service) ADR(id string) (string, error) {
 	d, f, err := s.load(id)
@@ -199,8 +238,10 @@ func (s *Service) view(d Decision, f Family) View {
 	switch {
 	case d.Status == StatusDecided:
 		v.Next = "Decided. Export the ADR (GET .../adr) and commit it with the code."
+	case d.Status == StatusAssessed && len(d.Evidence) == 0:
+		v.Next = "Review the ranked options with the person. To check them under load, plan proofs (POST .../proofs) and run them; then decide with one that fits."
 	case d.Status == StatusAssessed:
-		v.Next = "Review the ranked options with the person, then decide with one that fits."
+		v.Next = "Review the ranked options and their proofs with the person, then decide with one that fits."
 	case len(v.Pending) > 0:
 		v.Next = "Ask the person the pending questions (unanswered ones use their defaults), answer, then assess."
 	default:

@@ -16,6 +16,7 @@ from .types import (
     AdviseAnswers,
     AdviseDecision,
     AdviseFamily,
+    AdviseProofPlan,
     BedrockFixture,
     BedrockInvocation,
     BedrockStatus,
@@ -435,6 +436,44 @@ class Advise:
         if rationale:
             body["rationale"] = rationale
         return cast(AdviseDecision, self._t.request("POST", f"/advise/decisions/{_q(decision_id)}/decide", body))
+
+    def plan_proofs(
+        self,
+        decision_id: str,
+        options: Optional[List[str]] = None,
+        scale: Optional[float] = None,
+        duration_seconds: Optional[int] = None,
+    ) -> List[AdviseProofPlan]:
+        """Plans a load proof of each candidate option: a k6 script, the limits
+        to run it under and its throwaway account, or why it cannot be proved.
+        Run each with ``stratus load run --limits <limits> -- k6 run <script>``,
+        then pass the run to :meth:`record_evidence` (or run ``stratus advise prove``)."""
+        body: Dict[str, Any] = {}
+        if options:
+            body["options"] = options
+        if scale is not None:
+            body["scale"] = scale
+        if duration_seconds is not None:
+            body["duration_seconds"] = duration_seconds
+        out = cast(Dict[str, Any], self._t.request("POST", f"/advise/decisions/{_q(decision_id)}/proofs", body))
+        return cast(List[AdviseProofPlan], out.get("proofs") or [])
+
+    def record_evidence(
+        self,
+        decision_id: str,
+        option: str,
+        run_id: str,
+        target_rate: float,
+        scale: Optional[float] = None,
+        account: Optional[str] = None,
+    ) -> AdviseDecision:
+        """Records a finished load run as an option's proof; the ADR shows it."""
+        body: Dict[str, Any] = {"option": option, "run_id": run_id, "target_rate": target_rate}
+        if scale is not None:
+            body["scale"] = scale
+        if account:
+            body["account"] = account
+        return cast(AdviseDecision, self._t.request("POST", f"/advise/decisions/{_q(decision_id)}/evidence", body))
 
     def adr(self, decision_id: str) -> str:
         """The decision as a Markdown ADR."""

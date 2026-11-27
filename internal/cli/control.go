@@ -51,6 +51,8 @@ type ControlClient interface {
 	AdviseAssess(ctx context.Context, id string) (json.RawMessage, error)
 	AdviseDecide(ctx context.Context, id, option, rationale string) (json.RawMessage, error)
 	AdviseADR(ctx context.Context, id string) (string, error)
+	AdvisePlanProofs(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error)
+	AdviseRecordEvidence(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error)
 }
 
 // ClientFactory builds a client for an endpoint; tests substitute a fake.
@@ -136,7 +138,7 @@ func RunControl(ctx context.Context, mode Mode, args []string, newClient ClientF
 			return 2
 		}
 	case ModeAdvise:
-		out, err = runAdvise(ctx, c, rest, stdout, stderr)
+		out, err = runAdvise(ctx, c, *endpoint, rest, stdout, stderr)
 		if errors.Is(err, errUsage) {
 			return 2
 		}

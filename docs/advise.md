@@ -5,7 +5,8 @@ the choice as an architecture decision record (ADR). It asks a short set of
 questions, rules out the options that cannot meet a hard requirement, checks
 the rest against AWS's documented default quotas at the stated peak, ranks
 them with an ops-overhead score, estimates what each costs a month from a
-dated snapshot of AWS's price list, and writes the ADR in the
+dated snapshot of AWS's price list, can prove the candidates under load
+with k6, and writes the ADR in the
 [MADR](https://adr.github.io/madr/) layout.
 
 Every verdict carries its reasons, and every reason that rests on a quota
@@ -57,6 +58,7 @@ is a complete ADR made this way.
 | `stratus advise start <family> [--title t] [id=value...]` | Start a decision, optionally with answers |
 | `stratus advise answer <decision> id=value...` | Answer questions, e.g. `ordering=per_key peak_rate=2000` |
 | `stratus advise assess <decision>` | Judge and rank the options against the answers |
+| `stratus advise prove <decision> [--option o] [--scale f] [--duration d]` | Run each candidate's producer path with k6 under AWS's quotas and record the evidence |
 | `stratus advise decide <decision> <option> [--why text]` | Choose an option that was not ruled out |
 | `stratus advise adr <decision> [--out file]` | The ADR as Markdown |
 | `stratus advise show <decision>` / `list` | A decision with its pending questions, or all of them |
@@ -94,6 +96,55 @@ some, a platform team: up to 3, 7 or 15); an option above that gets a caveat
 rather than being ruled out. The scores are judgement. They live in
 `internal/advise/families/<family>/ops.go`, each with its reason, and the
 ADR labels them as judgement.
+
+## Proving candidates under load
+
+The quota checks are arithmetic. A proof runs the real thing against
+Stratus: `stratus advise prove` drives each candidate's producer path
+(SendMessage, Publish, PutEvents or PutRecord, after creating the queue,
+topic, rule and targets, or stream) at the stated peak with
+[k6](https://k6.io), inside a [load run](load.md) under the `aws-default`
+[limits profile](limits.md) for the decision's region, and records each run
+as evidence in the decision:
+
+```
+$ stratus advise prove adr-bc1c48247ef0 --duration 10s
+eventbridge    held      target 400/s, ran 386/s, 4005 requests, 0 throttled, 0 errors, p99 11 ms (run-1)
+kinesis        held      target 400/s, ran 398/s, 3994 requests, 0 throttled, 0 errors, p99 17 ms (run-2)
+sns-sqs        throttled target 400/s, ran 397/s, 3997 requests, 692 throttled, 0 errors, p99 53 ms (run-3); throttled by sns-publish-rate
+msk            not proved: Proving MSK needs a Kafka client, which a k6 HTTP script cannot drive. ...
+```
+
+That decision was 400 messages/s in af-south-1, where SNS's default is 300
+published messages a second: the rules said so as a caveat, and the proof
+shows what the publisher sees when it happens.
+
+- **Each proof gets its own account**, a twelve-digit ID starting with 9
+  derived from the decision and option, so proofs never share quotas or
+  resources with each other or with your own tests.
+- **`--scale 0.1`** runs at a tenth of the peak with every quota scaled the
+  same, so a laptop can prove a design meant for 50,000/s. A run that does
+  not reach its target rate is marked `short` rather than passed: that says
+  more about the machine than about AWS.
+- **Verdicts:** `held` (under 1% throttled or failed and at least 80% of the
+  target rate), `throttled`, `failed` or `short`. The ADR adds a "Load proof"
+  column and a line per option with the run's numbers, the quota rules that
+  throttled it and the run's findings.
+- **Coverage check:** a proof is only planned when Stratus implements every
+  operation its script calls (`internal/awsmodel` coverage), so it never
+  measures 501s. SQS FIFO (not implemented in Stratus yet) and MSK (needs a
+  Kafka client, not HTTP) say why they were not proved.
+- Proofs exercise the quotas Stratus enforces and the APIs' behaviour, not
+  AWS's latency. Quotas Stratus does not enforce, such as Kinesis per-shard
+  writes, stay with the rules. Changing an answer drops the proofs along
+  with the assessment.
+
+Without k6 on the machine, or to run the load yourself (an agent with a
+shell, a CI job), `--dry-run --scripts dir` writes each script and its
+limits file and prints the `stratus load run` command; record each run
+with `POST .../evidence` or `stratus_advise_record_evidence`. Payloads are
+capped at 64 KiB per message, and consumers are not driven: queue and
+stream reads are covered by the rules.
 
 ## Cost
 
@@ -164,20 +215,22 @@ cites.
 A few things the family does not model yet: SNS FIFO topics, EventBridge's
 per-event size limit (reported as not checked for events over 256 KiB), MSK
 broker sizing beyond the three-broker baseline, Kinesis on-demand pricing
-and Savings Plans or reserved pricing. The verdicts are a quota check at the stated peak, not a
-load test.
+and Savings Plans or reserved pricing. The verdicts are a quota check at the
+stated peak; `stratus advise prove` adds a load test.
 
 ## Agents and SDKs
 
 Over MCP the tools are `stratus_advise_families`, `stratus_advise_start`,
 `stratus_advise_answer`, `stratus_advise_assess`, `stratus_advise_decide`,
-`stratus_advise_adr` and `stratus_advise_get`. Their descriptions tell the
+`stratus_advise_adr`, `stratus_advise_get`, `stratus_advise_plan_proofs` and
+`stratus_advise_record_evidence`. Their descriptions tell the
 agent to ask the person each pending question rather than guess, and to let
 the person make the choice.
 
 ```ts
 const d = await stratus.advise.start({ family: "messaging", title: "Order events", answers: { replay: true, consumers: 3 } });
 const ranked = await stratus.advise.assess(d.id);
+const plans = await stratus.advise.planProofs(d.id, { scale: 0.1 }); // run each plan.script with k6, then recordEvidence
 await stratus.advise.decide(d.id, ranked.recommended!, "we replay");
 await fs.writeFile("docs/adr/0001-order-events.md", await stratus.advise.adr(d.id));
 ```
@@ -206,7 +259,9 @@ reasons per option. Quotas come through `advise.QuotaSource`, backed by
 `internal/limits`, so add any new number to `limits.Documented()` with its
 AWS source. Register the family in `internal/app/advise.go` and pin its
 behaviour with golden scenarios like
-`internal/advise/families/messaging/messaging_test.go`. To estimate cost,
+`internal/advise/families/messaging/messaging_test.go`. To prove options
+under load, implement `advise.Prover`: the operations a k6 script calls and
+the script itself (see `families/messaging/prove.go`). To estimate cost,
 implement `advise.Coster` as well, reading prices through `advise.PriceBook`
 (backed by `internal/pricing`); add any new price to
 `scripts/pricing/snapshot.py` and rebuild the snapshot.

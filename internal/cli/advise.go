@@ -18,6 +18,9 @@ const adviseUsage = `usage:
   stratus advise answer <decision> id=value...             answer questions (e.g. ordering=per_key peak_rate=2000)
   stratus advise assess <decision>                         judge and rank the options against the answers
   stratus advise decide <decision> <option> [--why text]   choose an option that was not ruled out
+  stratus advise prove <decision> [--option o] [--scale f] [--duration d] [--dry-run --scripts dir]
+                                                           run each candidate's producer path with k6 at the peak, under
+                                                           the aws-default limits, and record the runs as evidence
   stratus advise adr <decision> [--out file]               the ADR as Markdown (stdout, or a file to commit)
   stratus advise show <decision>                           a decision, its pending questions and ranking
   stratus advise list                                      decisions, newest first
@@ -29,7 +32,7 @@ Unanswered questions take their defaults, and the ADR marks them as assumed.
 // adviseInput is where 'stratus advise ask' reads answers; tests replace it.
 var adviseInput io.Reader = os.Stdin
 
-func runAdvise(ctx context.Context, c ControlClient, args []string, stdout, stderr io.Writer) (json.RawMessage, error) {
+func runAdvise(ctx context.Context, c ControlClient, endpoint string, args []string, stdout, stderr io.Writer) (json.RawMessage, error) {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, adviseUsage)
 		return nil, errUsage
@@ -101,6 +104,12 @@ func runAdvise(ctx context.Context, c ControlClient, args []string, stdout, stde
 		}
 		fmt.Fprintf(stderr, "stratus advise: wrote %s\n", *out)
 		return nil, nil
+	case "prove":
+		p, err := parseProve(rest, stderr)
+		if err != nil {
+			return nil, err
+		}
+		return nil, prove(ctx, c, endpoint, p, stdout, stderr)
 	case "ask":
 		family, title, answers, err := parseStart(rest, stderr)
 		if err != nil {

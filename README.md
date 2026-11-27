@@ -482,6 +482,7 @@ list and writes an ADR with the reasons and their sources:
 
 ```sh
 stratus advise ask messaging --title "Order events"
+stratus advise prove <decision>          # k6 drives each candidate at the peak, under AWS's quotas
 stratus advise decide <decision> kinesis --why "consumers replay orders"
 stratus advise adr <decision> --out docs/adr/0001-order-events.md
 ```

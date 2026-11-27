@@ -64,15 +64,29 @@ func RenderADR(d Decision, f Family) string {
 			datedAt = a.Cost
 		}
 	}
+	proved := len(d.Evidence) > 0
+	w("| Rank | Option | Verdict | Fit | Ops overhead |")
 	if pricedAt != nil {
-		w("| Rank | Option | Verdict | Fit | Ops overhead | Est. monthly cost |\n| --- | --- | --- | --- | --- | --- |\n")
-	} else {
-		w("| Rank | Option | Verdict | Fit | Ops overhead |\n| --- | --- | --- | --- | --- |\n")
+		w(" Est. monthly cost |")
 	}
+	if proved {
+		w(" Load proof |")
+	}
+	w("\n| --- | --- | --- | --- | --- |")
+	if pricedAt != nil {
+		w(" --- |")
+	}
+	if proved {
+		w(" --- |")
+	}
+	w("\n")
 	for i, a := range d.Assessments {
 		w("| %d | %s | %s | %d/100 | %d/15 |", i+1, name(a.Option), verdictLabel(a.Verdict), a.Score, opts[a.Option].Ops.Total())
 		if pricedAt != nil {
 			w(" %s |", monthly(a.Cost))
+		}
+		if proved {
+			w(" %s |", proofCell(d, a.Option))
 		}
 		w("\n")
 	}
@@ -91,6 +105,9 @@ func RenderADR(d Decision, f Family) string {
 			if r.Citation != nil && r.Citation.URL != "" {
 				sources[r.Citation.URL] = true
 			}
+		}
+		if e, ok := d.EvidenceFor(a.Option); ok {
+			w("- **Load proof:** %s\n", proofSentence(e))
 		}
 		w("\n")
 	}
@@ -136,8 +153,15 @@ func RenderADR(d Decision, f Family) string {
 	}
 
 	w("## Notes\n\n")
-	w("- Verdicts come from Stratus's rules for the %s family, checked against AWS's documented default quotas at the stated peak. They are not a load test.\n", strings.ToLower(f.Title()))
+	w("- Verdicts come from Stratus's rules for the %s family, checked against AWS's documented default quotas at the stated peak.", strings.ToLower(f.Title()))
+	if !proved {
+		w(" They are not a load test; `stratus advise prove %s` runs one.", d.ID)
+	}
+	w("\n")
 	w("- Ops overhead scores are judgement, kept in Stratus's source for review.\n")
+	if proved {
+		w("- Load proofs drove each option's producer path (send, publish or put) against Stratus at the target rate for the stated time, in a throwaway account, under the aws-default limits profile. They exercise the quotas Stratus enforces (docs/limits.md) and the APIs' behaviour, not AWS's latency; quotas Stratus does not enforce, such as Kinesis per-shard writes, are covered by the rules above.\n")
+	}
 	if datedAt != nil {
 		w("- Prices come from a snapshot of AWS's public price list (<%s>) published %s and shipped in Stratus; rerun with a newer Stratus for newer prices.\n", datedAt.Source, datedAt.PricesAsOf)
 	}
@@ -151,6 +175,54 @@ func RenderADR(d Decision, f Family) string {
 		for _, u := range urls {
 			w("  - <%s>\n", u)
 		}
+	}
+	return b.String()
+}
+
+// proofCell is an option's load proof in the ranking table.
+func proofCell(d Decision, option string) string {
+	e, ok := d.EvidenceFor(option)
+	if !ok {
+		return "not run"
+	}
+	return fmt.Sprintf("%s at %s/s", proofLabel(e.Verdict), quantity(e.TargetRate))
+}
+
+func proofLabel(v ProofVerdict) string {
+	switch v {
+	case ProofHeld:
+		return "held"
+	case ProofThrottled:
+		return "throttled"
+	case ProofFailed:
+		return "failed"
+	default:
+		return "fell short"
+	}
+}
+
+// proofSentence describes a proof for an option's section.
+func proofSentence(e Evidence) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s at %s/s for %ss", proofLabel(e.Verdict), quantity(e.TargetRate), quantity(math.Round(e.DurationSeconds)))
+	if e.Scale != 1 {
+		fmt.Fprintf(&b, " (%s of the peak, quotas scaled alike)", strconv.FormatFloat(e.Scale, 'g', -1, 64))
+	}
+	fmt.Fprintf(&b, ": %s requests, %s/s on average, %s throttled, %s errors, p99 %s ms",
+		quantity(float64(e.Requests)), quantity(e.PerSecond), quantity(float64(e.Throttled)), quantity(float64(e.Errors)), quantity(e.P99MS))
+	if len(e.ThrottledBy) > 0 {
+		fmt.Fprintf(&b, "; throttled by `%s`", strings.Join(e.ThrottledBy, "`, `"))
+	}
+	fmt.Fprintf(&b, " (run `%s`", e.RunID)
+	if e.Account != "" {
+		fmt.Fprintf(&b, ", account %s", e.Account)
+	}
+	b.WriteString(").")
+	if e.Verdict == ProofShort {
+		b.WriteString(" The run did not reach the target rate, which says more about the machine running it than about AWS; prove again with a lower scale.")
+	}
+	for _, f := range e.Findings {
+		fmt.Fprintf(&b, " Finding: %s.", strings.TrimSuffix(f, "."))
 	}
 	return b.String()
 }

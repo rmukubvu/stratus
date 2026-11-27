@@ -239,6 +239,19 @@ func (c *Client) AdviseADR(ctx context.Context, id string) (string, error) {
 	return string(raw), err
 }
 
+// AdvisePlanProofs plans load proofs of a decision's candidate options. in
+// may set options, scale and duration_seconds.
+func (c *Client) AdvisePlanProofs(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/advise/decisions/"+url.PathEscape(id)+"/proofs", in)
+}
+
+// AdviseRecordEvidence attaches a finished load run to an option as its
+// proof. in sets option, run_id and target_rate, and may set scale and
+// account.
+func (c *Client) AdviseRecordEvidence(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/advise/decisions/"+url.PathEscape(id)+"/evidence", in)
+}
+
 // Diagnose explains recent failures. query may set since, service,
 // exclude_injected and max_groups.
 func (c *Client) Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error) {

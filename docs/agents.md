@@ -57,7 +57,8 @@ Logs go to stderr; stdout carries only protocol messages.
 | `stratus_check` | Scan a codebase for AWS calls Stratus would answer with 501, with file and line |
 | `stratus_kafka_clusters` | MSK clusters with the bootstrap broker address of each (see [msk.md](msk.md)) |
 | `stratus_dns_resolve` | Resolve a name against the Route 53 zones, including Cloud Map's records (see [route53.md](route53.md)) |
-| `stratus_advise_families` / `_start` / `_answer` / `_assess` / `_decide` / `_adr` / `_get` | Guide a choice of AWS services (SQS, SNS, EventBridge, Kinesis, MSK) to a ranked, quota-checked ADR (see [advise.md](advise.md)) |
+| `stratus_advise_families` / `_start` / `_answer` / `_assess` / `_decide` / `_adr` / `_get` | Guide a choice of AWS services (SQS, SNS, EventBridge, Kinesis, MSK) to a ranked, quota-checked, costed ADR (see [advise.md](advise.md)) |
+| `stratus_advise_plan_proofs` / `_record_evidence` | Plan k6 load proofs of the candidates, then record each run as evidence in the ADR |
 
 A failing tool returns `isError: true` with the control API's error code and a
 hint, so the agent can correct itself instead of guessing.

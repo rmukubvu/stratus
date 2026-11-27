@@ -106,6 +106,8 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 	_, _ = c.AdviseAssess(ctx, "adr-1")
 	_, _ = c.AdviseDecide(ctx, "adr-1", "kinesis", "")
 	_, _ = c.AdviseADR(ctx, "adr-1")
+	_, _ = c.AdvisePlanProofs(ctx, "adr-1", json.RawMessage(`{"scale":0.1}`))
+	_, _ = c.AdviseRecordEvidence(ctx, "adr-1", json.RawMessage(`{"option":"kinesis","run_id":"run-1"}`))
 
 	want := []string{
 		"POST /_stratus/control/v1/reset",
@@ -140,6 +142,8 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 		"POST /_stratus/control/v1/advise/decisions/adr-1/assess",
 		"POST /_stratus/control/v1/advise/decisions/adr-1/decide",
 		"GET /_stratus/control/v1/advise/decisions/adr-1/adr",
+		"POST /_stratus/control/v1/advise/decisions/adr-1/proofs",
+		"POST /_stratus/control/v1/advise/decisions/adr-1/evidence",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)

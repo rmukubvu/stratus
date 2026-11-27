@@ -677,6 +677,63 @@ export interface AdviseDecision {
   updated_at: string;
   assessed_at?: string;
   decided_at?: string;
+  /** Load proofs recorded against the current answers. */
+  evidence?: AdviseEvidence[];
+}
+
+/** How to prove one option under load, or why it cannot be proved on Stratus. */
+export interface AdviseProofPlan {
+  option: string;
+  provable: boolean;
+  reason?: string;
+  /** The throwaway account the proof runs in. */
+  account: string;
+  region: string;
+  /** Requests per second the script drives. */
+  rate: number;
+  duration_seconds: number;
+  scale: number;
+  operations?: { service: string; name: string }[];
+  /** The limits spec to run the proof under (PUT /limits, or stratus load run --limits). */
+  limits: { profile: string; scale: number };
+  /** A k6 script that reads STRATUS_ENDPOINT. */
+  script?: string;
+}
+
+export interface AdviseProofOptions {
+  options?: string[];
+  /** Fraction of the peak to run at, with quotas scaled alike; default 1. */
+  scale?: number;
+  duration_seconds?: number;
+}
+
+/** What a load proof recorded for one option. */
+export interface AdviseEvidence {
+  option: string;
+  run_id: string;
+  account?: string;
+  verdict: "held" | "throttled" | "failed" | "short";
+  target_rate: number;
+  scale: number;
+  duration_seconds: number;
+  requests: number;
+  ok: number;
+  throttled: number;
+  errors: number;
+  faults: number;
+  per_second: number;
+  p99_ms: number;
+  throttled_by?: string[];
+  findings?: string[];
+  recorded_at: string;
+}
+
+export interface AdviseEvidenceInput {
+  option: string;
+  run_id: string;
+  target_rate: number;
+  scale?: number;
+  account?: string;
 }
 
 export interface AdviseStartInput {

@@ -32,12 +32,15 @@ type Decision struct {
 	Status      Status           `json:"status"`
 	Answers     map[string]Value `json:"answers"`
 	Assessments []Assessment     `json:"assessments,omitempty"`
-	Chosen      string           `json:"chosen,omitempty"`
-	Rationale   string           `json:"rationale,omitempty"`
-	CreatedAt   time.Time        `json:"created_at"`
-	UpdatedAt   time.Time        `json:"updated_at"`
-	AssessedAt  *time.Time       `json:"assessed_at,omitempty"`
-	DecidedAt   *time.Time       `json:"decided_at,omitempty"`
+	// Evidence holds load proofs of options, recorded against the
+	// current answers.
+	Evidence   []Evidence `json:"evidence,omitempty"`
+	Chosen     string     `json:"chosen,omitempty"`
+	Rationale  string     `json:"rationale,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	AssessedAt *time.Time `json:"assessed_at,omitempty"`
+	DecidedAt  *time.Time `json:"decided_at,omitempty"`
 }
 
 const maxTitle = 200
@@ -59,7 +62,7 @@ func NewDecision(id, title string, f Family, now time.Time) (Decision, error) {
 
 // Answer validates and records answers. Every answer is checked before
 // any is applied, so a bad one changes nothing. A changed answer drops
-// the assessment, which no longer describes the workload.
+// the assessment and any proofs, which no longer describe the workload.
 func (d *Decision) Answer(f Family, raw map[string]any, now time.Time) error {
 	if d.Status == StatusDecided {
 		return conflict("DecisionAlreadyDecided", "decision "+d.ID+" is decided; its answers are fixed", "start a new decision to revisit it")
@@ -88,7 +91,7 @@ func (d *Decision) Answer(f Family, raw map[string]any, now time.Time) error {
 		d.Answers[id] = v
 	}
 	if changed {
-		d.Status, d.Assessments, d.AssessedAt = StatusDraft, nil, nil
+		d.Status, d.Assessments, d.AssessedAt, d.Evidence = StatusDraft, nil, nil, nil
 	}
 	d.UpdatedAt = now
 	return nil

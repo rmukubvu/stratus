@@ -159,7 +159,14 @@ POST /_stratus/control/v1/advise/decisions/{id}/answers record answers {answers:
 POST /_stratus/control/v1/advise/decisions/{id}/assess  judge and rank the options
 POST /_stratus/control/v1/advise/decisions/{id}/decide  choose an option {option, rationale?}
 GET  /_stratus/control/v1/advise/decisions/{id}/adr     the ADR as Markdown; ?format=json gives {id, markdown}
+POST /_stratus/control/v1/advise/decisions/{id}/proofs  plan load proofs {options?, scale?, duration_seconds?}
+POST /_stratus/control/v1/advise/decisions/{id}/evidence record a proof's run {option, run_id, target_rate, scale?, account?}
 ```
+
+A proof plan gives, per candidate option, a k6 `script`, the `limits` spec
+to run it under, its throwaway `account`, `rate` and `duration_seconds`,
+or `provable: false` with the `reason`. Evidence reads the finished load
+run and judges it `held`, `throttled`, `failed` or `short`.
 
 Each assessment carries a `cost` estimate when the family prices its
 options: `monthly_usd`, priced `lines`, `assumptions`, `prices_as_of` (the
@@ -169,7 +176,9 @@ lacks for the region; the total is then a lower bound).
 Errors: `UnknownDecisionFamily`, `UnknownQuestion` and `InvalidAnswer`
 (400, the hint names the values accepted), `DecisionNotFound` (404),
 `DecisionNotAssessed`, `OptionRuledOut` and `DecisionAlreadyDecided` (409,
-the hint names the options that can be chosen). See [advise.md](advise.md).
+the hint names the options that can be chosen). Proofs add `InvalidProofScale`,
+`InvalidProofDuration` and `InvalidEvidence` (400), and `ProofsUnsupported`,
+`NothingToProve`, `RunStillRecording` and `LoadRunsUnavailable` (409). See [advise.md](advise.md).
 
 ## MSK clusters
 

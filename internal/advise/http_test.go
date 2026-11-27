@@ -17,6 +17,11 @@ import (
 
 func newServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	return newServerWith(t, fakeFamily{}, nil)
+}
+
+func newServerWith(t *testing.T, f Family, runs RunSource) *httptest.Server {
+	t.Helper()
 	dir := t.TempDir()
 	meta, err := bbolt.Open(filepath.Join(dir, "meta.db"))
 	if err != nil {
@@ -27,12 +32,14 @@ func newServer(t *testing.T) *httptest.Server {
 	h := control.NewHandler(control.NewService(control.Options{
 		Catalog: control.DefaultCatalog(), State: meta, Blobs: fsblob.New(filepath.Join(dir, "blobs")), Snapshots: snaps,
 	}))
-	reg, err := NewRegistry(fakeFamily{})
+	reg, err := NewRegistry(f)
 	if err != nil {
 		t.Fatal(err)
 	}
 	n := 0
-	RegisterRoutes(h, NewService(NewStoreRepository(meta), reg, func() time.Time { return t0 }, func() string { n++; return "adr-" + string(rune('0'+n)) }))
+	svc := NewService(NewStoreRepository(meta), reg, func() time.Time { return t0 }, func() string { n++; return "adr-" + string(rune('0'+n)) })
+	svc.SetProofs(everything, runs)
+	RegisterRoutes(h, svc)
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return srv
@@ -91,5 +98,29 @@ func TestADecisionGoesFromQuestionsToAnADROverTheControlAPI(t *testing.T) {
 	}
 	if status, body = do(t, srv, "POST", "/decisions", `{"family":"databases"}`); status != 400 || !strings.Contains(body, "valid families are: fake") {
 		t.Fatalf("unknown family: %d %s", status, body)
+	}
+}
+
+func TestProofsArePlannedAndRecordedOverTheControlAPI(t *testing.T) {
+	runs := fakeRuns{"run-1": {ID: "run-1", Finished: true, DurationSeconds: 10, Requests: 1000, OK: 1000, PerSecond: 100}}
+	srv := newServerWith(t, provingFamily{}, runs)
+	do(t, srv, "POST", "/decisions", `{"family":"fake","answers":{"rate":100}}`)
+	if status, body := do(t, srv, "POST", "/decisions/adr-1/proofs", ""); status != 409 || !strings.Contains(body, "DecisionNotAssessed") {
+		t.Fatalf("plan before assess: %d %s", status, body)
+	}
+	do(t, srv, "POST", "/decisions/adr-1/assess", "")
+	status, body := do(t, srv, "POST", "/decisions/adr-1/proofs", `{"options":["simple"],"duration_seconds":10}`)
+	if status != 200 || !strings.Contains(body, `"provable": true`) || !strings.Contains(body, `"rate": 100`) || !strings.Contains(body, `"profile": "aws-default"`) {
+		t.Fatalf("plan: %d %s", status, body)
+	}
+	if status, body = do(t, srv, "POST", "/decisions/adr-1/proofs", `{"scale":5}`); status != 400 || !strings.Contains(body, "InvalidProofScale") {
+		t.Fatalf("bad scale: %d %s", status, body)
+	}
+	status, body = do(t, srv, "POST", "/decisions/adr-1/evidence", `{"option":"simple","run_id":"run-1","target_rate":100}`)
+	if status != 200 || !strings.Contains(body, `"verdict": "held"`) {
+		t.Fatalf("evidence: %d %s", status, body)
+	}
+	if status, body = do(t, srv, "GET", "/decisions/adr-1/adr", ""); !strings.Contains(body, "| held at 100/s |") {
+		t.Fatalf("adr: %d %s", status, body)
 	}
 }

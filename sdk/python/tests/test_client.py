@@ -114,6 +114,20 @@ class ClientTest(unittest.TestCase):
         )
         self.assertEqual(t.calls[0][2], {"name": "load.js", "limits": {"profile": "strict"}})
 
+    def test_advise_plans_proofs_and_records_their_runs(self) -> None:
+        plan = {"option": "kinesis", "provable": True, "rate": 200, "script": "// k6"}
+        c, t = client({"id": "adr-1", "proofs": [plan]}, {"id": "adr-1", "evidence": [{"option": "kinesis", "verdict": "held"}]})
+        self.assertEqual(c.advise.plan_proofs("adr-1", scale=0.1)[0]["script"], "// k6")
+        d = c.advise.record_evidence("adr-1", "kinesis", "run-3", 200, scale=0.1)
+        self.assertEqual(d["evidence"][0]["verdict"], "held")
+        self.assertEqual(
+            t.calls,
+            [
+                ("POST", "/advise/decisions/adr-1/proofs", {"scale": 0.1}),
+                ("POST", "/advise/decisions/adr-1/evidence", {"option": "kinesis", "run_id": "run-3", "target_rate": 200, "scale": 0.1}),
+            ],
+        )
+
     def test_advise_maps_a_decision_from_start_to_adr(self) -> None:
         d = {"id": "adr-1", "status": "draft"}
         ruled_out = StratusError("OptionRuledOut", "sqs-standard was ruled out", "choose one of: kinesis", 409)

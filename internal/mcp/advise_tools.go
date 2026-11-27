@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
+	"github.com/stratus/internal/advise"
 )
 
 // adviseTools guide an architecture decision: which AWS services fit a
@@ -132,6 +134,63 @@ func adviseTools(api ControlAPI) []Tool {
 					return nil, err
 				}
 				return map[string]string{"id": id, "markdown": md}, nil
+			},
+		},
+		{
+			Name: "stratus_advise_plan_proofs",
+			Description: "Plan load proofs of a decision's candidate options: for each, a k6 script that drives its producer path (send, publish or put) " +
+				"at the stated peak in a throwaway account, the limits profile to run it under, or the reason it cannot be proved on Stratus. " +
+				"Run each provable script yourself with: stratus load run --limits <file with the plan's limits> -- k6 run <script>; " +
+				"then record the run with stratus_advise_record_evidence. Or run 'stratus advise prove <id>', which does all of it. " +
+				"Use scale below 1 to prove a fraction of a high peak against quotas scaled alike.",
+			InputSchema: schema(map[string]any{
+				"id":               str("Decision ID."),
+				"options":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Options to prove; omit for every option that was not ruled out."},
+				"scale":            map[string]any{"type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "Fraction of the peak to run at, with quotas scaled the same; default 1."},
+				"duration_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 600, "description": "Seconds each proof runs; default 20."},
+			}, "id"),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					ID              string   `json:"id"`
+					Options         []string `json:"options"`
+					Scale           float64  `json:"scale"`
+					DurationSeconds int      `json:"duration_seconds"`
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				if a.ID == "" {
+					return nil, errors.New("invalid arguments: id is required")
+				}
+				body, _ := json.Marshal(map[string]any{"options": a.Options, "scale": a.Scale, "duration_seconds": a.DurationSeconds})
+				return api.AdvisePlanProofs(ctx, a.ID, body)
+			},
+		},
+		{
+			Name: "stratus_advise_record_evidence",
+			Description: "Record a finished load run as an option's proof. Stratus reads the run, judges it (held, throttled, failed, or fell short " +
+				"of the target rate) and the ADR shows it. Pass the option, rate, scale and account from the proof plan.",
+			InputSchema: schema(map[string]any{
+				"id":          str("Decision ID."),
+				"option":      str("Option the run proved, e.g. \"kinesis\"."),
+				"run_id":      str("The load run's ID, e.g. run-3 (from stratus load run or stratus_load_stop)."),
+				"target_rate": map[string]any{"type": "number", "minimum": 0, "description": "The plan's rate, per second."},
+				"scale":       map[string]any{"type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "The plan's scale."},
+				"account":     str("The plan's account."),
+			}, "id", "option", "run_id"),
+			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				a, err := decode[struct {
+					ID string `json:"id"`
+					advise.EvidenceInput
+				}](raw)
+				if err != nil {
+					return nil, err
+				}
+				if a.ID == "" || a.Option == "" || a.RunID == "" {
+					return nil, errors.New("invalid arguments: id, option and run_id are required")
+				}
+				body, _ := json.Marshal(a.EvidenceInput)
+				return api.AdviseRecordEvidence(ctx, a.ID, body)
 			},
 		},
 		{
