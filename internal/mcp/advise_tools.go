@@ -82,7 +82,8 @@ func adviseTools(api ControlAPI) []Tool {
 		{
 			Name: "stratus_advise_assess",
 			Description: "Judge every option against the answers and rank them: fits, fits with caveats, or ruled out, each with reasons " +
-				"citing AWS's documented quotas, a fit score and an ops-overhead score. Show the person the ranking and the reasons before deciding.",
+				"citing AWS's documented quotas, a fit score, an ops-overhead score and a monthly cost estimate (cost: on-demand list prices from a dated snapshot, " +
+				"at the average rate, with its assumptions). Show the person the ranking, the reasons and the costs before deciding.",
 			InputSchema: idSchema(),
 			Handler: func(ctx context.Context, raw json.RawMessage) (any, error) {
 				id, err := requireID(raw)

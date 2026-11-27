@@ -1,0 +1,3998 @@
+{
+ "fetched": "2026-11-27",
+ "prices": {
+  "eventbridge-custom-events": {
+   "description": "EventBridge custom events published (each 64 KiB chunk is one event)",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.33e-06
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 9e-07
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 9e-07
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.05e-06
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 9e-07
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.1e-06
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.17e-06
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.05e-06
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.1e-06
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.05e-06
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1e-06
+     }
+    ]
+   },
+   "service": "AWSEvents",
+   "unit": "events (64 KiB chunks)"
+  },
+  "kinesis-efo-consumer-shard-hours": {
+   "description": "Kinesis Data Streams enhanced fan-out consumer-shard-hours",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.024
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0202
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01755
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0195
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0185
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0195
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0175
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0175
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0184
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0184
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0184
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0184
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0166
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01932
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0166
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0165
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0165
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.018
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0198
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0162
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02655
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.017
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.017
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0179
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0179
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01785
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0187
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0187
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01575
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.03
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.015
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.015
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.018
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.018
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0182
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.015
+     }
+    ]
+   },
+   "service": "AmazonKinesis",
+   "unit": "consumer-shard-hours"
+  },
+  "kinesis-efo-data-retrieved": {
+   "description": "Kinesis Data Streams data read through enhanced fan-out",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0208
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0175
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01521
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0169
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.016
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0169
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0152
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0152
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0159
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0159
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0159
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0159
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0143
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.016695
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0143
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0143
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0143
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0156
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01716
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.014
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02301
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0147
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0147
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0155
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0155
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.015435
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01617
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0162
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01365
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.026
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.013
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.013
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0156
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0156
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0158
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.013
+     }
+    ]
+   },
+   "service": "AmazonKinesis",
+   "unit": "GB"
+  },
+  "kinesis-extended-retention-shard-hours": {
+   "description": "Kinesis Data Streams retention beyond 24 hours, up to 7 days",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.032
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.028
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0234
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.026
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0247
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.026
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0238
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0238
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0225
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02625
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0225
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.022
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.022
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.024
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0264
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0219
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0354
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.023
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.023
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0242
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0242
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02415
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0253
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0253
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.021
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.04
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.024
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.024
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02
+     }
+    ]
+   },
+   "service": "AmazonKinesis",
+   "unit": "shard-hours"
+  },
+  "kinesis-long-term-retention": {
+   "description": "Kinesis Data Streams data stored beyond 7 days",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0274
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0225
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0225
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02625
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0225
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0245
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02695
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.023
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.024
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.023
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.023
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.024
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.024
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02415
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0253
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.025
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02415
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0405
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.023
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.023
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.039
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.039
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.026
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.023
+     }
+    ]
+   },
+   "service": "AmazonKinesis",
+   "unit": "GB-months"
+  },
+  "kinesis-put-payload-units": {
+   "description": "Kinesis Data Streams PUT payload units (25 KiB each)",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 2.24e-08
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 2.15e-08
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.93e-08
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 2.15e-08
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 2.04e-08
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 2.15e-08
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.85e-08
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.85e-08
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.95e-08
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.95e-08
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.95e-08
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.95e-08
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.76e-08
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 2.05e-08
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.76e-08
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.54e-08
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.54e-08
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.75e-08
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.93e-08
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.57e-08
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 2.48e-08
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.65e-08
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.65e-08
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.73e-08
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.73e-08
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.73e-08
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.82e-08
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.82e-08
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.47e-08
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 2.8e-08
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.4e-08
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.4e-08
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.7e-08
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.7e-08
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.85e-08
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 1.4e-08
+     }
+    ]
+   },
+   "service": "AmazonKinesis",
+   "unit": "payload units (25 KiB)"
+  },
+  "kinesis-shard-hours": {
+   "description": "Kinesis Data Streams provisioned shard-hours",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.024
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0202
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01755
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0195
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0185
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0195
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0175
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0175
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0184
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0184
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0184
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0184
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0166
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01932
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0166
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0165
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0165
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.018
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0198
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0162
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.02655
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.017
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.017
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0179
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0179
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01785
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0187
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0187
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.01575
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.03
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.015
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.015
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.018
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.018
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0182
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.015
+     }
+    ]
+   },
+   "service": "AmazonKinesis",
+   "unit": "shard-hours"
+  },
+  "msk-broker-hours-m7g-large": {
+   "description": "MSK provisioned broker-hours, kafka.m7g.large",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.269999916
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2805
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.237
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2635
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2508
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2635
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.1458
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.1458
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.255
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.255
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.255
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.255
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.21675
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2678
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.21675
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2275
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2275
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2445
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.26875
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2168
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2273
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2275
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.236
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.238
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.23875
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2506
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.2805
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.21425
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.3253
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.204
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.204
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.257
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.257
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.238
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.204
+     }
+    ]
+   },
+   "service": "AmazonMSK",
+   "unit": "broker-hours"
+  },
+  "msk-storage": {
+   "description": "MSK provisioned broker storage",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.1309
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.132
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.0978
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.12
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.114
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.12
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.114
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.114
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.12
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.12
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.12
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.12
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.108
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.126
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.108
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.11
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.11
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.119
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.143
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.1045
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.1155
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.11
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.11
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.116
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.116
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.132
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.121
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.121
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.105
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.19
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.1
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.1
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.12
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.12
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.12
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 0.1
+     }
+    ]
+   },
+   "service": "AmazonMSK",
+   "unit": "GB-months"
+  },
+  "sns-requests": {
+   "description": "SNS standard topic API requests, including Publish (each 64 KiB chunk is one request)",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5.95e-07
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 4.5e-07
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5.25e-07
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5.5e-07
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5.25e-07
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5.25e-07
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5.5e-07
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5.25e-07
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 6e-07
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 0,
+      "usd": 6e-07
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 1000000.0,
+      "usd": 0.0
+     },
+     {
+      "from": 1000000.0,
+      "to": 0,
+      "usd": 5e-07
+     }
+    ]
+   },
+   "service": "AmazonSNS",
+   "unit": "requests"
+  },
+  "sqs-fifo-requests": {
+   "description": "SQS FIFO queue requests (each 64 KiB chunk of a payload is one request)",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5.95e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 5.4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 5.3e-07
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.8e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.5e-07
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4.5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.14e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.78e-07
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.7e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.3e-07
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.9e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.8e-07
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4.3e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.9e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.6e-07
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5.25e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.83e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.41e-07
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4.3e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.9e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.6e-07
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.8e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.4e-07
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5.5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 5.3e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.9e-07
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.8e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.4e-07
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5.25e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.8e-07
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.5e-07
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.5e-07
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.8e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.4e-07
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5.3e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.2e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.7e-07
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5.5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.9e-07
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.8e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.4e-07
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5.25e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.2e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.675e-07
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.9e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.8e-07
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.5e-07
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.5e-07
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.8e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.4e-07
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.8e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.4e-07
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 5e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.5e-07
+     }
+    ]
+   },
+   "service": "AWSQueueService",
+   "unit": "requests"
+  },
+  "sqs-standard-requests": {
+   "description": "SQS standard queue requests (each 64 KiB chunk of a payload is one request)",
+   "regions": {
+    "af-south-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4.76e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4.3e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 4.2e-07
+     }
+    ],
+    "ap-east-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.8e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.5e-07
+     }
+    ],
+    "ap-east-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 3.6e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.15e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.88e-07
+     }
+    ],
+    "ap-northeast-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "ap-northeast-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "ap-northeast-3": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.9e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.8e-07
+     }
+    ],
+    "ap-south-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "ap-south-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "ap-southeast-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "ap-southeast-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "ap-southeast-3": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "ap-southeast-4": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "ap-southeast-5": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 3.4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.7e-07
+     }
+    ],
+    "ap-southeast-6": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4.2e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.675e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.36e-07
+     }
+    ],
+    "ap-southeast-7": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 3.4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.7e-07
+     }
+    ],
+    "ca-central-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.1e-07
+     }
+    ],
+    "ca-west-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.1e-07
+     }
+    ],
+    "eu-central-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "eu-central-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4.4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.6e-07
+     }
+    ],
+    "eu-north-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "eu-south-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4.2e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.8e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.7e-07
+     }
+    ],
+    "eu-south-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.4e-07
+     }
+    ],
+    "eu-west-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.4e-07
+     }
+    ],
+    "eu-west-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.5e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "eu-west-3": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "il-central-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4.2e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.2e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.6e-07
+     }
+    ],
+    "me-central-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4.4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.3e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.7e-07
+     }
+    ],
+    "me-south-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "mx-central-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4.2e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.15e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.52e-07
+     }
+    ],
+    "sa-east-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.9e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.8e-07
+     }
+    ],
+    "us-east-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.4e-07
+     }
+    ],
+    "us-east-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.4e-07
+     }
+    ],
+    "us-gov-east-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "us-gov-west-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.6e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.2e-07
+     }
+    ],
+    "us-west-1": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3.4e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 3.1e-07
+     }
+    ],
+    "us-west-2": [
+     {
+      "from": 0.0,
+      "to": 100000000000.0,
+      "usd": 4e-07
+     },
+     {
+      "from": 100000000000.0,
+      "to": 200000000000.0,
+      "usd": 3e-07
+     },
+     {
+      "from": 200000000000.0,
+      "to": 0,
+      "usd": 2.4e-07
+     }
+    ]
+   },
+   "service": "AWSQueueService",
+   "unit": "requests"
+  }
+ },
+ "published": "2026-11-26",
+ "source": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/"
+}

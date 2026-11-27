@@ -2,7 +2,9 @@ package advise
 
 import (
 	"fmt"
+	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -51,11 +53,33 @@ func RenderADR(d Decision, f Family) string {
 	}
 
 	w("## Options considered\n\n")
-	w("| Rank | Option | Verdict | Fit | Ops overhead |\n| --- | --- | --- | --- | --- |\n")
+	// pricedAt is any estimate, for the cost column; datedAt is one that
+	// found prices, for their date and source.
+	var pricedAt, datedAt *Estimate
+	for _, a := range d.Assessments {
+		if a.Cost != nil && pricedAt == nil {
+			pricedAt = a.Cost
+		}
+		if a.Cost != nil && a.Cost.PricesAsOf != "" && datedAt == nil {
+			datedAt = a.Cost
+		}
+	}
+	if pricedAt != nil {
+		w("| Rank | Option | Verdict | Fit | Ops overhead | Est. monthly cost |\n| --- | --- | --- | --- | --- | --- |\n")
+	} else {
+		w("| Rank | Option | Verdict | Fit | Ops overhead |\n| --- | --- | --- | --- | --- |\n")
+	}
 	for i, a := range d.Assessments {
-		w("| %d | %s | %s | %d/100 | %d/15 |\n", i+1, name(a.Option), verdictLabel(a.Verdict), a.Score, opts[a.Option].Ops.Total())
+		w("| %d | %s | %s | %d/100 | %d/15 |", i+1, name(a.Option), verdictLabel(a.Verdict), a.Score, opts[a.Option].Ops.Total())
+		if pricedAt != nil {
+			w(" %s |", monthly(a.Cost))
+		}
+		w("\n")
 	}
 	w("\n")
+	if datedAt != nil {
+		w("Costs are estimates at the stated average rate from AWS on-demand list prices for %s, published %s, before the free tier, taxes and data transfer. \"At least\" marks an estimate missing a price.\n\n", datedAt.Region, datedAt.PricesAsOf)
+	}
 	sources := map[string]bool{}
 	for _, a := range d.Assessments {
 		w("### %s: %s\n\n", name(a.Option), verdictLabel(a.Verdict))
@@ -106,11 +130,17 @@ func RenderADR(d Decision, f Family) string {
 			w("| %s | %d/3 | %s |\n", s.Name, s.Score, escape(s.Reason))
 		}
 		w("\n")
+		if a.Cost != nil {
+			writeCost(w, name(shown), *a.Cost)
+		}
 	}
 
 	w("## Notes\n\n")
 	w("- Verdicts come from Stratus's rules for the %s family, checked against AWS's documented default quotas at the stated peak. They are not a load test.\n", strings.ToLower(f.Title()))
 	w("- Ops overhead scores are judgement, kept in Stratus's source for review.\n")
+	if datedAt != nil {
+		w("- Prices come from a snapshot of AWS's public price list (<%s>) published %s and shipped in Stratus; rerun with a newer Stratus for newer prices.\n", datedAt.Source, datedAt.PricesAsOf)
+	}
 	if len(sources) > 0 {
 		urls := make([]string, 0, len(sources))
 		for u := range sources {
@@ -123,6 +153,61 @@ func RenderADR(d Decision, f Family) string {
 		}
 	}
 	return b.String()
+}
+
+// writeCost renders an option's estimate: its lines, total and the
+// assumptions behind the usage model.
+func writeCost(w func(string, ...any), option string, e Estimate) {
+	w("Estimated monthly cost of %s in %s:\n\n", option, e.Region)
+	w("| Item | Quantity | Monthly |\n| --- | --- | --- |\n")
+	for _, l := range e.Lines {
+		w("| %s | %s %s | %s |\n", escape(l.Item), quantity(l.Quantity), l.Unit, usd(l.USD))
+	}
+	for _, id := range e.Unpriced {
+		w("| `%s` | no price for %s in the snapshot | not counted |\n", id, e.Region)
+	}
+	w("| **Total** | | **%s** |\n\n", monthly(&e))
+	for _, a := range e.Assumptions {
+		w("- Assumes: %s\n", a)
+	}
+	if len(e.Assumptions) > 0 {
+		w("\n")
+	}
+}
+
+// monthly prints an estimate's total, "at least" when a price is missing.
+func monthly(e *Estimate) string {
+	switch {
+	case e == nil:
+		return "not estimated"
+	case !e.Complete():
+		return "at least " + usd(e.MonthlyUSD)
+	default:
+		return usd(e.MonthlyUSD)
+	}
+}
+
+// usd prints dollars to the cent, with thousands separators.
+func usd(v float64) string {
+	cents := int64(math.Round(v * 100))
+	return "$" + thousands(cents/100) + fmt.Sprintf(".%02d", cents%100)
+}
+
+// quantity prints a usage quantity: whole numbers with separators, small
+// ones to two decimals.
+func quantity(v float64) string {
+	if v >= 100 {
+		return thousands(int64(math.Round(v)))
+	}
+	return strconv.FormatFloat(math.Round(v*100)/100, 'f', -1, 64)
+}
+
+func thousands(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }
 
 func adrStatus(s Status) string {

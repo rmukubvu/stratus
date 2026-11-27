@@ -111,6 +111,12 @@ func (d *Decision) Assess(f Family, now time.Time) error {
 	for _, a := range f.Assess(req) {
 		byID[a.Option] = a
 	}
+	costs := map[string]Estimate{}
+	if c, ok := f.(Coster); ok {
+		for _, e := range c.Costs(req) {
+			costs[e.Option] = e
+		}
+	}
 	out := make([]Assessment, 0, len(f.Options()))
 	for _, o := range f.Options() {
 		a, ok := byID[o.ID]
@@ -119,6 +125,9 @@ func (d *Decision) Assess(f Family, now time.Time) error {
 		}
 		if r := opsReason(o, capacity); r != nil {
 			a = Judge(o.ID, append(a.Reasons, *r))
+		}
+		if e, ok := costs[o.ID]; ok {
+			a.Cost = &e
 		}
 		out = append(out, a)
 	}

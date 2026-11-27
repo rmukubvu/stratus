@@ -577,11 +577,41 @@ class AdviseReason(TypedDict, total=False):
     citation: Dict[str, str]
 
 
-class AdviseAssessment(TypedDict):
+class AdviseCostLine(TypedDict):
+    item: str
+    price_id: str
+    quantity: float
+    unit: str
+    usd: float
+
+
+class _AdviseEstimateBase(TypedDict):
+    option: str
+    region: str
+    monthly_usd: float
+    lines: List[AdviseCostLine]
+
+
+class AdviseEstimate(_AdviseEstimateBase, total=False):
+    """An option's monthly cost at the stated average rate, from on-demand
+    list prices published on ``prices_as_of``. With ``unpriced`` set, the
+    total is a lower bound."""
+
+    unpriced: List[str]
+    assumptions: List[str]
+    prices_as_of: str
+    source: str
+
+
+class _AdviseAssessmentBase(TypedDict):
     option: str
     verdict: AdviseVerdict
     score: int
     reasons: List[AdviseReason]
+
+
+class AdviseAssessment(_AdviseAssessmentBase, total=False):
+    cost: AdviseEstimate
 
 
 class AdviseQuestion(TypedDict, total=False):

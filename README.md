@@ -476,8 +476,9 @@ Already have AWS Fault Injection Service templates? Point the FIS SDK or
 Not sure whether a workload wants SQS, SQS FIFO, SNS fan-out, EventBridge,
 Kinesis or MSK? `stratus advise` asks about ordering, rates, sizes,
 consumers, replay and how much the team can run, rules out what cannot
-work, checks the rest against AWS's documented quotas for the region and
-writes an ADR with the reasons and their sources:
+work, checks the rest against AWS's documented quotas for the region,
+estimates each option's monthly cost from a dated snapshot of AWS's price
+list and writes an ADR with the reasons and their sources:
 
 ```sh
 stratus advise ask messaging --title "Order events"

@@ -16,9 +16,33 @@ var documented = advise.QuotaFunc(func(id, region string) (advise.Quota, bool) {
 	return advise.Quota{ID: q.ID, Value: q.In(region), Source: q.Source}, ok
 })
 
+// listPrices is a fixed price book with us-east-1 list prices, so the
+// cost tests pin the usage model rather than whatever AWS charges today.
+// TestTheEmbeddedSnapshotPricesEveryMessagingItem in internal/app checks
+// the real snapshot carries every one of these IDs.
+var listPrices = advise.PriceFunc(func(id, region string) (advise.Price, bool) {
+	flat := map[string]float64{
+		priceSQSStandard: 0.40e-6, priceSQSFIFO: 0.50e-6, priceEventBridgeEvents: 1.00e-6,
+		priceKinesisShardHours: 0.015, priceKinesisPayload: 0.014e-6, priceKinesisExtended: 0.020,
+		priceKinesisLongTerm: 0.023, priceKinesisEFOHours: 0.015, priceKinesisEFOData: 0.013,
+		priceMSKBrokerHours: 0.204, priceMSKStorage: 0.10,
+	}
+	if region != "us-east-1" {
+		return advise.Price{}, false
+	}
+	if id == priceSNSRequests {
+		return advise.Price{ID: id, Unit: "requests", AsOf: "2026-11-26", Tiers: []advise.PriceTier{{From: 0, To: 1e6, USD: 0}, {From: 1e6, USD: 0.50e-6}}}, true
+	}
+	usd, ok := flat[id]
+	if !ok {
+		return advise.Price{}, false
+	}
+	return advise.Price{ID: id, Unit: "units", AsOf: "2026-11-26", Tiers: []advise.PriceTier{{From: 0, USD: usd}}}, true
+})
+
 func assess(t *testing.T, answers map[string]any) advise.Decision {
 	t.Helper()
-	f := New(documented)
+	f := New(documented, listPrices)
 	now := time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)
 	d, err := advise.NewDecision("adr-test", "", f, now)
 	if err != nil {
@@ -168,7 +192,7 @@ func TestKinesisShardCountComesFromRecordsOrBytesWhicheverIsLarger(t *testing.T)
 }
 
 func TestAMissingQuotaIsReportedAsNotCheckedInsteadOfPassing(t *testing.T) {
-	f := New(nil)
+	f := New(nil, nil)
 	now := time.Now()
 	d, _ := advise.NewDecision("adr-x", "", f, now)
 	if err := d.Assess(f, now); err != nil {

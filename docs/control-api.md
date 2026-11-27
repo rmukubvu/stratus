@@ -161,6 +161,11 @@ POST /_stratus/control/v1/advise/decisions/{id}/decide  choose an option {option
 GET  /_stratus/control/v1/advise/decisions/{id}/adr     the ADR as Markdown; ?format=json gives {id, markdown}
 ```
 
+Each assessment carries a `cost` estimate when the family prices its
+options: `monthly_usd`, priced `lines`, `assumptions`, `prices_as_of` (the
+AWS price list's publication date) and `unpriced` (prices the snapshot
+lacks for the region; the total is then a lower bound).
+
 Errors: `UnknownDecisionFamily`, `UnknownQuestion` and `InvalidAnswer`
 (400, the hint names the values accepted), `DecisionNotFound` (404),
 `DecisionNotAssessed`, `OptionRuledOut` and `DecisionAlreadyDecided` (409,

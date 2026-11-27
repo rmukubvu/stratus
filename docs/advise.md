@@ -4,7 +4,8 @@
 the choice as an architecture decision record (ADR). It asks a short set of
 questions, rules out the options that cannot meet a hard requirement, checks
 the rest against AWS's documented default quotas at the stated peak, ranks
-them with an ops-overhead score, and writes the ADR in the
+them with an ops-overhead score, estimates what each costs a month from a
+dated snapshot of AWS's price list, and writes the ADR in the
 [MADR](https://adr.github.io/madr/) layout.
 
 Every verdict carries its reasons, and every reason that rests on a quota
@@ -26,13 +27,15 @@ stratus advise ask messaging --title "Order events"
 ranking:
 
 ```
-1. kinesis        fits with caveats   95/100
+1. kinesis        fits with caveats   95/100  ~$345.04/month
      caveat: 3 consumers reading every record exceed 2 MiB/s of shared reads per shard; use enhanced fan-out or more shards.
-2. msk            fits with caveats   85/100
+2. msk            fits with caveats   85/100  ~$612.43/month
      caveat: Nothing here needs Kafka; a managed queue or stream does the job with no cluster to run.
-3. sqs-standard   ruled out            0/100
+3. sqs-standard   ruled out            0/100  ~$946.08/month
      ruled out: A consumed message is deleted, so it cannot be replayed.
 ...
+Costs: on-demand list prices published 2026-11-26, at the average rate; see the ADR for the breakdown.
+
 Next: stratus advise decide adr-6cd89c5e69ce kinesis --why "..."
 ```
 
@@ -92,6 +95,33 @@ rather than being ruled out. The scores are judgement. They live in
 `internal/advise/families/<family>/ops.go`, each with its reason, and the
 ADR labels them as judgement.
 
+## Cost
+
+Each option gets a monthly estimate at the stated **average** rate, from
+AWS on-demand list prices, before the free tier, taxes and data transfer.
+The ADR shows every option's total in the ranking and the chosen option's
+breakdown: each line with its quantity, and the assumptions of the usage
+model (no batching, provisioned Kinesis sized for the peak, three MSK
+brokers and so on), so a reviewer can redo the sum.
+
+Prices come from a snapshot of [AWS's public price
+list](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/index.json)
+shipped in the binary (`internal/pricing/snapshot.json`), so advice works
+offline and gives the same answer in CI. The ADR states the date AWS
+published the prices. A price missing for the region is listed as such and
+the total becomes "at least", never a silent zero.
+
+`scripts/pricing/snapshot.py` rebuilds the snapshot from the offer files
+(no AWS account needed); maintainers rerun it when prices change.
+
+| Option | What is priced |
+| --- | --- |
+| SQS standard / FIFO | Send, receive and delete per message, per 64 KiB chunk |
+| SNS to SQS | Publishes (first million free) plus each consumer's queue requests; SNS-to-SQS delivery is free |
+| EventBridge | Custom events per 64 KiB chunk; targets are billed by their own service |
+| Kinesis | Provisioned shard-hours for the peak, PUT payload units, retention beyond a day and beyond 7 days, enhanced fan-out when shared reads would not keep up |
+| MSK | Three kafka.m7g.large brokers and storage for the retained data, replicated three times |
+
 ## The messaging family
 
 | Question | ID | Default |
@@ -132,8 +162,9 @@ values, so a load run against the chosen option hits the quota the ADR
 cites.
 
 A few things the family does not model yet: SNS FIFO topics, EventBridge's
-per-event size limit (reported as not checked for events over 256 KiB) and
-MSK broker sizing. The verdicts are a quota check at the stated peak, not a
+per-event size limit (reported as not checked for events over 256 KiB), MSK
+broker sizing beyond the three-broker baseline, Kinesis on-demand pricing
+and Savings Plans or reserved pricing. The verdicts are a quota check at the stated peak, not a
 load test.
 
 ## Agents and SDKs
@@ -175,4 +206,7 @@ reasons per option. Quotas come through `advise.QuotaSource`, backed by
 `internal/limits`, so add any new number to `limits.Documented()` with its
 AWS source. Register the family in `internal/app/advise.go` and pin its
 behaviour with golden scenarios like
-`internal/advise/families/messaging/messaging_test.go`.
+`internal/advise/families/messaging/messaging_test.go`. To estimate cost,
+implement `advise.Coster` as well, reading prices through `advise.PriceBook`
+(backed by `internal/pricing`); add any new price to
+`scripts/pricing/snapshot.py` and rebuild the snapshot.

@@ -21,6 +21,7 @@ internal/awsmodel/      catalogue of AWS operations and constraints (generated) 
 internal/validation/    AWS-style request validation from the catalogue;  internal/check/  `stratus check`
 internal/mcp/           MCP server for agents;    internal/diagnose/ failure explanations
 internal/advise/        guided architecture decisions (stratus advise); families/<f>/ holds each family's rules
+internal/pricing/       dated AWS price snapshot (embedded); rebuilt by scripts/pricing/snapshot.py
 sdk/typescript, sdk/python   control-API SDKs, published as stratus-emulator
 docs/                   one page per feature
 test/contract/          end-to-end tests against a built binary (needs Docker for some)
@@ -57,8 +58,8 @@ scripts/fidelity/       runs AWS's evaluation suite against Stratus
   clock through `SetClock`. IDs must not be derived from the clock alone; it
   can be frozen.
 - **One rule lives once.** Policy evaluation is `iampolicy`, quotas are
-  `limits`, faults are `chaos`, tags are `tags`, scope and ARNs are `scope`.
-  Reuse them rather than writing a second copy in a service.
+  `limits`, prices are `pricing`, faults are `chaos`, tags are `tags`, scope
+  and ARNs are `scope`. Reuse them rather than writing a second copy in a service.
 - **Depend on ports, not packages.** A service takes what it calls as a
   small interface (see `control/ports.go`, `lambda.Invoker`); concrete
   wiring happens only in `internal/app`.

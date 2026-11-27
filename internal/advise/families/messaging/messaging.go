@@ -41,10 +41,17 @@ const (
 )
 
 // Family is the messaging decision family.
-type Family struct{ quotas advise.QuotaSource }
+type Family struct {
+	quotas advise.QuotaSource
+	prices advise.PriceBook
+}
 
-// New returns the family, reading AWS quotas from quotas.
-func New(quotas advise.QuotaSource) Family { return Family{quotas: quotas} }
+// New returns the family, reading AWS quotas from quotas and on-demand
+// prices from prices. Either may be nil: quotas then go unchecked and
+// estimates list every price as unpriced.
+func New(quotas advise.QuotaSource, prices advise.PriceBook) Family {
+	return Family{quotas: quotas, prices: prices}
+}
 
 // ID implements advise.Family.
 func (Family) ID() string { return "messaging" }
