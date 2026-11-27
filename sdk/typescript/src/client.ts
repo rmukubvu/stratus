@@ -1,6 +1,10 @@
 import { StratusError } from "./errors.js";
 import { FetchTransport, type FetchLike, type Transport } from "./transport.js";
 import type {
+  AdviseAnswers,
+  AdviseDecision,
+  AdviseFamily,
+  AdviseStartInput,
   BedrockFixture,
   BedrockFixtureInput,
   BedrockInvocation,
@@ -193,6 +197,54 @@ export class Runs {
       await this.stop(run.id);
       throw err;
     }
+  }
+}
+
+/**
+ * Guided architecture decisions: which AWS services fit a workload, judged
+ * against AWS's documented quotas, ending in a Markdown ADR.
+ */
+export class Advise {
+  constructor(private readonly t: Transport) {}
+
+  /** Decision families with their questions and candidate options. */
+  async families(): Promise<AdviseFamily[]> {
+    return (await this.t.request<{ families: AdviseFamily[] }>("GET", "/advise/families")).families;
+  }
+
+  /** Starts a decision; unanswered questions come back as pending, with defaults. */
+  start(input: AdviseStartInput): Promise<AdviseDecision> {
+    return this.t.request("POST", "/advise/decisions", input);
+  }
+
+  get(id: string): Promise<AdviseDecision> {
+    return this.t.request("GET", `/advise/decisions/${encodeURIComponent(id)}`);
+  }
+
+  /** Decisions, newest first. */
+  async list(): Promise<AdviseDecision[]> {
+    return (await this.t.request<{ decisions: AdviseDecision[] }>("GET", "/advise/decisions")).decisions;
+  }
+
+  /** Records answers by question ID. A changed answer drops the earlier assessment. */
+  answer(id: string, answers: AdviseAnswers): Promise<AdviseDecision> {
+    return this.t.request("POST", `/advise/decisions/${encodeURIComponent(id)}/answers`, { answers });
+  }
+
+  /** Judges and ranks the options against the answers. */
+  assess(id: string): Promise<AdviseDecision> {
+    return this.t.request("POST", `/advise/decisions/${encodeURIComponent(id)}/assess`);
+  }
+
+  /** Chooses an option that was not ruled out. Throws OptionRuledOut or DecisionNotAssessed otherwise. */
+  decide(id: string, option: string, rationale?: string): Promise<AdviseDecision> {
+    return this.t.request("POST", `/advise/decisions/${encodeURIComponent(id)}/decide`, { option, ...(rationale && { rationale }) });
+  }
+
+  /** The decision as a Markdown ADR. */
+  async adr(id: string): Promise<string> {
+    const out = await this.t.request<{ markdown: string }>("GET", `/advise/decisions/${encodeURIComponent(id)}/adr?format=json`);
+    return out.markdown;
   }
 }
 
@@ -395,6 +447,7 @@ export class StratusClient {
   readonly bedrock: Bedrock;
   readonly kafka: Kafka;
   readonly dns: Dns;
+  readonly advise: Advise;
   private readonly t: Transport;
 
   constructor(options: StratusClientOptions = {}) {
@@ -417,6 +470,7 @@ export class StratusClient {
     this.bedrock = new Bedrock(this.t);
     this.kafka = new Kafka(this.t);
     this.dns = new Dns(this.t);
+    this.advise = new Advise(this.t);
   }
 
   health(): Promise<Health> {

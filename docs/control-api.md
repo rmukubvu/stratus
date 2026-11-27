@@ -148,6 +148,24 @@ POST /_stratus/control/v1/runs/{id}/stop    stop a run and undo its limits and c
 A second start while a run records answers `RunInProgress` (409); an
 unknown run answers `NoSuchRun` (404). See [load.md](load.md).
 
+## Architecture decisions
+
+```
+GET  /_stratus/control/v1/advise/families               decision families, their questions and options
+POST /_stratus/control/v1/advise/decisions              start a decision {family, title?, answers?}
+GET  /_stratus/control/v1/advise/decisions              list decisions, newest first
+GET  /_stratus/control/v1/advise/decisions/{id}         a decision, its pending questions and ranking
+POST /_stratus/control/v1/advise/decisions/{id}/answers record answers {answers: {question_id: value}}
+POST /_stratus/control/v1/advise/decisions/{id}/assess  judge and rank the options
+POST /_stratus/control/v1/advise/decisions/{id}/decide  choose an option {option, rationale?}
+GET  /_stratus/control/v1/advise/decisions/{id}/adr     the ADR as Markdown; ?format=json gives {id, markdown}
+```
+
+Errors: `UnknownDecisionFamily`, `UnknownQuestion` and `InvalidAnswer`
+(400, the hint names the values accepted), `DecisionNotFound` (404),
+`DecisionNotAssessed`, `OptionRuledOut` and `DecisionAlreadyDecided` (409,
+the hint names the options that can be chosen). See [advise.md](advise.md).
+
 ## MSK clusters
 
 ```

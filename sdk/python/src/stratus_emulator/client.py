@@ -13,6 +13,9 @@ from typing import Any, Dict, Iterator, List, Optional, Union, cast
 from .errors import StratusError
 from .transport import Transport, UrllibTransport
 from .types import (
+    AdviseAnswers,
+    AdviseDecision,
+    AdviseFamily,
     BedrockFixture,
     BedrockInvocation,
     BedrockStatus,
@@ -389,6 +392,60 @@ class ChaosRun:
         self.report: Optional[ChaosReport] = None
 
 
+class Advise:
+    """Guided architecture decisions: which AWS services fit a workload, judged
+    against AWS's documented quotas, ending in a Markdown ADR."""
+
+    def __init__(self, transport: Transport) -> None:
+        self._t = transport
+
+    def families(self) -> List[AdviseFamily]:
+        """Decision families with their questions and candidate options."""
+        out = cast(Dict[str, Any], self._t.request("GET", "/advise/families"))
+        return cast(List[AdviseFamily], out.get("families") or [])
+
+    def start(self, family: str, title: Optional[str] = None, answers: Optional[AdviseAnswers] = None) -> AdviseDecision:
+        """Starts a decision; unanswered questions come back as pending, with defaults."""
+        body: Dict[str, Any] = {"family": family}
+        if title:
+            body["title"] = title
+        if answers:
+            body["answers"] = answers
+        return cast(AdviseDecision, self._t.request("POST", "/advise/decisions", body))
+
+    def get(self, decision_id: str) -> AdviseDecision:
+        return cast(AdviseDecision, self._t.request("GET", f"/advise/decisions/{_q(decision_id)}"))
+
+    def list(self) -> List[AdviseDecision]:
+        """Decisions, newest first."""
+        out = cast(Dict[str, Any], self._t.request("GET", "/advise/decisions"))
+        return cast(List[AdviseDecision], out.get("decisions") or [])
+
+    def answer(self, decision_id: str, answers: AdviseAnswers) -> AdviseDecision:
+        """Records answers by question ID. A changed answer drops the earlier assessment."""
+        return cast(AdviseDecision, self._t.request("POST", f"/advise/decisions/{_q(decision_id)}/answers", {"answers": answers}))
+
+    def assess(self, decision_id: str) -> AdviseDecision:
+        """Judges and ranks the options against the answers."""
+        return cast(AdviseDecision, self._t.request("POST", f"/advise/decisions/{_q(decision_id)}/assess"))
+
+    def decide(self, decision_id: str, option: str, rationale: Optional[str] = None) -> AdviseDecision:
+        """Chooses an option that was not ruled out; raises StratusError (OptionRuledOut, DecisionNotAssessed) otherwise."""
+        body: Dict[str, Any] = {"option": option}
+        if rationale:
+            body["rationale"] = rationale
+        return cast(AdviseDecision, self._t.request("POST", f"/advise/decisions/{_q(decision_id)}/decide", body))
+
+    def adr(self, decision_id: str) -> str:
+        """The decision as a Markdown ADR."""
+        out = cast(Dict[str, Any], self._t.request("GET", f"/advise/decisions/{_q(decision_id)}/adr?format=json"))
+        return str(out.get("markdown", ""))
+
+
+def _q(segment: str) -> str:
+    return urllib.parse.quote(segment, safe="")
+
+
 class StratusClient:
     """Client for the Stratus control API.
 
@@ -422,6 +479,7 @@ class StratusClient:
         self.bedrock = Bedrock(self._t)
         self.kafka = Kafka(self._t)
         self.dns = Dns(self._t)
+        self.advise = Advise(self._t)
 
     def health(self) -> Health:
         return cast(Health, self._t.request("GET", "/health"))

@@ -576,3 +576,85 @@ export interface LoadRunInfo {
   ended_at?: string;
   requests: number;
 }
+
+/** A question a decision family asks about the workload. */
+export interface AdviseQuestion {
+  id: string;
+  prompt: string;
+  why: string;
+  kind: "choice" | "quantity" | "bool" | "text";
+  choices?: Array<{ value: string; label: string }>;
+  unit?: string;
+  min?: number;
+  max?: number;
+  default: string | number | boolean;
+}
+
+/** One dimension of operational overhead, 0 (none) to 3 (a team's job). */
+export interface AdviseOpsScore {
+  score: number;
+  reason: string;
+}
+
+export interface AdviseOption {
+  id: string;
+  name: string;
+  services: string[];
+  summary: string;
+  ops: {
+    capacity_planning: AdviseOpsScore;
+    patching_and_upgrades: AdviseOpsScore;
+    scaling: AdviseOpsScore;
+    failure_modes_and_on_call: AdviseOpsScore;
+    skills_needed: AdviseOpsScore;
+  };
+}
+
+export interface AdviseFamily {
+  id: string;
+  title: string;
+  summary: string;
+  options: AdviseOption[];
+  questions: AdviseQuestion[];
+}
+
+export type AdviseAnswers = Record<string, string | number | boolean>;
+
+export interface AdviseReason {
+  kind: "ruled_out" | "caveat" | "strength" | "unchecked";
+  text: string;
+  citation?: { quota_id?: string; url?: string };
+}
+
+export interface AdviseAssessment {
+  option: string;
+  verdict: "fits" | "fits_with_caveats" | "ruled_out";
+  score: number;
+  reasons: AdviseReason[];
+}
+
+/** An architecture decision with what to do next. */
+export interface AdviseDecision {
+  id: string;
+  title: string;
+  family: string;
+  family_title: string;
+  status: "draft" | "assessed" | "decided";
+  answers: AdviseAnswers;
+  assessments?: AdviseAssessment[];
+  chosen?: string;
+  rationale?: string;
+  recommended?: string;
+  pending_questions: AdviseQuestion[];
+  next: string;
+  created_at: string;
+  updated_at: string;
+  assessed_at?: string;
+  decided_at?: string;
+}
+
+export interface AdviseStartInput {
+  family: string;
+  title?: string;
+  answers?: AdviseAnswers;
+}

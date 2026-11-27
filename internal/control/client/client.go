@@ -196,6 +196,49 @@ func (c *Client) ListRuns(ctx context.Context) (json.RawMessage, error) {
 	return c.Do(ctx, http.MethodGet, "/runs", nil)
 }
 
+// AdviseFamilies lists the decision families stratus advise knows, with
+// their questions and options.
+func (c *Client) AdviseFamilies(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/advise/families", nil)
+}
+
+// AdviseStart starts an architecture decision. in sets family, and may
+// set title and first answers.
+func (c *Client) AdviseStart(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/advise/decisions", in)
+}
+
+// AdviseList lists decisions, newest first.
+func (c *Client) AdviseList(ctx context.Context) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/advise/decisions", nil)
+}
+
+// AdviseGet returns a decision with its pending questions and ranking.
+func (c *Client) AdviseGet(ctx context.Context, id string) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodGet, "/advise/decisions/"+url.PathEscape(id), nil)
+}
+
+// AdviseAnswer records answers, keyed by question ID.
+func (c *Client) AdviseAnswer(ctx context.Context, id string, answers map[string]any) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/advise/decisions/"+url.PathEscape(id)+"/answers", map[string]any{"answers": answers})
+}
+
+// AdviseAssess judges and ranks a decision's options.
+func (c *Client) AdviseAssess(ctx context.Context, id string) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/advise/decisions/"+url.PathEscape(id)+"/assess", nil)
+}
+
+// AdviseDecide chooses an option, with an optional rationale.
+func (c *Client) AdviseDecide(ctx context.Context, id, option, rationale string) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/advise/decisions/"+url.PathEscape(id)+"/decide", map[string]string{"option": option, "rationale": rationale})
+}
+
+// AdviseADR returns a decision's ADR as Markdown.
+func (c *Client) AdviseADR(ctx context.Context, id string) (string, error) {
+	raw, err := c.Do(ctx, http.MethodGet, "/advise/decisions/"+url.PathEscape(id)+"/adr", nil)
+	return string(raw), err
+}
+
 // Diagnose explains recent failures. query may set since, service,
 // exclude_injected and max_groups.
 func (c *Client) Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error) {

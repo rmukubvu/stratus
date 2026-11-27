@@ -47,6 +47,9 @@ func NewCatalog(states ...ServiceState) (Catalog, error) {
 func DefaultCatalog() Catalog {
 	c, err := NewCatalog(
 		ServiceState{Name: "acm", BucketPrefixes: []string{"acm-"}},
+		// advise is not an AWS service: it keeps guided architecture
+		// decisions (stratus advise), which reset and snapshots cover too.
+		ServiceState{Name: "advise", BucketPrefixes: []string{"advise-"}},
 		ServiceState{Name: "apigateway", BucketPrefixes: []string{"apigateway-"}},
 		ServiceState{Name: "apigatewayv2", BucketPrefixes: []string{"apigatewayv2-"}},
 		ServiceState{Name: "bedrock", BucketPrefixes: []string{"bedrock-"}},

@@ -45,6 +45,14 @@ type ControlAPI interface {
 	BedrockInvocations(ctx context.Context, query url.Values) (json.RawMessage, error)
 	KafkaClusters(ctx context.Context) (json.RawMessage, error)
 	DNSResolve(ctx context.Context, name, rtype string) (json.RawMessage, error)
+	AdviseFamilies(ctx context.Context) (json.RawMessage, error)
+	AdviseStart(ctx context.Context, in json.RawMessage) (json.RawMessage, error)
+	AdviseList(ctx context.Context) (json.RawMessage, error)
+	AdviseGet(ctx context.Context, id string) (json.RawMessage, error)
+	AdviseAnswer(ctx context.Context, id string, answers map[string]any) (json.RawMessage, error)
+	AdviseAssess(ctx context.Context, id string) (json.RawMessage, error)
+	AdviseDecide(ctx context.Context, id, option, rationale string) (json.RawMessage, error)
+	AdviseADR(ctx context.Context, id string) (string, error)
 }
 
 // Instructions are sent to the client at initialization.
@@ -64,7 +72,11 @@ MSK clusters are real Kafka brokers: stratus_kafka_clusters gives each one's boo
 Route 53 zones and the records Cloud Map registers can be looked up with stratus_dns_resolve.
 Before relying on an AWS operation, stratus_coverage says whether Stratus implements it, and
 stratus_check scans a codebase for calls Stratus would answer with 501. Requests that break
-AWS's input constraints get AWS's own ValidationException, so fix the input rather than the test.`
+AWS's input constraints get AWS's own ValidationException, so fix the input rather than the test.
+When someone is choosing AWS services for a workload (which queue, stream or event bus), guide the
+decision with stratus_advise_start: ask the person its questions, stratus_advise_assess to rank the
+options with reasons tied to AWS quotas, let them choose (stratus_advise_decide), and write the ADR
+from stratus_advise_adr into the repository.`
 
 func schema(props map[string]any, required ...string) map[string]any {
 	s := map[string]any{"type": "object", "properties": props, "additionalProperties": false}
@@ -103,6 +115,10 @@ func requireName(raw json.RawMessage) (string, error) {
 
 // Tools returns the Stratus tools backed by api.
 func Tools(api ControlAPI) []Tool {
+	return append(coreTools(api), adviseTools(api)...)
+}
+
+func coreTools(api ControlAPI) []Tool {
 	return []Tool{
 		{
 			Name:        "stratus_connection_info",

@@ -114,6 +114,46 @@ class ClientTest(unittest.TestCase):
         )
         self.assertEqual(t.calls[0][2], {"name": "load.js", "limits": {"profile": "strict"}})
 
+    def test_advise_maps_a_decision_from_start_to_adr(self) -> None:
+        d = {"id": "adr-1", "status": "draft"}
+        ruled_out = StratusError("OptionRuledOut", "sqs-standard was ruled out", "choose one of: kinesis", 409)
+        c, t = client(
+            {"families": [{"id": "messaging"}]},
+            d,
+            d,
+            {**d, "status": "assessed", "recommended": "kinesis"},
+            {**d, "status": "decided", "chosen": "kinesis"},
+            {"id": "adr-1", "markdown": "# Order events\n"},
+            {"decisions": [d]},
+            ruled_out,
+        )
+        self.assertEqual(c.advise.families()[0]["id"], "messaging")
+        c.advise.start("messaging", title="Order events", answers={"replay": True})
+        c.advise.answer("adr-1", {"peak_rate": 2000})
+        self.assertEqual(c.advise.assess("adr-1")["recommended"], "kinesis")
+        self.assertEqual(c.advise.decide("adr-1", "kinesis", "we replay")["chosen"], "kinesis")
+        self.assertEqual(c.advise.adr("adr-1"), "# Order events\n")
+        self.assertEqual(len(c.advise.list()), 1)
+        with self.assertRaises(StratusError) as caught:
+            c.advise.decide("adr-1", "sqs-standard")
+        self.assertEqual(caught.exception.code, "OptionRuledOut")
+        self.assertEqual(
+            [(m, p) for m, p, _ in t.calls],
+            [
+                ("GET", "/advise/families"),
+                ("POST", "/advise/decisions"),
+                ("POST", "/advise/decisions/adr-1/answers"),
+                ("POST", "/advise/decisions/adr-1/assess"),
+                ("POST", "/advise/decisions/adr-1/decide"),
+                ("GET", "/advise/decisions/adr-1/adr?format=json"),
+                ("GET", "/advise/decisions"),
+                ("POST", "/advise/decisions/adr-1/decide"),
+            ],
+        )
+        self.assertEqual(t.calls[1][2], {"family": "messaging", "title": "Order events", "answers": {"replay": True}})
+        self.assertEqual(t.calls[4][2], {"option": "kinesis", "rationale": "we replay"})
+        self.assertEqual(t.calls[7][2], {"option": "sqs-standard"})
+
     def test_runs_findings_reads_the_latest_run(self) -> None:
         finding = {"detector": "missing_queue", "severity": "high", "title": "t", "detail": "d", "suggestion": "s"}
         c, t = client({"id": "run-1", "findings": [finding]})

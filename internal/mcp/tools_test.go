@@ -95,6 +95,31 @@ func (f *fakeAPI) BedrockInvocations(_ context.Context, q url.Values) (json.RawM
 	return f.rec("bedrock-invocations " + q.Encode())
 }
 
+func (f *fakeAPI) AdviseFamilies(context.Context) (json.RawMessage, error) {
+	return f.rec("advise-families")
+}
+func (f *fakeAPI) AdviseStart(_ context.Context, in json.RawMessage) (json.RawMessage, error) {
+	return f.rec("advise-start " + string(in))
+}
+func (f *fakeAPI) AdviseList(context.Context) (json.RawMessage, error) { return f.rec("advise-list") }
+func (f *fakeAPI) AdviseGet(_ context.Context, id string) (json.RawMessage, error) {
+	return f.rec("advise-get " + id)
+}
+func (f *fakeAPI) AdviseAnswer(_ context.Context, id string, answers map[string]any) (json.RawMessage, error) {
+	raw, _ := json.Marshal(answers)
+	return f.rec("advise-answer " + id + " " + string(raw))
+}
+func (f *fakeAPI) AdviseAssess(_ context.Context, id string) (json.RawMessage, error) {
+	return f.rec("advise-assess " + id)
+}
+func (f *fakeAPI) AdviseDecide(_ context.Context, id, option, why string) (json.RawMessage, error) {
+	return f.rec("advise-decide " + id + " " + option + " " + why)
+}
+func (f *fakeAPI) AdviseADR(_ context.Context, id string) (string, error) {
+	_, err := f.rec("advise-adr " + id)
+	return "# ADR", err
+}
+
 func call(t *testing.T, api *fakeAPI, name, args string) *toolResult {
 	t.Helper()
 	s, err := NewServer("stratus", "test", Instructions, Tools(api)...)
@@ -155,6 +180,14 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_kafka_clusters", `{}`, "kafka-clusters"},
 		{"stratus_dns_resolve", `{"name":"api.corp.local"}`, "dns-resolve api.corp.local "},
 		{"stratus_dns_resolve", `{"name":"api.corp.local","type":"SRV"}`, "dns-resolve api.corp.local SRV"},
+		{"stratus_advise_families", `{}`, "advise-families"},
+		{"stratus_advise_start", `{"family":"messaging","answers":{"replay":true}}`, `advise-start {"family":"messaging","answers":{"replay":true}}`},
+		{"stratus_advise_answer", `{"id":"adr-1","answers":{"peak_rate":2000}}`, `advise-answer adr-1 {"peak_rate":2000}`},
+		{"stratus_advise_assess", `{"id":"adr-1"}`, "advise-assess adr-1"},
+		{"stratus_advise_decide", `{"id":"adr-1","option":"kinesis","rationale":"replay"}`, "advise-decide adr-1 kinesis replay"},
+		{"stratus_advise_adr", `{"id":"adr-1"}`, "advise-adr adr-1"},
+		{"stratus_advise_get", `{"id":"adr-1"}`, "advise-get adr-1"},
+		{"stratus_advise_get", `{}`, "advise-list"},
 		{"stratus_bedrock_invocations", `{"model":"anthropic.*","contains":"refund","outcome":"missed","limit":3}`, "bedrock-invocations contains=refund&limit=3&model=anthropic.%2A&outcome=missed"},
 	}
 	for _, tc := range cases {

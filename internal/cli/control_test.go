@@ -20,10 +20,15 @@ type fakeControl struct {
 	endpoint string
 	// body, when set, is returned instead of {"ok":true}.
 	body string
+	// bodies, when set, answers a call by its first word.
+	bodies map[string]string
 }
 
 func (f *fakeControl) record(call string) (json.RawMessage, error) {
 	f.calls = append(f.calls, call)
+	if b, ok := f.bodies[strings.Fields(call + " ")[0]]; ok {
+		return json.RawMessage(b), f.err
+	}
 	if f.body != "" {
 		return json.RawMessage(f.body), f.err
 	}
