@@ -126,6 +126,11 @@ The rules use these documented quotas, kept once in `internal/limits`
 | Kinesis per shard: shared reads | 2 MiB/s | same |
 | Kinesis maximum record size / retention | 10 MiB / 365 days | same |
 
+The SNS publish and EventBridge PutEvents rates are also enforced by the
+`aws-default` limits profile (see [limits.md](limits.md)), from the same
+values, so a load run against the chosen option hits the quota the ADR
+cites.
+
 A few things the family does not model yet: SNS FIFO topics, EventBridge's
 per-event size limit (reported as not checked for events over 256 KiB) and
 MSK broker sizing. The verdicts are a quota check at the stated peak, not a

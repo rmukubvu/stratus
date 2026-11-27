@@ -1,5 +1,7 @@
 package limits
 
+import "maps"
+
 // defaultRates are the aws-default rate quotas: the default per-account
 // (or per-prefix) request rates AWS documents for the APIs most often
 // called on a hot path, checked against the AWS documentation in November
@@ -64,5 +66,29 @@ func defaultRates() []RateRule {
 			Operations: []string{"BatchGetSecretValue"},
 			PerSecond:  100, BurstSeconds: 1,
 		},
+		// SNS standard topics: published messages per second, per account,
+		// by region. Stratus counts each Publish or PublishBatch request
+		// as one, so a full batch of ten is under-counted.
+		documentedRate("sns-publish-rate", "Publish", "PublishBatch"),
+		// EventBridge PutEvents requests per second, per account, by
+		// region. A request may carry up to ten entries; the quota counts
+		// requests, as Stratus does.
+		documentedRate("eventbridge-putevents-rate", "PutEvents"),
+	}
+}
+
+// documentedRate turns a per-second account quota from Documented() into
+// a rate rule with the same ID, so the number the advisor cites and the
+// number the governor enforces are one value. It panics when the ID is
+// not a per-second account quota: that is a mistake in this file, caught
+// by any test that loads the default profile.
+func documentedRate(id string, operations ...string) RateRule {
+	q, ok := DocumentedQuota(id)
+	if !ok || q.Unit != UnitPerSecond || q.Per != "account" {
+		panic("limits: " + id + " is not a documented per-second account quota")
+	}
+	return RateRule{
+		ID: q.ID, Service: q.Service, Per: ScopeAccount, Operations: operations,
+		PerSecond: q.Value, RegionPerSecond: maps.Clone(q.RegionValues), BurstSeconds: 1,
 	}
 }
