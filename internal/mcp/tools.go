@@ -55,6 +55,8 @@ type ControlAPI interface {
 	AdviseADR(ctx context.Context, id string) (string, error)
 	AdvisePlanProofs(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error)
 	AdviseRecordEvidence(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error)
+	AdviseTerraform(ctx context.Context, id, option string) (json.RawMessage, error)
+	AdviseRecordDeployment(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error)
 }
 
 // Instructions are sent to the client at initialization.
@@ -78,7 +80,8 @@ AWS's input constraints get AWS's own ValidationException, so fix the input rath
 When someone is choosing AWS services for a workload (which queue, stream or event bus), guide the
 decision with stratus_advise_start: ask the person its questions, stratus_advise_assess to rank the
 options with reasons tied to AWS quotas, let them choose (stratus_advise_decide), and write the ADR
-from stratus_advise_adr into the repository.`
+from stratus_advise_adr into the repository. stratus_advise_terraform writes Terraform for the choice,
+with an override to test-deploy it against Stratus first.`
 
 func schema(props map[string]any, required ...string) map[string]any {
 	s := map[string]any{"type": "object", "properties": props, "additionalProperties": false}

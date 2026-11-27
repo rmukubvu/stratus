@@ -8,12 +8,13 @@ protocols, so the AWS CLI and every current AWS SDK work unchanged.
 | Operation | Notes |
 | --- | --- |
 | `CreateQueue`, `GetQueueUrl`, `ListQueues`, `DeleteQueue` | |
-| `GetQueueAttributes`, `SetQueueAttributes`, `ListQueueTags` | `RedrivePolicy` moves messages to a dead-letter queue after `maxReceiveCount` receives |
+| `GetQueueAttributes`, `SetQueueAttributes` | `RedrivePolicy` moves messages to a dead-letter queue after `maxReceiveCount` receives. `SqsManagedSseEnabled`, `KmsMasterKeyId` and `KmsDataKeyReusePeriodSeconds` are kept and read back; messages are not encrypted at rest |
+| `TagQueue`, `UntagQueue`, `ListQueueTags` | Also `tags` on `CreateQueue`; at most 50 per queue |
 | `SendMessage`, `ReceiveMessage`, `DeleteMessage`, `ChangeMessageVisibility` | Long polling with `WaitTimeSeconds` |
 | `SendMessageBatch`, `DeleteMessageBatch`, `ChangeMessageVisibilityBatch` | Each entry succeeds or fails on its own, as in AWS |
 
-FIFO queues, message attributes and queue tags are not implemented yet and
-return `NotImplemented`.
+FIFO queues and message attributes are not implemented yet and return
+`NotImplemented`.
 
 ## Lambda event source mappings
 

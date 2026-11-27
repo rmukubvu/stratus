@@ -151,6 +151,7 @@ func RenderADR(d Decision, f Family) string {
 			writeCost(w, name(shown), *a.Cost)
 		}
 	}
+	writeInfrastructure(w, d, f, shown, name)
 
 	w("## Notes\n\n")
 	w("- Verdicts come from Stratus's rules for the %s family, checked against AWS's documented default quotas at the stated peak.", strings.ToLower(f.Title()))
@@ -177,6 +178,62 @@ func RenderADR(d Decision, f Family) string {
 		}
 	}
 	return b.String()
+}
+
+// writeInfrastructure points at the Terraform for the shown option and
+// reports every recorded test deploy.
+func writeInfrastructure(w func(string, ...any), d Decision, f Family, shown string, name func(string) string) {
+	m, err := d.Terraform(f, shown)
+	if err != nil && len(d.Deployments) == 0 {
+		return
+	}
+	w("## Infrastructure\n\n")
+	if err == nil {
+		w("`stratus advise terraform %s --out infra` writes Terraform for %s: a root module with versions.tf, variables.tf, main.tf and outputs.tf, sized from the requirements above.", d.ID, name(m.Option))
+		_, deployed := d.DeploymentFor(m.Option)
+		switch {
+		case !m.Deployable:
+			w(" %s", m.Reason)
+		case !deployed:
+			w(" It has not been test-deployed; `stratus advise terraform %s --deploy` applies it to Stratus, re-plans it and destroys it.", d.ID)
+		}
+		w("\n\n")
+	}
+	for _, dep := range d.Deployments {
+		w("- **Test deploy of %s:** %s\n", name(dep.Option), deploySentence(dep))
+	}
+	if len(d.Deployments) > 0 {
+		w("\n")
+	}
+}
+
+func deploySentence(dep Deployment) string {
+	date := dep.RecordedAt.Format("2006-01-02")
+	var s string
+	switch dep.Outcome {
+	case DeployPassed:
+		s = fmt.Sprintf("on %s, %s applied %s to Stratus, a plan straight after found nothing to change, and destroy removed everything.", date, dep.Tool, resources(dep.Resources))
+	case DeployDrifted:
+		s = fmt.Sprintf("on %s, %s applied %s to Stratus and destroyed everything, but a plan straight after the apply wanted changes, so a resource reads back differently than it was written.", date, dep.Tool, resources(dep.Resources))
+	default:
+		s = fmt.Sprintf("failed on %s.", date)
+	}
+	if dep.Detail != "" {
+		s += " " + strings.TrimSuffix(firstLine(dep.Detail), ".") + "."
+	}
+	return s
+}
+
+func resources(n int) string {
+	if n == 1 {
+		return "1 resource"
+	}
+	return fmt.Sprintf("%d resources", n)
+}
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	return line
 }
 
 // proofCell is an option's load proof in the ranking table.

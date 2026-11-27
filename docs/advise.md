@@ -6,7 +6,8 @@ questions, rules out the options that cannot meet a hard requirement, checks
 the rest against AWS's documented default quotas at the stated peak, ranks
 them with an ops-overhead score, estimates what each costs a month from a
 dated snapshot of AWS's price list, can prove the candidates under load
-with k6, and writes the ADR in the
+with k6, writes Terraform for the choice and test-deploys it against
+Stratus, and writes the ADR in the
 [MADR](https://adr.github.io/madr/) layout.
 
 Every verdict carries its reasons, and every reason that rests on a quota
@@ -44,6 +45,7 @@ Then choose and write the ADR into the repository:
 
 ```sh
 stratus advise decide adr-6cd89c5e69ce kinesis --why "consumers replay orders per customer"
+stratus advise terraform adr-6cd89c5e69ce --out infra/order-events --deploy
 stratus advise adr adr-6cd89c5e69ce --out docs/adr/0001-order-events.md
 ```
 
@@ -60,6 +62,7 @@ is a complete ADR made this way.
 | `stratus advise assess <decision>` | Judge and rank the options against the answers |
 | `stratus advise prove <decision> [--option o] [--scale f] [--duration d]` | Run each candidate's producer path with k6 under AWS's quotas and record the evidence |
 | `stratus advise decide <decision> <option> [--why text]` | Choose an option that was not ruled out |
+| `stratus advise terraform <decision> [--option o] [--out dir] [--deploy]` | Write Terraform for the chosen (or top-ranked) option; `--deploy` applies it to Stratus, re-plans and destroys it |
 | `stratus advise adr <decision> [--out file]` | The ADR as Markdown |
 | `stratus advise show <decision>` / `list` | A decision with its pending questions, or all of them |
 
@@ -146,6 +149,63 @@ with `POST .../evidence` or `stratus_advise_record_evidence`. Payloads are
 capped at 64 KiB per message, and consumers are not driven: queue and
 stream reads are covered by the rules.
 
+## Terraform
+
+`stratus advise terraform <decision>` writes a Terraform root module for
+the chosen option (before a choice, the one ranked first; `--option` picks
+another that was not ruled out) into `--out` (default `infra`):
+
+| File | Holds |
+| --- | --- |
+| `versions.tf` | Terraform 1.5+, the `hashicorp/aws` provider `~> 5.0`, `region = var.region` and `default_tags` |
+| `variables.tf` | `name` (a slug of the decision's title), `region`, `tags` (`adr = <decision>`) and the option's own sizes |
+| `main.tf` | The resources |
+| `outputs.tf` | What producers and consumers need: queue URLs, topic, bus or stream ARNs |
+
+The sizes come from the answers: queue retention from `retention_days`,
+one queue per consumer for fan-out, Kinesis shards from the peak and the
+per-shard write quotas (the same count the cost estimate prices),
+Kinesis retention in hours, MSK broker storage from the retained data. The
+resources follow AWS's defaults for production: every queue has a
+dead-letter queue and server-side encryption and long-polls, topics and
+streams are encrypted with the AWS-managed KMS keys, and a consumer queue's
+policy admits only the topic or rule that delivers to it. Copy `main.tf`
+into your own module if you already have one.
+
+### Test deploy
+
+`--deploy` proves the module deploys before anyone applies it to AWS. In a
+scratch copy of the module (the files in `--out` are left as written) it
+adds `stratus_override.tf`, which points the AWS provider at Stratus in the
+option's throwaway account, then runs:
+
+1. `terraform init`
+2. `terraform apply`
+3. `terraform plan -detailed-exitcode`: exit 0 means every resource read
+   back exactly as it was written
+4. `terraform destroy`, which runs even when apply failed
+
+and records the outcome on the decision, where the ADR's Infrastructure
+section shows it:
+
+| Outcome | Meaning |
+| --- | --- |
+| `passed` | Applied, the plan straight after found nothing to change, destroyed |
+| `drifted` | Applied and destroyed, but the plan after apply wanted changes; `detail` names the resources |
+| `failed` | Init, apply, plan or destroy failed; `detail` is the first `Error:` line |
+
+```
+wrote Terraform for kinesis to infra/order-events/ (versions.tf, variables.tf, main.tf, outputs.tf)
+test deploy passed: 1 resource applied; a plan straight after found nothing to change, and destroy removed everything
+```
+
+The test deploy needs `terraform` (or pass `--terraform tofu`) and reaches
+the Terraform registry for the provider on its first run; providers are
+cached under the user cache directory unless `TF_PLUGIN_CACHE_DIR` is set.
+SQS FIFO (Stratus does not implement FIFO queues yet) and MSK (it needs
+your VPC's subnets and starts a Kafka container) are written but not
+test-deployed. CDK output is planned.
+
 ## Cost
 
 Each option gets a monthly estimate at the stated **average** rate, from
@@ -222,8 +282,9 @@ stated peak; `stratus advise prove` adds a load test.
 
 Over MCP the tools are `stratus_advise_families`, `stratus_advise_start`,
 `stratus_advise_answer`, `stratus_advise_assess`, `stratus_advise_decide`,
-`stratus_advise_adr`, `stratus_advise_get`, `stratus_advise_plan_proofs` and
-`stratus_advise_record_evidence`. Their descriptions tell the
+`stratus_advise_adr`, `stratus_advise_get`, `stratus_advise_plan_proofs`,
+`stratus_advise_record_evidence`, `stratus_advise_terraform` and
+`stratus_advise_record_deployment`. Their descriptions tell the
 agent to ask the person each pending question rather than guess, and to let
 the person make the choice.
 
@@ -232,6 +293,7 @@ const d = await stratus.advise.start({ family: "messaging", title: "Order events
 const ranked = await stratus.advise.assess(d.id);
 const plans = await stratus.advise.planProofs(d.id, { scale: 0.1 }); // run each plan.script with k6, then recordEvidence
 await stratus.advise.decide(d.id, ranked.recommended!, "we replay");
+const tf = await stratus.advise.terraform(d.id); // tf.module.files, and tf.test_deploy.override to apply against Stratus
 await fs.writeFile("docs/adr/0001-order-events.md", await stratus.advise.adr(d.id));
 ```
 
@@ -239,6 +301,8 @@ await fs.writeFile("docs/adr/0001-order-events.md", await stratus.advise.adr(d.i
 d = stratus.advise.start("messaging", title="Order events", answers={"replay": True, "consumers": 3})
 ranked = stratus.advise.assess(d["id"])
 stratus.advise.decide(d["id"], ranked["recommended"], "we replay")
+for f in stratus.advise.terraform(d["id"])["module"]["files"]:
+    Path("infra", f["name"]).write_text(f["content"])
 Path("docs/adr/0001-order-events.md").write_text(stratus.advise.adr(d["id"]))
 ```
 

@@ -165,6 +165,23 @@ func (s *Service) RecordEvidence(id string, in EvidenceInput) (View, error) {
 	})
 }
 
+// Terraform writes the Terraform module for one of a decision's options:
+// the given one, or the chosen (else top-ranked) option when it is empty.
+func (s *Service) Terraform(id, option string) (TerraformModule, error) {
+	d, f, err := s.load(id)
+	if err != nil {
+		return TerraformModule{}, err
+	}
+	return d.Terraform(f, option)
+}
+
+// RecordDeployment attaches a test deploy of an option's Terraform.
+func (s *Service) RecordDeployment(id string, in DeploymentInput) (View, error) {
+	return s.update(id, func(d *Decision, _ Family, now time.Time) error {
+		return d.RecordDeployment(in, now)
+	})
+}
+
 // ADR renders a decision as a Markdown architecture decision record.
 func (s *Service) ADR(id string) (string, error) {
 	d, f, err := s.load(id)
@@ -237,7 +254,7 @@ func (s *Service) view(d Decision, f Family) View {
 	}
 	switch {
 	case d.Status == StatusDecided:
-		v.Next = "Decided. Export the ADR (GET .../adr) and commit it with the code."
+		v.Next = "Decided. Write the Terraform (GET .../terraform) and test-deploy it against Stratus, then export the ADR (GET .../adr) and commit both with the code."
 	case d.Status == StatusAssessed && len(d.Evidence) == 0:
 		v.Next = "Review the ranked options with the person. To check them under load, plan proofs (POST .../proofs) and run them; then decide with one that fits."
 	case d.Status == StatusAssessed:

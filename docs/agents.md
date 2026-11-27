@@ -59,6 +59,7 @@ Logs go to stderr; stdout carries only protocol messages.
 | `stratus_dns_resolve` | Resolve a name against the Route 53 zones, including Cloud Map's records (see [route53.md](route53.md)) |
 | `stratus_advise_families` / `_start` / `_answer` / `_assess` / `_decide` / `_adr` / `_get` | Guide a choice of AWS services (SQS, SNS, EventBridge, Kinesis, MSK) to a ranked, quota-checked, costed ADR (see [advise.md](advise.md)) |
 | `stratus_advise_plan_proofs` / `_record_evidence` | Plan k6 load proofs of the candidates, then record each run as evidence in the ADR |
+| `stratus_advise_terraform` / `_record_deployment` | Write Terraform for the chosen option with an override to test-deploy it against Stratus, then record the apply, re-plan and destroy in the ADR |
 
 A failing tool returns `isError: true` with the control API's error code and a
 hint, so the agent can correct itself instead of guessing.

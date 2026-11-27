@@ -22,6 +22,7 @@ import (
 	"github.com/stratus/internal/services/sqs"
 	"github.com/stratus/internal/services/stepfunctions"
 	"github.com/stratus/internal/store"
+	"github.com/stratus/internal/tags"
 )
 
 const (
@@ -71,6 +72,7 @@ type eventBusRecord struct {
 	Arn       string    `json:"arn"`
 	CreatedAt time.Time `json:"created_at"`
 	Name      string    `json:"name"`
+	Tags      tags.List `json:"tags,omitempty"`
 }
 
 type ruleRecord struct {
@@ -83,6 +85,7 @@ type ruleRecord struct {
 	ScheduleExpression string    `json:"schedule_expression,omitempty"`
 	State              string    `json:"state"`
 	LastTriggeredAt    time.Time `json:"last_triggered_at,omitempty"`
+	Tags               tags.List `json:"tags,omitempty"`
 }
 
 type targetRecord struct {
@@ -94,7 +97,8 @@ type targetRecord struct {
 }
 
 type createEventBusInput struct {
-	Name string `json:"Name"`
+	Name string    `json:"Name"`
+	Tags tags.List `json:"Tags"`
 }
 
 type deleteEventBusInput struct {
@@ -102,13 +106,14 @@ type deleteEventBusInput struct {
 }
 
 type putRuleInput struct {
-	Description        string `json:"Description"`
-	EventBusName       string `json:"EventBusName"`
-	EventPattern       string `json:"EventPattern"`
-	Name               string `json:"Name"`
-	RoleArn            string `json:"RoleArn"`
-	ScheduleExpression string `json:"ScheduleExpression"`
-	State              string `json:"State"`
+	Description        string    `json:"Description"`
+	EventBusName       string    `json:"EventBusName"`
+	EventPattern       string    `json:"EventPattern"`
+	Name               string    `json:"Name"`
+	RoleArn            string    `json:"RoleArn"`
+	ScheduleExpression string    `json:"ScheduleExpression"`
+	State              string    `json:"State"`
+	Tags               tags.List `json:"Tags"`
 }
 
 type createArchiveInput struct {
@@ -225,6 +230,14 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.listEventBuses(w)
 	case "DeleteEventBus":
 		return s.deleteEventBus(w, r)
+	case "DescribeEventBus":
+		return s.describeEventBus(w, r)
+	case "TagResource":
+		return s.tagResource(w, r)
+	case "UntagResource":
+		return s.untagResource(w, r)
+	case "ListTagsForResource":
+		return s.listTagsForResource(w, r)
 	case "PutRule":
 		return s.putRule(w, r)
 	case "DescribeRule":
@@ -272,10 +285,14 @@ func (s *Service) createEventBus(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
+	if err := validateTags(input.Tags); err != nil {
+		return err
+	}
 	record := eventBusRecord{
 		Arn:       s.eventBusARN(input.Name),
 		CreatedAt: s.now().UTC(),
 		Name:      input.Name,
+		Tags:      input.Tags,
 	}
 	if err := s.putEventBus(record); err != nil {
 		return internal(err)
@@ -367,6 +384,7 @@ func (s *Service) PutRule(input PutRuleInput) (string, error) {
 	}
 	if existing, err := s.loadRule(busName, input.Name); err == nil {
 		record.CreatedAt = existing.CreatedAt
+		record.Tags = existing.Tags
 	}
 	if err := s.putRuleRecord(record); err != nil {
 		return "", internal(err)
@@ -514,8 +532,14 @@ func (s *Service) putRule(w http.ResponseWriter, r *http.Request) error {
 		ScheduleExpression: input.ScheduleExpression,
 		State:              state,
 	}
+	if err := validateTags(input.Tags); err != nil {
+		return err
+	}
+	record.Tags = input.Tags
 	if existing, err := s.loadRule(busName, input.Name); err == nil {
+		// PutRule on an existing rule keeps its tags and adds any given.
 		record.CreatedAt = existing.CreatedAt
+		record.Tags = existing.Tags.Merge(input.Tags)
 	}
 	if err := s.putRuleRecord(record); err != nil {
 		return internal(err)

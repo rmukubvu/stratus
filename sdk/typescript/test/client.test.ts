@@ -442,4 +442,23 @@ describe("advise", () => {
     assert.deepEqual(calls[0]?.body, { scale: 0.1 });
     assert.deepEqual(calls[1]?.body, { option: "kinesis", run_id: "run-3", target_rate: 200, scale: 0.1 });
   });
+
+  test("terraform is written and its test deploy recorded", async () => {
+    const mod = { option: "kinesis", region: "us-east-1", files: [{ name: "main.tf", content: "resource {}" }], endpoints: ["kinesis"], deployable: true, account: "912345678901" };
+    const { fetch, calls } = fakeFetch(
+      { body: { id: "adr-1", module: mod, test_deploy: { override: { name: "stratus_override.tf", content: "provider {}" }, steps: [] } } },
+      { body: { id: "adr-1", deployments: [{ option: "kinesis", tool: "terraform", outcome: "passed", resources: 1 }] } },
+    );
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch });
+
+    const tf = await c.advise.terraform("adr-1", "kinesis");
+    assert.equal(tf.test_deploy?.override.name, "stratus_override.tf");
+    const d = await c.advise.recordDeployment("adr-1", { option: "kinesis", outcome: "passed", resources: 1 });
+    assert.equal(d.deployments?.[0]?.outcome, "passed");
+    assert.deepEqual(
+      calls.map((x) => `${x.method} ${x.url.slice(base.length)}`),
+      ["GET /advise/decisions/adr-1/terraform?option=kinesis", "POST /advise/decisions/adr-1/deployments"],
+    );
+    assert.deepEqual(calls[1]?.body, { option: "kinesis", outcome: "passed", resources: 1 });
+  });
 });

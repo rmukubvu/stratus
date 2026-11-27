@@ -110,12 +110,8 @@ func (f Family) eventBridgeCost(w workload, m month) advise.Estimate {
 
 func (f Family) kinesisCost(w workload, q quotaReader, m month) advise.Estimate {
 	b := advise.NewEstimate(f.prices, Kinesis, w.region)
-	shards := 1
-	records, ok1 := q.get("kinesis-shard-write-records")
-	bytes, ok2 := q.get("kinesis-shard-write-bytes")
-	if ok1 && ok2 {
-		shards = shardsFor(w, records.Value, bytes.Value)
-	} else {
+	shards, sized := provisionedShards(w, q)
+	if !sized {
 		b.Assume("Shard quotas are not modelled, so one shard is assumed.")
 	}
 	shardHours := float64(shards) * hoursPerMonth

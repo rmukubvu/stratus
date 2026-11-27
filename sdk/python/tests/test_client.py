@@ -128,6 +128,23 @@ class ClientTest(unittest.TestCase):
             ],
         )
 
+    def test_advise_writes_terraform_and_records_its_test_deploy(self) -> None:
+        module = {"option": "kinesis", "files": [{"name": "main.tf", "content": ""}], "deployable": True}
+        c, t = client(
+            {"id": "adr-1", "module": module, "test_deploy": {"override": {"name": "stratus_override.tf", "content": ""}}},
+            {"id": "adr-1", "deployments": [{"option": "kinesis", "outcome": "passed"}]},
+        )
+        self.assertEqual(c.advise.terraform("adr-1", "kinesis")["test_deploy"]["override"]["name"], "stratus_override.tf")
+        d = c.advise.record_deployment("adr-1", "kinesis", "passed", resources=1)
+        self.assertEqual(d["deployments"][0]["outcome"], "passed")
+        self.assertEqual(
+            t.calls,
+            [
+                ("GET", "/advise/decisions/adr-1/terraform?option=kinesis", None),
+                ("POST", "/advise/decisions/adr-1/deployments", {"option": "kinesis", "outcome": "passed", "resources": 1}),
+            ],
+        )
+
     def test_advise_maps_a_decision_from_start_to_adr(self) -> None:
         d = {"id": "adr-1", "status": "draft"}
         ruled_out = StratusError("OptionRuledOut", "sqs-standard was ruled out", "choose one of: kinesis", 409)

@@ -21,6 +21,9 @@ const adviseUsage = `usage:
   stratus advise prove <decision> [--option o] [--scale f] [--duration d] [--dry-run --scripts dir]
                                                            run each candidate's producer path with k6 at the peak, under
                                                            the aws-default limits, and record the runs as evidence
+  stratus advise terraform <decision> [--option o] [--out dir] [--deploy]
+                                                           write Terraform for the chosen (or top-ranked) option; with
+                                                           --deploy, apply it to Stratus, re-plan, destroy and record it
   stratus advise adr <decision> [--out file]               the ADR as Markdown (stdout, or a file to commit)
   stratus advise show <decision>                           a decision, its pending questions and ranking
   stratus advise list                                      decisions, newest first
@@ -110,6 +113,12 @@ func runAdvise(ctx context.Context, c ControlClient, endpoint string, args []str
 			return nil, err
 		}
 		return nil, prove(ctx, c, endpoint, p, stdout, stderr)
+	case "terraform", "tf":
+		t, err := parseTerraform(rest, stderr)
+		if err != nil {
+			return nil, err
+		}
+		return nil, terraform(ctx, c, t, stdout, stderr)
 	case "ask":
 		family, title, answers, err := parseStart(rest, stderr)
 		if err != nil {

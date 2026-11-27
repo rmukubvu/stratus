@@ -252,6 +252,21 @@ func (c *Client) AdviseRecordEvidence(ctx context.Context, id string, in json.Ra
 	return c.Do(ctx, http.MethodPost, "/advise/decisions/"+url.PathEscape(id)+"/evidence", in)
 }
 
+// AdviseTerraform writes Terraform for one of a decision's options; an
+// empty option means the chosen or top-ranked one.
+func (c *Client) AdviseTerraform(ctx context.Context, id, option string) (json.RawMessage, error) {
+	path := "/advise/decisions/" + url.PathEscape(id) + "/terraform"
+	if option != "" {
+		path += "?option=" + url.QueryEscape(option)
+	}
+	return c.Do(ctx, http.MethodGet, path, nil)
+}
+
+// AdviseRecordDeployment records a test deploy of an option's Terraform.
+func (c *Client) AdviseRecordDeployment(ctx context.Context, id string, in json.RawMessage) (json.RawMessage, error) {
+	return c.Do(ctx, http.MethodPost, "/advise/decisions/"+url.PathEscape(id)+"/deployments", in)
+}
+
 // Diagnose explains recent failures. query may set since, service,
 // exclude_injected and max_groups.
 func (c *Client) Diagnose(ctx context.Context, query url.Values) (json.RawMessage, error) {

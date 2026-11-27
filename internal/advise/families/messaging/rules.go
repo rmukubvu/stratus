@@ -282,6 +282,18 @@ func kinesis(w workload, q quotaReader) []advise.Reason {
 	return rs
 }
 
+// provisionedShards is how many shards provisioned mode needs for the
+// peak, from the per-shard write quotas; one, and false, when those
+// quotas are not modelled.
+func provisionedShards(w workload, q quotaReader) (int, bool) {
+	records, ok1 := q.get("kinesis-shard-write-records")
+	bytes, ok2 := q.get("kinesis-shard-write-bytes")
+	if !ok1 || !ok2 {
+		return 1, false
+	}
+	return shardsFor(w, records.Value, bytes.Value), true
+}
+
 func shardsFor(w workload, recordsPerShard, bytesPerShard float64) int {
 	need := math.Max(w.peak/recordsPerShard, w.peak*w.sizeBytes/bytesPerShard)
 	return int(math.Max(1, math.Ceil(need)))

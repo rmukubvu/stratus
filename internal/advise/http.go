@@ -23,6 +23,8 @@ type Router interface {
 //	GET  /_stratus/control/v1/advise/decisions/{id}/adr     the ADR as Markdown (?format=json wraps it as {id, markdown})
 //	POST /_stratus/control/v1/advise/decisions/{id}/proofs  plan load proofs {options?, scale?, duration_seconds?}
 //	POST /_stratus/control/v1/advise/decisions/{id}/evidence record a proof's run {option, run_id, target_rate, scale?, account?}
+//	GET  /_stratus/control/v1/advise/decisions/{id}/terraform  Terraform for an option (?option=, default the chosen or top-ranked one)
+//	POST /_stratus/control/v1/advise/decisions/{id}/deployments record a test deploy {option, outcome, resources, tool?, detail?}
 func RegisterRoutes(r Router, s *Service) {
 	base := control.PathPrefix + "/advise"
 	r.HandleFunc("GET "+base+"/families", func(w http.ResponseWriter, _ *http.Request) {
@@ -88,6 +90,38 @@ func RegisterRoutes(r Router, s *Service) {
 			return
 		}
 		respond(w, http.StatusOK)(s.RecordEvidence(req.PathValue("id"), in))
+	})
+	r.HandleFunc("GET "+base+"/decisions/{id}/terraform", func(w http.ResponseWriter, req *http.Request) {
+		m, err := s.Terraform(req.PathValue("id"), req.URL.Query().Get("option"))
+		if err != nil {
+			control.WriteError(w, err)
+			return
+		}
+		out := map[string]any{"id": req.PathValue("id"), "module": m}
+		if m.Deployable {
+			// The override points the module at the Stratus that served
+			// this request, in the module's throwaway account.
+			out["test_deploy"] = map[string]any{
+				"override": TestDeployOverride(m, "http://"+req.Host),
+				"steps": []string{
+					"write the module's files and the override into an empty directory",
+					"terraform init -input=false",
+					"terraform apply -input=false -auto-approve",
+					"terraform plan -input=false -detailed-exitcode (exit 0: no drift)",
+					"terraform destroy -input=false -auto-approve",
+					"record the outcome: POST .../deployments {option, outcome, resources}",
+				},
+			}
+		}
+		control.WriteJSON(w, http.StatusOK, out)
+	})
+	r.HandleFunc("POST "+base+"/decisions/{id}/deployments", func(w http.ResponseWriter, req *http.Request) {
+		var in DeploymentInput
+		if err := control.DecodeOptionalJSON(req, &in); err != nil {
+			control.WriteError(w, err)
+			return
+		}
+		respond(w, http.StatusOK)(s.RecordDeployment(req.PathValue("id"), in))
 	})
 	r.HandleFunc("GET "+base+"/decisions/{id}/adr", func(w http.ResponseWriter, req *http.Request) {
 		md, err := s.ADR(req.PathValue("id"))

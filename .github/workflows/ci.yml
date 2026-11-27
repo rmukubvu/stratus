@@ -338,6 +338,36 @@ jobs:
           echo "## Cold boot benchmark" >> "$GITHUB_STEP_SUMMARY"
           go run ./cmd/stratus-bench boot -binary "$STRATUS_BIN" -runs 10 -engine -json boot.json | tee -a "$GITHUB_STEP_SUMMARY"
 
+  # Generated Terraform must apply to Stratus, re-plan with no changes and
+  # destroy, for every messaging option Stratus can test-deploy.
+  advise-terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Build stratus
+        run: go build -o "$RUNNER_TEMP/stratus" ./cmd/stratus
+
+      - name: Test-deploy each option's Terraform
+        env:
+          STRATUS_BIN: ${{ runner.temp }}/stratus
+        run: |
+          "$STRATUS_BIN" serve --data-dir "$RUNNER_TEMP/data" > "$RUNNER_TEMP/stratus.log" 2>&1 &
+          for _ in $(seq 1 50); do curl -fs http://localhost:4566/_stratus/control/v1/health >/dev/null && break; sleep 0.2; done
+          scripts/smoke-advise-terraform.sh
+
   release-gate:
     runs-on: ubuntu-latest
     needs: test

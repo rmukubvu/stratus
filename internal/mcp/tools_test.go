@@ -197,6 +197,8 @@ func TestToolsMapToControlCalls(t *testing.T) {
 		{"stratus_advise_get", `{}`, "advise-list"},
 		{"stratus_advise_plan_proofs", `{"id":"adr-1","scale":0.1}`, `advise-proofs adr-1 {"duration_seconds":0,"options":null,"scale":0.1}`},
 		{"stratus_advise_record_evidence", `{"id":"adr-1","option":"kinesis","run_id":"run-3","target_rate":200}`, `advise-evidence adr-1 {"option":"kinesis","run_id":"run-3","target_rate":200}`},
+		{"stratus_advise_terraform", `{"id":"adr-1","option":"kinesis"}`, "advise-terraform adr-1 kinesis"},
+		{"stratus_advise_record_deployment", `{"id":"adr-1","option":"kinesis","outcome":"passed","resources":2}`, `advise-deployment adr-1 {"option":"kinesis","outcome":"passed","resources":2}`},
 		{"stratus_bedrock_invocations", `{"model":"anthropic.*","contains":"refund","outcome":"missed","limit":3}`, "bedrock-invocations contains=refund&limit=3&model=anthropic.%2A&outcome=missed"},
 	}
 	for _, tc := range cases {
@@ -335,4 +337,10 @@ func TestCheckScansTheGivenDirectory(t *testing.T) {
 	if res.IsError || !strings.Contains(res.Content[0].Text, "AddPermission") {
 		t.Fatalf("%+v", res)
 	}
+}
+func (f *fakeAPI) AdviseTerraform(_ context.Context, id, option string) (json.RawMessage, error) {
+	return f.rec("advise-terraform " + id + " " + option)
+}
+func (f *fakeAPI) AdviseRecordDeployment(_ context.Context, id string, in json.RawMessage) (json.RawMessage, error) {
+	return f.rec("advise-deployment " + id + " " + string(in))
 }

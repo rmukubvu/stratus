@@ -101,3 +101,11 @@ func TestEqualIgnoresOrder(t *testing.T) {
 		t.Fatal("different values should not be equal")
 	}
 }
+
+func TestFromMapSortsByKey(t *testing.T) {
+	got := FromMap(map[string]string{"team": "a", "env": "dev"})
+	want := List{{Key: "env", Value: "dev"}, {Key: "team", Value: "a"}}
+	if !got.Equal(want) || got[0].Key != "env" {
+		t.Fatalf("FromMap = %v, want %v", got, want)
+	}
+}

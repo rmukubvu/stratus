@@ -17,6 +17,7 @@ import (
 	"github.com/stratus/internal/scope"
 	lambdasvc "github.com/stratus/internal/services/lambda"
 	"github.com/stratus/internal/store"
+	"github.com/stratus/internal/tags"
 )
 
 const (
@@ -45,6 +46,13 @@ type streamRecord struct {
 	NextSequence int64     `json:"next_sequence"`
 	ShardCount   int       `json:"shard_count"`
 	Status       string    `json:"status"`
+	// RetentionHours is zero for streams stored before retention was
+	// tracked; retentionHours reads that as AWS's default of 24.
+	RetentionHours int `json:"retention_hours,omitempty"`
+	// KeyID is the KMS key of a stream encrypted with
+	// StartStreamEncryption; Stratus records it but stores data as is.
+	KeyID string    `json:"key_id,omitempty"`
+	Tags  tags.List `json:"tags,omitempty"`
 }
 
 type record struct {
@@ -95,6 +103,20 @@ func (s *Service) Handle(w http.ResponseWriter, r *http.Request, operation strin
 		return s.getRecords(w, r)
 	case "DeleteStream":
 		return s.deleteStream(w, r)
+	case "IncreaseStreamRetentionPeriod":
+		return s.changeRetention(w, r, true)
+	case "DecreaseStreamRetentionPeriod":
+		return s.changeRetention(w, r, false)
+	case "AddTagsToStream":
+		return s.addTagsToStream(w, r)
+	case "RemoveTagsFromStream":
+		return s.removeTagsFromStream(w, r)
+	case "ListTagsForStream":
+		return s.listTagsForStream(w, r)
+	case "StartStreamEncryption":
+		return s.setEncryption(w, r, true)
+	case "StopStreamEncryption":
+		return s.setEncryption(w, r, false)
 	default:
 		return &apierror.Error{StatusCode: http.StatusNotImplemented, Code: "NotImplementedException", Message: "kinesis operation is not implemented"}
 	}
@@ -106,7 +128,8 @@ func (s *Service) createStream(w http.ResponseWriter, r *http.Request) error {
 		StreamModeDetails struct {
 			StreamMode string `json:"StreamMode"`
 		} `json:"StreamModeDetails"`
-		StreamName string `json:"StreamName"`
+		StreamName string            `json:"StreamName"`
+		Tags       map[string]string `json:"Tags"`
 	}
 	if err := decodeJSON(r, &input); err != nil {
 		return err
@@ -116,6 +139,10 @@ func (s *Service) createStream(w http.ResponseWriter, r *http.Request) error {
 	}
 	if _, err := s.loadStream(input.StreamName); err == nil {
 		return &apierror.Error{StatusCode: http.StatusBadRequest, Code: "ResourceInUseException", Message: "Stream already exists"}
+	}
+	streamTags := tags.FromMap(input.Tags)
+	if err := validateTags(streamTags); err != nil {
+		return err
 	}
 	mode := input.StreamModeDetails.StreamMode
 	if mode == "" {
@@ -138,6 +165,7 @@ func (s *Service) createStream(w http.ResponseWriter, r *http.Request) error {
 		NextSequence: 1,
 		ShardCount:   shardCount,
 		Status:       "ACTIVE",
+		Tags:         streamTags,
 	}
 	if err := s.putStream(record); err != nil {
 		return internal(err)
@@ -209,9 +237,10 @@ func (s *Service) describeStreamSummary(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"StreamDescriptionSummary": map[string]any{
-			"EncryptionType":       "NONE",
+			"EncryptionType":       stream.encryptionType(),
+			"KeyId":                stream.KeyID,
 			"OpenShardCount":       stream.ShardCount,
-			"RetentionPeriodHours": 24,
+			"RetentionPeriodHours": stream.retentionHours(),
 			"StreamARN":            s.streamARN(stream.Name),
 			"StreamModeDetails":    map[string]any{"StreamMode": stream.Mode},
 			"StreamName":           stream.Name,
@@ -437,11 +466,15 @@ func (s *Service) describeStream(w http.ResponseWriter, r *http.Request) error {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"StreamDescription": map[string]any{
-			"HasMoreShards": false,
-			"Shards":        shards,
-			"StreamARN":     s.streamARN(stream.Name),
-			"StreamName":    stream.Name,
-			"StreamStatus":  stream.Status,
+			"EncryptionType":       stream.encryptionType(),
+			"HasMoreShards":        false,
+			"KeyId":                stream.KeyID,
+			"RetentionPeriodHours": stream.retentionHours(),
+			"Shards":               shards,
+			"StreamARN":            s.streamARN(stream.Name),
+			"StreamModeDetails":    map[string]any{"StreamMode": stream.Mode},
+			"StreamName":           stream.Name,
+			"StreamStatus":         stream.Status,
 		},
 	})
 	return nil
