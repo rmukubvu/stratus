@@ -103,6 +103,7 @@ func TestThrottleErrorMatchesEachService(t *testing.T) {
 		{"sns", KindRate, http.StatusBadRequest, "Throttling"},
 		{"ssm", KindRate, http.StatusBadRequest, "ThrottlingException"},
 		{"kms", KindRate, http.StatusBadRequest, "ThrottlingException"},
+		{"events", KindRate, http.StatusBadRequest, "ThrottlingException"},
 	}
 	for _, tc := range cases {
 		e := ThrottleError(Breach{Service: tc.service, Kind: tc.kind, RuleID: "rule-x"})

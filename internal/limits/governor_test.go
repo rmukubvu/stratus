@@ -281,6 +281,7 @@ func TestAWSDefaultMatchesDocumentedQuotas(t *testing.T) {
 		"s3-reads-per-prefix": 5500, "s3-writes-per-prefix": 3500, "ssm-get-parameters": 40,
 		"kms-cryptographic-operations": 10000, "secretsmanager-get-secret-value": 10000,
 		"secretsmanager-describe-secret": 40000, "secretsmanager-batch-get-secret-value": 100,
+		"sns-publish-rate": 300, "eventbridge-putevents-rate": 400,
 	}
 	got := map[string]RateRule{}
 	for _, r := range p.Rates {
@@ -303,4 +304,84 @@ func TestAWSDefaultMatchesDocumentedQuotas(t *testing.T) {
 			t.Errorf("kms symmetric rule covers %s, which has its own quota", op)
 		}
 	}
+}
+
+func TestMessagingRatesAreTheDocumentedQuotasTheAdvisorCites(t *testing.T) {
+	p, err := Resolve(Spec{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"sns-publish-rate", "eventbridge-putevents-rate"} {
+		q, _ := DocumentedQuota(id)
+		var rule *RateRule
+		for i := range p.Rates {
+			if p.Rates[i].ID == id {
+				rule = &p.Rates[i]
+			}
+		}
+		if rule == nil {
+			t.Fatalf("aws-default has no %s rule", id)
+		}
+		if rule.Service != q.Service || rule.PerSecond != q.Value || rule.Per != ScopeAccount {
+			t.Errorf("%s: rule %+v does not match quota %+v", id, *rule, q)
+		}
+		for region, v := range q.RegionValues {
+			if rule.RegionPerSecond[region] != v {
+				t.Errorf("%s in %s: %v per second, want %v", id, region, rule.RegionPerSecond[region], v)
+			}
+		}
+	}
+}
+
+func TestSNSPublishIsThrottledAtTheRegionsDocumentedRate(t *testing.T) {
+	g := NewGovernor(nil, newFakeClock())
+	if _, err := g.Apply(onlyRule(documentedRate("sns-publish-rate", "Publish", "PublishBatch"))); err != nil {
+		t.Fatal(err)
+	}
+	req := Request{Account: "111111111111", Region: "af-south-1", Service: "sns", Operation: "Publish"}
+	if admitted, _ := admitN(g, req, 1000); admitted != 300 {
+		t.Fatalf("af-south-1 admitted %d publishes in one second, want 300", admitted)
+	}
+	req.Operation = "PublishBatch"
+	if b := g.Admit(req); b == nil || b.RuleID != "sns-publish-rate" {
+		t.Fatalf("PublishBatch shares the bucket; got breach %+v", b)
+	}
+	req.Operation = "ListTopics"
+	if b := g.Admit(req); b != nil {
+		t.Fatalf("ListTopics is not a publish: %+v", b)
+	}
+	req.Region, req.Operation = "eu-west-1", "Publish"
+	if admitted, _ := admitN(g, req, 10000); admitted != 9000 {
+		t.Fatalf("eu-west-1 admitted %d, want 9,000", admitted)
+	}
+}
+
+func TestEventBridgePutEventsIsThrottledPerAccount(t *testing.T) {
+	clock := newFakeClock()
+	g := NewGovernor(nil, clock)
+	if _, err := g.Apply(onlyRule(documentedRate("eventbridge-putevents-rate", "PutEvents"))); err != nil {
+		t.Fatal(err)
+	}
+	req := Request{Account: "111111111111", Region: "sa-east-1", Service: "events", Operation: "PutEvents"}
+	if admitted, _ := admitN(g, req, 1000); admitted != 600 {
+		t.Fatalf("sa-east-1 admitted %d, want 600", admitted)
+	}
+	other := req
+	other.Account = "222222222222"
+	if b := g.Admit(other); b != nil {
+		t.Fatalf("another account has its own quota: %+v", b)
+	}
+	clock.Advance(time.Second)
+	if admitted, _ := admitN(g, req, 1000); admitted != 600 {
+		t.Fatalf("after a second admitted %d, want the refill of 600", admitted)
+	}
+}
+
+func TestDocumentedRateRefusesAQuotaThatIsNotAnAccountRate(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("documentedRate accepted a byte-size quota")
+		}
+	}()
+	documentedRate("sqs-message-size")
 }

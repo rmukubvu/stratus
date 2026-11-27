@@ -85,6 +85,17 @@ November 2026):
 | `secretsmanager-get-secret-value` | secretsmanager | GetSecretValue | 10,000/s | account |
 | `secretsmanager-describe-secret` | secretsmanager | DescribeSecret | 40,000/s | account |
 | `secretsmanager-batch-get-secret-value` | secretsmanager | BatchGetSecretValue | 100/s | account |
+| `sns-publish-rate` | sns | Publish, PublishBatch | 300/s; 1,500/s in us-east-2, us-west-1, ap-south-1, ap-northeast-1, ap-northeast-2, ap-southeast-1, ap-southeast-2 and eu-central-1; 9,000/s in us-west-2 and eu-west-1; 30,000/s in us-east-1 | account |
+| `eventbridge-putevents-rate` | events | PutEvents | 400/s; 600/s in ap-east-1, ap-northeast-2, ap-south-1, ca-central-1, eu-north-1, eu-west-3 and sa-east-1; 1,200/s in us-west-1, ap-northeast-1, ap-southeast-1, ap-southeast-2 and eu-west-2; 2,400/s in us-east-2, eu-central-1 and eu-south-2; 10,000/s in us-east-1, us-west-2 and eu-west-1 | account |
+
+The SNS and EventBridge rules are built from the same documented quotas
+(`limits.Documented()`) that [`stratus advise`](advise.md) cites, so the
+number an ADR quotes is the number a load run hits. SNS counts published
+messages; Stratus counts each request as one, so a full `PublishBatch` of
+ten uses a tenth of what it would in AWS. SQS FIFO throughput (300/s per
+API action, 3,000/s batched) and Kinesis per-shard writes are not enforced
+yet: Stratus does not implement FIFO queues, and its Kinesis streams have a
+single shard.
 
 DynamoDB partitions serve 3,000 read and 1,000 write units a second, tables
 bank 300 seconds of unused capacity and on-demand tables are capped at
