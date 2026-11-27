@@ -471,6 +471,23 @@ do against AWS. See [docs/chaos.md](docs/chaos.md).
 Already have AWS Fault Injection Service templates? Point the FIS SDK or
 `aws fis` at Stratus and run them unchanged; see [docs/fis.md](docs/fis.md).
 
+## Architecture decisions
+
+Not sure whether a workload wants SQS, SQS FIFO, SNS fan-out, EventBridge,
+Kinesis or MSK? `stratus advise` asks about ordering, rates, sizes,
+consumers, replay and how much the team can run, rules out what cannot
+work, checks the rest against AWS's documented quotas for the region and
+writes an ADR with the reasons and their sources:
+
+```sh
+stratus advise ask messaging --title "Order events"
+stratus advise decide <decision> kinesis --why "consumers replay orders"
+stratus advise adr <decision> --out docs/adr/0001-order-events.md
+```
+
+Agents get the same flow over MCP. See [docs/advise.md](docs/advise.md) and
+[an example ADR](examples/advise-messaging/0001-order-events.md).
+
 ## AWS Limits
 
 Load-test against AWS's quotas instead of an emulator with none. A limits

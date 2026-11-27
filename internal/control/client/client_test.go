@@ -98,6 +98,14 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 	_, _ = c.BedrockInvocations(ctx, url.Values{"outcome": {"missed"}})
 	_, _ = c.KafkaClusters(ctx)
 	_, _ = c.DNSResolve(ctx, "api.corp.local", "SRV")
+	_, _ = c.AdviseFamilies(ctx)
+	_, _ = c.AdviseStart(ctx, json.RawMessage(`{"family":"messaging"}`))
+	_, _ = c.AdviseList(ctx)
+	_, _ = c.AdviseGet(ctx, "adr-1")
+	_, _ = c.AdviseAnswer(ctx, "adr-1", map[string]any{"replay": true})
+	_, _ = c.AdviseAssess(ctx, "adr-1")
+	_, _ = c.AdviseDecide(ctx, "adr-1", "kinesis", "")
+	_, _ = c.AdviseADR(ctx, "adr-1")
 
 	want := []string{
 		"POST /_stratus/control/v1/reset",
@@ -124,6 +132,14 @@ func TestRequestsHitExpectedRoutes(t *testing.T) {
 		"GET /_stratus/control/v1/bedrock/invocations",
 		"GET /_stratus/control/v1/kafka/clusters",
 		"GET /_stratus/control/v1/dns/resolve",
+		"GET /_stratus/control/v1/advise/families",
+		"POST /_stratus/control/v1/advise/decisions",
+		"GET /_stratus/control/v1/advise/decisions",
+		"GET /_stratus/control/v1/advise/decisions/adr-1",
+		"POST /_stratus/control/v1/advise/decisions/adr-1/answers",
+		"POST /_stratus/control/v1/advise/decisions/adr-1/assess",
+		"POST /_stratus/control/v1/advise/decisions/adr-1/decide",
+		"GET /_stratus/control/v1/advise/decisions/adr-1/adr",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %v", got)

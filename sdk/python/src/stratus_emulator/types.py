@@ -563,3 +563,66 @@ class _LoadRunInfoBase(TypedDict):
 class LoadRunInfo(_LoadRunInfoBase, total=False):
     name: str
     ended_at: str
+
+
+AdviseVerdict = Literal["fits", "fits_with_caveats", "ruled_out"]
+AdviseStatus = Literal["draft", "assessed", "decided"]
+#: Answers keyed by question ID, e.g. {"ordering": "per_key", "peak_rate": 2000, "replay": True}.
+AdviseAnswers = Dict[str, Any]
+
+
+class AdviseReason(TypedDict, total=False):
+    kind: Literal["ruled_out", "caveat", "strength", "unchecked"]
+    text: str
+    citation: Dict[str, str]
+
+
+class AdviseAssessment(TypedDict):
+    option: str
+    verdict: AdviseVerdict
+    score: int
+    reasons: List[AdviseReason]
+
+
+class AdviseQuestion(TypedDict, total=False):
+    id: str
+    prompt: str
+    why: str
+    kind: Literal["choice", "quantity", "bool", "text"]
+    choices: List[Dict[str, str]]
+    unit: str
+    min: float
+    max: float
+    default: Any
+
+
+class AdviseFamily(TypedDict):
+    id: str
+    title: str
+    summary: str
+    options: List[Dict[str, Any]]
+    questions: List[AdviseQuestion]
+
+
+class _AdviseDecisionBase(TypedDict):
+    id: str
+    title: str
+    family: str
+    family_title: str
+    status: AdviseStatus
+    answers: AdviseAnswers
+    pending_questions: List[AdviseQuestion]
+    next: str
+    created_at: str
+    updated_at: str
+
+
+class AdviseDecision(_AdviseDecisionBase, total=False):
+    """An architecture decision with its ranking and what to do next."""
+
+    assessments: List[AdviseAssessment]
+    chosen: str
+    rationale: str
+    recommended: str
+    assessed_at: str
+    decided_at: str

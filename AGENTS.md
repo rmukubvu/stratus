@@ -20,6 +20,7 @@ internal/container/     Docker: Lambda runtimes and real engines (RDS, ElastiCac
 internal/awsmodel/      catalogue of AWS operations and constraints (generated) and coverage
 internal/validation/    AWS-style request validation from the catalogue;  internal/check/  `stratus check`
 internal/mcp/           MCP server for agents;    internal/diagnose/ failure explanations
+internal/advise/        guided architecture decisions (stratus advise); families/<f>/ holds each family's rules
 sdk/typescript, sdk/python   control-API SDKs, published as stratus-emulator
 docs/                   one page per feature
 test/contract/          end-to-end tests against a built binary (needs Docker for some)

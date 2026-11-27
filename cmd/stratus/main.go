@@ -169,6 +169,8 @@ Control a running Stratus (for CI and agents; output is JSON):
   stratus load start|status|stop|list   Drive load runs yourself (flags: --name, --limits, --chaos)
   stratus load report [run-id]          Findings (hot partitions, missing retries or queues) as Markdown
   stratus diagnose [--since 5m]         Explain recent failures (cause, next step)
+  stratus advise ask messaging          Pick AWS services for a workload: questions, ranked options, an ADR
+  stratus advise start|answer|assess|decide|adr|show|list   The same, step by step (see stratus advise)
   stratus clock [status]                Show the emulator clock every service reads time from
   stratus clock advance <30m|RFC3339>   Move it forward instead of sleeping; fires due schedules
   stratus clock freeze|resume           Hold the clock still, or let it run again
@@ -194,7 +196,7 @@ Key endpoints:
   /_stratus/                    Built-in operator portal
   /_stratus/health              Health check
   /_stratus/operator/bootstrap  Service inventory and quick-start data
-  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, clock, chaos, limits, sigv4, runs, diagnostics
+  /_stratus/control/v1/         Control API: health, ready, reset, snapshots, clock, chaos, limits, sigv4, runs, advise, diagnostics
 `)
 }
 

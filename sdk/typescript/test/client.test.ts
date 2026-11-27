@@ -379,3 +379,47 @@ describe("dns", () => {
     assert.deepEqual(calls.map((x) => `${x.method} ${x.url.slice(base.length)}`), ["GET /dns/resolve?name=api.corp.local&type=A", "GET /dns/resolve?name=x.corp.local&type=SRV"]);
   });
 });
+
+describe("advise", () => {
+  test("a decision goes from start to an ADR through the control API", async () => {
+    const decision = { id: "adr-1", title: "Order events", family: "messaging", status: "draft", answers: {}, pending_questions: [], next: "" };
+    const { fetch, calls } = fakeFetch(
+      { body: { families: [{ id: "messaging" }] } },
+      { status: 201, body: decision },
+      { body: decision },
+      { body: { ...decision, status: "assessed", recommended: "kinesis" } },
+      { body: { ...decision, status: "decided", chosen: "kinesis" } },
+      { body: { id: "adr-1", markdown: "# Order events\n" } },
+      { body: { decisions: [decision] } },
+      { status: 409, body: { error: { code: "OptionRuledOut", message: "sqs-standard was ruled out", hint: "choose one of: kinesis" } } },
+    );
+    const c = new StratusClient({ endpoint: "http://stratus.test:4566", fetch });
+
+    assert.equal((await c.advise.families())[0]?.id, "messaging");
+    await c.advise.start({ family: "messaging", title: "Order events", answers: { replay: true } });
+    await c.advise.answer("adr-1", { peak_rate: 2000 });
+    assert.equal((await c.advise.assess("adr-1")).recommended, "kinesis");
+    assert.equal((await c.advise.decide("adr-1", "kinesis", "we replay")).chosen, "kinesis");
+    assert.equal(await c.advise.adr("adr-1"), "# Order events\n");
+    assert.equal((await c.advise.list()).length, 1);
+    await assert.rejects(c.advise.decide("adr-1", "sqs-standard"), (err: unknown) => err instanceof StratusError && err.code === "OptionRuledOut" && err.hint === "choose one of: kinesis");
+
+    assert.deepEqual(
+      calls.map((x) => `${x.method} ${x.url.slice(base.length)}`),
+      [
+        "GET /advise/families",
+        "POST /advise/decisions",
+        "POST /advise/decisions/adr-1/answers",
+        "POST /advise/decisions/adr-1/assess",
+        "POST /advise/decisions/adr-1/decide",
+        "GET /advise/decisions/adr-1/adr?format=json",
+        "GET /advise/decisions",
+        "POST /advise/decisions/adr-1/decide",
+      ],
+    );
+    assert.deepEqual(calls[1]?.body, { family: "messaging", title: "Order events", answers: { replay: true } });
+    assert.deepEqual(calls[2]?.body, { answers: { peak_rate: 2000 } });
+    assert.deepEqual(calls[4]?.body, { option: "kinesis", rationale: "we replay" });
+    assert.deepEqual(calls[7]?.body, { option: "sqs-standard" });
+  });
+});

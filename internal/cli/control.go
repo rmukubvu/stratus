@@ -43,6 +43,14 @@ type ControlClient interface {
 	ClockAdvance(ctx context.Context, by, to string) (json.RawMessage, error)
 	ClockFreeze(ctx context.Context) (json.RawMessage, error)
 	ClockResume(ctx context.Context) (json.RawMessage, error)
+	AdviseFamilies(ctx context.Context) (json.RawMessage, error)
+	AdviseStart(ctx context.Context, in json.RawMessage) (json.RawMessage, error)
+	AdviseList(ctx context.Context) (json.RawMessage, error)
+	AdviseGet(ctx context.Context, id string) (json.RawMessage, error)
+	AdviseAnswer(ctx context.Context, id string, answers map[string]any) (json.RawMessage, error)
+	AdviseAssess(ctx context.Context, id string) (json.RawMessage, error)
+	AdviseDecide(ctx context.Context, id, option, rationale string) (json.RawMessage, error)
+	AdviseADR(ctx context.Context, id string) (string, error)
 }
 
 // ClientFactory builds a client for an endpoint; tests substitute a fake.
@@ -124,6 +132,11 @@ func RunControl(ctx context.Context, mode Mode, args []string, newClient ClientF
 		}
 	case ModeClock:
 		out, err = runClock(ctx, c, rest, stderr)
+		if errors.Is(err, errUsage) {
+			return 2
+		}
+	case ModeAdvise:
+		out, err = runAdvise(ctx, c, rest, stdout, stderr)
 		if errors.Is(err, errUsage) {
 			return 2
 		}
